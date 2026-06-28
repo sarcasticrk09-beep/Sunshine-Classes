@@ -1,0 +1,1171 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState } from 'react';
+import {
+  Calendar,
+  BookOpen,
+  Plus,
+  Check,
+  CheckCircle,
+  FileText,
+  Users,
+  Award,
+  AlertCircle,
+  Star,
+  CornerDownRight,
+  TrendingUp,
+  Clock,
+  Trash2,
+  Settings
+} from 'lucide-react';
+import { Teacher, Student, Attendance, Homework, HomeworkSubmission, Test, StudentMark, TimetableEntry } from '../types';
+
+interface TeacherDashboardProps {
+  teacher: Teacher;
+  students: Student[];
+  attendanceList: Attendance[];
+  homeworkList: Homework[];
+  submissions: HomeworkSubmission[];
+  tests: Test[];
+  studentMarks: StudentMark[];
+  onAddAttendance: (attendance: Omit<Attendance, 'id'>[]) => void;
+  onAddHomework: (homework: Omit<Homework, 'id' | 'teacherId' | 'teacherName'>) => void;
+  onAddTest: (test: Omit<Test, 'id'>) => void;
+  onAddMarks: (marks: Omit<StudentMark, 'id'>[]) => void;
+  onReviewSubmission: (submissionId: string, remarks: string, score: string) => void;
+  timetableList: TimetableEntry[];
+  onUpdateTimetable: (timetable: TimetableEntry[]) => void;
+}
+
+export default function TeacherDashboard({
+  teacher,
+  students,
+  attendanceList,
+  homeworkList,
+  submissions,
+  tests,
+  studentMarks,
+  onAddAttendance,
+  onAddHomework,
+  onAddTest,
+  onAddMarks,
+  onReviewSubmission,
+  timetableList,
+  onUpdateTimetable
+}: TeacherDashboardProps) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'homework-assign' | 'homework-review' | 'test-marks' | 'schedule'>('overview');
+  
+  // Selection States
+  const [selectedClass, setSelectedClass] = useState<string>('Class 10');
+  const [attendanceDate, setAttendanceDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [attendanceRecords, setAttendanceRecords] = useState<{ [studentId: string]: 'PRESENT' | 'ABSENT' | 'LATE' | 'LEAVE' }>({});
+
+  // Homework Assign States
+  const [hwTitle, setHwTitle] = useState('');
+  const [hwDesc, setHwDesc] = useState('');
+  const [hwSubject, setHwSubject] = useState('Mathematics');
+  const [hwClass, setHwClass] = useState('Class 10');
+  const [hwDueDate, setHwDueDate] = useState('');
+
+  // Test Creation States
+  const [testTitle, setTestTitle] = useState('');
+  const [testClass, setTestClass] = useState('Class 10');
+  const [testSubject, setTestSubject] = useState('Mathematics');
+  const [testChapter, setTestChapter] = useState('');
+  const [testTotalMarks, setTestTotalMarks] = useState(30);
+  const [testDate, setTestDate] = useState('');
+
+  // Marks Entry States
+  const [selectedTestId, setSelectedTestId] = useState<string>('');
+  const [testMarksEntry, setTestMarksEntry] = useState<{ [studentId: string]: { marks: number, remarks: string } }>({});
+
+  // Review states
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
+  const [reviewRemarks, setReviewRemarks] = useState('');
+  const [reviewScore, setReviewScore] = useState('Excellent');
+
+  // Schedule Management States
+  const [isAddSlotOpen, setIsAddSlotOpen] = useState(false);
+  const [slotDay, setSlotDay] = useState<'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday'>('Monday');
+  const [slotClass, setSlotClass] = useState('Class 10');
+  const [slotSubject, setSlotSubject] = useState('Mathematics');
+  const [slotRoom, setSlotRoom] = useState('Room A');
+  const [slotStartTime, setSlotStartTime] = useState('10:00 AM');
+  const [slotEndTime, setSlotEndTime] = useState('11:30 AM');
+  const [slotIsHoliday, setSlotIsHoliday] = useState(false);
+  const [slotHolidayReason, setSlotHolidayReason] = useState('');
+
+  // Filter students based on selected class
+  const filteredStudents = students.filter((s) => s.class === selectedClass);
+
+  // Initialize attendance records when class is changed
+  const handleClassSelection = (cls: string) => {
+    setSelectedClass(cls);
+    const initialRecords: typeof attendanceRecords = {};
+    students.filter((s) => s.class === cls).forEach((s) => {
+      initialRecords[s.id] = 'PRESENT';
+    });
+    setAttendanceRecords(initialRecords);
+  };
+
+  const handleMarkAttendanceStatus = (studentId: string, status: 'PRESENT' | 'ABSENT' | 'LATE' | 'LEAVE') => {
+    setAttendanceRecords(prev => ({
+      ...prev,
+      [studentId]: status
+    }));
+  };
+
+  const handleSubmitAttendance = (e: React.FormEvent) => {
+    e.preventDefault();
+    const batchStudents = students.filter((s) => s.class === selectedClass);
+    
+    const logs = batchStudents.map((s) => ({
+      studentId: s.id,
+      studentName: s.name,
+      class: selectedClass,
+      date: attendanceDate,
+      status: attendanceRecords[s.id] || 'PRESENT',
+      markedBy: teacher.name
+    }));
+
+    onAddAttendance(logs);
+    alert(`Success! Marked digital attendance logs for ${batchStudents.length} students in ${selectedClass}.`);
+  };
+
+  const handleCreateHomework = (e: React.FormEvent) => {
+    e.preventDefault();
+    onAddHomework({
+      title: hwTitle,
+      description: hwDesc,
+      class: hwClass,
+      subject: hwSubject,
+      dueDate: hwDueDate,
+      date: new Date().toISOString().split('T')[0]
+    });
+
+    setHwTitle('');
+    setHwDesc('');
+    setHwDueDate('');
+    alert("New homework uploaded and sent to board students.");
+  };
+
+  const handleCreateTest = (e: React.FormEvent) => {
+    e.preventDefault();
+    onAddTest({
+      title: testTitle,
+      class: testClass,
+      subject: testSubject,
+      chapter: testChapter,
+      totalMarks: Number(testTotalMarks),
+      date: testDate
+    });
+
+    setTestTitle('');
+    setTestChapter('');
+    setTestDate('');
+    alert("Official test registered. Select 'Enter Test Marks' tab to grade students.");
+  };
+
+  const handleOpenMarksEntry = (testId: string) => {
+    setSelectedTestId(testId);
+    const testObj = tests.find((t) => t.id === testId);
+    if (!testObj) return;
+
+    const initialMarks: typeof testMarksEntry = {};
+    students.filter((s) => s.class === testObj.class).forEach((s) => {
+      // Find if existing marks
+      const existing = studentMarks.find((m) => m.testId === testId && m.studentId === s.id);
+      initialMarks[s.id] = {
+        marks: existing ? existing.marksObtained : 0,
+        remarks: existing ? existing.remarks || '' : ''
+      };
+    });
+    setTestMarksEntry(initialMarks);
+  };
+
+  const handleSubmitMarks = (e: React.FormEvent) => {
+    e.preventDefault();
+    const testObj = tests.find((t) => t.id === selectedTestId);
+    if (!testObj) return;
+
+    const marksRecords = students.filter((s) => s.class === testObj.class).map((s) => ({
+      testId: selectedTestId,
+      studentId: s.id,
+      studentName: s.name,
+      class: testObj.class,
+      marksObtained: Number(testMarksEntry[s.id]?.marks || 0),
+      remarks: testMarksEntry[s.id]?.remarks || ''
+    }));
+
+    onAddMarks(marksRecords);
+    setSelectedTestId('');
+    alert(`Syllabus grades saved. Automated student rankings updated for test: "${testObj.title}"`);
+  };
+
+  const handleReviewHomework = (subId: string) => {
+    setSelectedSubmissionId(subId);
+    const sub = submissions.find((s) => s.id === subId);
+    if (sub) {
+      setReviewRemarks(sub.remarks || '');
+      setReviewScore(sub.score || 'Excellent');
+    }
+  };
+
+  const handleSubmitReview = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSubmissionId) return;
+
+    onReviewSubmission(selectedSubmissionId, reviewRemarks, reviewScore);
+    setSelectedSubmissionId(null);
+    alert("Evaluation comments dispatched to student progress file.");
+  };
+
+  const handleCreateTimetableSlot = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newEntry: TimetableEntry = {
+      id: `tt-${Date.now()}`,
+      day: slotDay,
+      className: slotClass,
+      subject: slotSubject,
+      teacherName: teacher.name,
+      room: slotRoom,
+      startTime: slotStartTime,
+      endTime: slotEndTime,
+      isHoliday: slotIsHoliday,
+      holidayReason: slotHolidayReason
+    };
+    onUpdateTimetable([...timetableList, newEntry]);
+    setIsAddSlotOpen(false);
+    setSlotHolidayReason('');
+    alert("New lecture slot registered successfully on the smart database!");
+  };
+
+  const handleDeleteTimetableSlot = (id: string) => {
+    const filtered = timetableList.filter((t) => t.id !== id);
+    onUpdateTimetable(filtered);
+    alert("Timetable slot deleted.");
+  };
+
+  // Filter submissions assigned to this teacher's subject / classes
+  const classesTaught = ['Class 10', 'Class 9', 'Class 8'];
+  const relevantSubmissions = submissions.filter((sub) => classesTaught.includes(sub.class));
+
+  return (
+    <div id="teacher-portal" className="mx-auto max-w-7xl px-4 py-8">
+      {/* Teacher Profile Card */}
+      <div className="mb-8 flex flex-col justify-between gap-4 rounded-3xl bg-emerald-800 p-6 text-white md:flex-row md:items-center shadow-lg">
+        <div className="flex items-center gap-4">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-400 text-emerald-800 text-2xl font-black shadow">
+            {teacher.name.charAt(0)}
+          </div>
+          <div>
+            <h2 className="font-display text-2xl font-black">{teacher.name}</h2>
+            <p className="text-sm text-emerald-100">{teacher.qualification} • Senior Board Expert</p>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {teacher.specialty.map((s, idx) => (
+                <span key={idx} className="rounded bg-emerald-700/80 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
+                  {s}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="text-right">
+          <span className="text-[10px] font-bold text-emerald-200 uppercase tracking-widest block">Core Faculty ID</span>
+          <span className="font-mono text-sm font-bold text-amber-300">FACULTY-{teacher.id.toUpperCase()}</span>
+        </div>
+      </div>
+
+      {/* Main ERP Layout Grid */}
+      <div className="grid gap-6 lg:grid-cols-4">
+        {/* Navigation Sidebar */}
+        <div className="lg:col-span-1">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-1">
+            <span className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Faculty Controls</span>
+
+            <button
+              id="teacher-tab-overview"
+              onClick={() => setActiveTab('overview')}
+              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
+                activeTab === 'overview' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Award size={16} /> Teacher Dashboard
+            </button>
+
+            <button
+              id="teacher-tab-attendance"
+              onClick={() => {
+                setActiveTab('attendance');
+                handleClassSelection(selectedClass);
+              }}
+              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
+                activeTab === 'attendance' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Users size={16} /> Daily Attendance Register
+            </button>
+
+            <button
+              id="teacher-tab-hw-assign"
+              onClick={() => setActiveTab('homework-assign')}
+              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
+                activeTab === 'homework-assign' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <BookOpen size={16} /> Upload Homework
+            </button>
+
+            <button
+              id="teacher-tab-hw-review"
+              onClick={() => setActiveTab('homework-review')}
+              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
+                activeTab === 'homework-review' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <CheckCircle size={16} /> Review Homework ({relevantSubmissions.filter(s => s.status === 'SUBMITTED').length})
+            </button>
+
+            <button
+              id="teacher-tab-test-marks"
+              onClick={() => setActiveTab('test-marks')}
+              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
+                activeTab === 'test-marks' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <FileText size={16} /> Test Creation & Grading
+            </button>
+
+            <button
+              id="teacher-tab-schedule"
+              onClick={() => setActiveTab('schedule')}
+              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
+                activeTab === 'schedule' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Clock size={16} /> Lecture Timetable Planner
+            </button>
+          </div>
+        </div>
+
+        {/* Dynamic content screen */}
+        <div className="lg:col-span-3">
+          {/* TAB 1: OVERVIEW */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              {/* Stats row */}
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-emerald-50 to-white p-5 shadow-sm">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Syllabus Batches</span>
+                  <span className="font-display text-2xl font-black text-slate-800">{teacher.batches.length} Active</span>
+                  <span className="text-[10px] text-emerald-600 font-semibold block mt-1">Class 10 Specialists</span>
+                </div>
+
+                <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-indigo-50 to-white p-5 shadow-sm">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Homework Pending Review</span>
+                  <span className="font-display text-2xl font-black text-slate-800">
+                    {relevantSubmissions.filter((s) => s.status === 'SUBMITTED').length} submissions
+                  </span>
+                  <span className="text-[10px] text-indigo-600 font-semibold block mt-1">Review queue active</span>
+                </div>
+
+                <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-amber-50 to-white p-5 shadow-sm">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Registered Tests Taught</span>
+                  <span className="font-display text-2xl font-black text-slate-800">{tests.length} tests</span>
+                  <span className="text-[10px] text-slate-400 block mt-1">Chapter wise ranking</span>
+                </div>
+              </div>
+
+              {/* Taught Batches / Classes card */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="font-display font-bold text-sm text-slate-800 mb-4">Your Batch Schedules Today</h3>
+                <div className="space-y-3">
+                  {teacher.batches.map((bName, idx) => {
+                    const matchedBatch = bName.includes('Morning') ? '07:00 AM - 09:30 AM' : '04:00 PM - 06:30 PM';
+                    return (
+                      <div key={idx} className="rounded-xl border border-slate-100 p-4 flex justify-between items-center bg-slate-50/50">
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-800">{bName}</h4>
+                          <p className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                            <Calendar size={11} /> {matchedBatch}
+                          </p>
+                        </div>
+                        <span className="inline-flex rounded bg-emerald-50 text-emerald-800 px-2.5 py-1 text-[10px] font-bold">
+                          Daily Attendance OK
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Rapid Homework Submission summary */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="font-display font-bold text-sm text-slate-800 mb-4">Recent Submissions Waiting Feedback</h3>
+                <div className="space-y-3">
+                  {relevantSubmissions.filter(s => s.status === 'SUBMITTED').slice(0, 2).map((sub) => (
+                    <div key={sub.id} className="flex justify-between items-center border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 block">{sub.class} • {sub.studentName}</span>
+                        <h4 className="text-xs font-bold text-slate-800">Completed Exercise Solution</h4>
+                      </div>
+                      <button
+                        id={`btn-hw-review-quick-${sub.id}`}
+                        onClick={() => {
+                          setActiveTab('homework-review');
+                          handleReviewHomework(sub.id);
+                        }}
+                        className="rounded-lg bg-emerald-600 px-3 py-1 text-[10px] font-bold text-white shadow hover:bg-emerald-700"
+                      >
+                        Grade Submission
+                      </button>
+                    </div>
+                  ))}
+                  {relevantSubmissions.filter(s => s.status === 'SUBMITTED').length === 0 && (
+                    <p className="text-xs text-slate-500 text-center py-4">Great job! All student homework copies have been reviewed.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: ATTENDANCE */}
+          {activeTab === 'attendance' && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="font-display font-bold text-base text-slate-800 mb-1">Daily Student Attendance Portal</h3>
+              <p className="text-xs text-slate-500 mb-6">Select appropriate class cohort and enter daily session statistics.</p>
+
+              <form onSubmit={handleSubmitAttendance} className="space-y-6">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Select Academic Cohort</label>
+                    <select
+                      id="select-attendance-class"
+                      value={selectedClass}
+                      onChange={(e) => handleClassSelection(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                    >
+                      <option value="Class 10">Class 10 (Board Specialists)</option>
+                      <option value="Class 9">Class 9 (Foundation Group)</option>
+                      <option value="Class 8">Class 8 (Apex Batch)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Session Date</label>
+                    <input
+                      id="input-attendance-date"
+                      type="date"
+                      required
+                      value={attendanceDate}
+                      onChange={(e) => setAttendanceDate(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Students check-list */}
+                <div className="border border-slate-100 rounded-xl overflow-hidden">
+                  <div className="bg-slate-50 p-3 flex justify-between font-bold text-[10px] uppercase tracking-wider text-slate-400">
+                    <span>Student Profile</span>
+                    <span>Attendance Status</span>
+                  </div>
+
+                  <div className="divide-y divide-slate-100">
+                    {filteredStudents.length === 0 ? (
+                      <div className="p-6 text-center text-slate-400 text-xs">No students registered in {selectedClass} cohort.</div>
+                    ) : (
+                      filteredStudents.map((s) => {
+                        const statusValue = attendanceRecords[s.id] || 'PRESENT';
+                        return (
+                          <div key={s.id} className="p-3 flex justify-between items-center hover:bg-slate-50/30">
+                            <div>
+                              <span className="text-[10px] font-mono text-slate-400 block">{s.rollNo}</span>
+                              <span className="text-xs font-bold text-slate-800">{s.name}</span>
+                            </div>
+
+                            <div className="flex gap-1.5">
+                              {(['PRESENT', 'ABSENT', 'LATE', 'LEAVE'] as const).map((st) => (
+                                <button
+                                  key={st}
+                                  id={`btn-mark-${s.id}-${st.toLowerCase()}`}
+                                  type="button"
+                                  onClick={() => handleMarkAttendanceStatus(s.id, st)}
+                                  className={`rounded-lg px-2.5 py-1 text-[9px] font-bold border transition-colors ${
+                                    statusValue === st
+                                      ? st === 'PRESENT' ? 'bg-green-600 text-white border-green-600 shadow-sm' :
+                                        st === 'ABSENT' ? 'bg-red-600 text-white border-red-600 shadow-sm' :
+                                        st === 'LATE' ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-brand-blue text-white border-brand-blue shadow-sm'
+                                      : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {st}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    id="btn-attendance-submit"
+                    type="submit"
+                    disabled={filteredStudents.length === 0}
+                    className="rounded-xl bg-emerald-700 px-5 py-2.5 text-xs font-bold text-white shadow hover:bg-emerald-800 disabled:bg-slate-200 disabled:text-slate-400"
+                  >
+                    Register Roll Call Attendance
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* TAB 3: HOMEWORK ASSIGN */}
+          {activeTab === 'homework-assign' && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="font-display font-bold text-base text-slate-800 mb-1">Create Homework Tasks</h3>
+              <p className="text-xs text-slate-500 mb-6">Upload detailed conceptual questions based on NCERT syllabus sheets.</p>
+
+              <form onSubmit={handleCreateHomework} className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Homework Title</label>
+                    <input
+                      id="input-hw-title"
+                      type="text"
+                      required
+                      placeholder="e.g. Exercise 4.3 Quadratic Formula"
+                      value={hwTitle}
+                      onChange={(e) => setHwTitle(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Subject Specialty</label>
+                    <select
+                      id="select-hw-subject"
+                      value={hwSubject}
+                      onChange={(e) => setHwSubject(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                    >
+                      <option value="Mathematics">Mathematics</option>
+                      <option value="Science">Science (Phy/Chem/Bio)</option>
+                      <option value="English">English</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Assigned Cohort Class</label>
+                    <select
+                      id="select-hw-class"
+                      value={hwClass}
+                      onChange={(e) => setHwClass(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                    >
+                      <option value="Class 10">Class 10 (Board Specialists)</option>
+                      <option value="Class 9">Class 9 (Foundation Group)</option>
+                      <option value="Class 8">Class 8 (Apex Batch)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Submission Due Date</label>
+                    <input
+                      id="input-hw-due-date"
+                      type="date"
+                      required
+                      value={hwDueDate}
+                      onChange={(e) => setHwDueDate(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-700">Homework Conceptual Guidelines</label>
+                  <textarea
+                    id="ta-hw-desc"
+                    required
+                    rows={4}
+                    placeholder="Provide specific questions, NCERT page numbers, and instructions clearly..."
+                    value={hwDesc}
+                    onChange={(e) => setHwDesc(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                  ></textarea>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    id="btn-hw-assign-submit"
+                    type="submit"
+                    className="rounded-xl bg-emerald-750 bg-emerald-700 hover:bg-emerald-800 px-5 py-2.5 text-xs font-bold text-white shadow-md transition-colors"
+                  >
+                    Broadcast Homework Assignment
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* TAB 4: HOMEWORK REVIEW SUBMISSIONS */}
+          {activeTab === 'homework-review' && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="font-display font-bold text-base text-slate-800 mb-1">Homework Submissions Waiting Evaluation</h3>
+              <p className="text-xs text-slate-500 mb-6">Review student homework answers, give numerical/grading feedback, and add supportive guidelines remarks.</p>
+
+              <div className="space-y-4">
+                {relevantSubmissions.map((sub) => (
+                  <div key={sub.id} className="rounded-xl border border-slate-100 p-4 bg-slate-50/40">
+                    <div className="flex justify-between items-start gap-4 flex-col sm:flex-row">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-[10px] font-black uppercase text-brand-blue">{sub.class} Student</span>
+                          <span className={`inline-block px-2 py-0.5 rounded text-[8px] font-bold uppercase ${
+                            sub.status === 'REVIEWED' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-brand-orange animate-pulse'
+                          }`}>
+                            {sub.status}
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-800">Submitted by: {sub.studentName}</h4>
+                        <p className="text-[10px] text-slate-400">Date: {sub.submissionDate}</p>
+
+                        {sub.textAnswer && (
+                          <div className="mt-3 rounded-lg border border-slate-100 bg-white p-3 text-xs text-slate-600 font-sans whitespace-pre-wrap">
+                            <span className="text-[9px] font-bold text-slate-400 block uppercase mb-1">Student Answer Details:</span>
+                            {sub.textAnswer}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-shrink-0">
+                        {sub.status === 'SUBMITTED' ? (
+                          <button
+                            id={`btn-hw-review-${sub.id}`}
+                            onClick={() => handleReviewHomework(sub.id)}
+                            className="rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow"
+                          >
+                            Grade Copy
+                          </button>
+                        ) : (
+                          <div className="text-right text-xs">
+                            <span className="font-bold text-slate-700 block">Grade: {sub.score}</span>
+                            <span className="text-[10px] text-slate-400 italic block">"{sub.remarks}"</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {relevantSubmissions.length === 0 && (
+                  <p className="text-xs text-slate-500 text-center py-6">No assignments have been submitted yet.</p>
+                )}
+              </div>
+
+              {/* Review Input Section Modal */}
+              {selectedSubmissionId && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                  <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+                    <h3 className="font-display font-bold text-base text-slate-800 mb-1">Homework Copy Grading Form</h3>
+                    <p className="text-xs text-slate-500 mb-4">Provide constructive remarks and grading index.</p>
+
+                    <form onSubmit={handleSubmitReview} className="space-y-4">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Grading / Score Index</label>
+                        <select
+                          id="select-review-score"
+                          value={reviewScore}
+                          onChange={(e) => setReviewScore(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                        >
+                          <option value="Excellent">Excellent (Outstanding Steps)</option>
+                          <option value="Good">Good (Concepts Correct, minor mistakes)</option>
+                          <option value="Needs Improvement">Needs Improvement (Revise Chapter thoroughly)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Teacher Constructive Remarks</label>
+                        <textarea
+                          id="ta-review-remarks"
+                          required
+                          rows={3}
+                          value={reviewRemarks}
+                          onChange={(e) => setReviewRemarks(e.target.value)}
+                          placeholder="Provide descriptive tips. e.g. Revise ray Diagrams on page 142 of NCERT..."
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                        ></textarea>
+                      </div>
+
+                      <div className="flex justify-end gap-2">
+                        <button
+                          id="btn-review-cancel"
+                          type="button"
+                          onClick={() => setSelectedSubmissionId(null)}
+                          className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                        >
+                          Close
+                        </button>
+                        <button
+                          id="btn-review-submit"
+                          type="submit"
+                          className="rounded-xl bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow hover:bg-emerald-800"
+                        >
+                          Disptach Grade
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 5: TEST CREATION & MARKS ENTRY */}
+          {activeTab === 'test-marks' && (
+            <div className="space-y-6">
+              {/* Test Creation Form */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h3 className="font-display font-bold text-base text-slate-800 mb-1">Create New Academic Assessment</h3>
+                <p className="text-xs text-slate-500 mb-4">Define chapter goals and total test points parameters.</p>
+
+                <form onSubmit={handleCreateTest} className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="sm:col-span-1">
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Test Title</label>
+                      <input
+                        id="input-test-title"
+                        type="text"
+                        required
+                        placeholder="e.g. Science Chapter 4 Test"
+                        value={testTitle}
+                        onChange={(e) => setTestTitle(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Academic Cohort</label>
+                      <select
+                        id="select-test-class"
+                        value={testClass}
+                        onChange={(e) => setTestClass(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                      >
+                        <option value="Class 10">Class 10 (Board Specialists)</option>
+                        <option value="Class 9">Class 9 (Foundation Group)</option>
+                        <option value="Class 8">Class 8 (Apex Batch)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Subject Specialty</label>
+                      <select
+                        id="select-test-subject"
+                        value={testSubject}
+                        onChange={(e) => setTestSubject(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                      >
+                        <option value="Mathematics">Mathematics</option>
+                        <option value="Science">Science</option>
+                        <option value="English">English</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Chapter / Chapter Name</label>
+                      <input
+                        id="input-test-chapter"
+                        type="text"
+                        required
+                        placeholder="e.g. Triangles & Trigonometry"
+                        value={testChapter}
+                        onChange={(e) => setTestChapter(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Total Marks Value</label>
+                      <input
+                        id="input-test-marks"
+                        type="number"
+                        required
+                        value={testTotalMarks}
+                        onChange={(e) => setTestTotalMarks(Number(e.target.value))}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Test Conducted Date</label>
+                      <input
+                        id="input-test-date"
+                        type="date"
+                        required
+                        value={testDate}
+                        onChange={(e) => setTestDate(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <button
+                      id="btn-create-test"
+                      type="submit"
+                      className="rounded-xl bg-emerald-700 hover:bg-emerald-800 px-5 py-2.5 text-xs font-bold text-white shadow-md transition-colors"
+                    >
+                      Register New Test
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Test Grading List */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h3 className="font-display font-bold text-base text-slate-800 mb-4">Enter Student Grades & Marks</h3>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {tests.map((test) => (
+                    <div key={test.id} className="rounded-xl border border-slate-100 p-4 hover:border-slate-300 transition-all">
+                      <span className="text-[9px] font-black text-brand-blue block mb-1 uppercase">
+                        {test.class} • {test.subject}
+                      </span>
+                      <h4 className="text-xs font-bold text-slate-800">{test.title}</h4>
+                      <p className="text-[10px] text-slate-500 mt-1">Syllabus: {test.chapter}</p>
+                      <p className="text-[10px] text-slate-400">Total Points: {test.totalMarks} • Date: {test.date}</p>
+
+                      <button
+                        id={`btn-open-grading-${test.id}`}
+                        onClick={() => handleOpenMarksEntry(test.id)}
+                        className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-slate-50 hover:bg-emerald-700 hover:text-white border border-slate-100 px-3 py-2 text-xs font-bold text-slate-700 transition-colors"
+                      >
+                        <Plus size={14} /> Grade Student Scores
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Enter Marks Form Dialog */}
+              {selectedTestId && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                  <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl overflow-y-auto max-h-[85vh]">
+                    <h3 className="font-display font-bold text-base text-slate-800 mb-1">Enter Marks Directory</h3>
+                    <p className="text-xs text-slate-500 mb-4">
+                      Test: **{tests.find(t => t.id === selectedTestId)?.title}** (Total Marks: {tests.find(t => t.id === selectedTestId)?.totalMarks})
+                    </p>
+
+                    <form onSubmit={handleSubmitMarks} className="space-y-4">
+                      <div className="border border-slate-100 rounded-xl overflow-hidden divide-y divide-slate-100">
+                        {students.filter(s => s.class === tests.find(t => t.id === selectedTestId)?.class).map((student) => (
+                          <div key={student.id} className="p-3 grid grid-cols-3 gap-4 items-center">
+                            <div className="col-span-1">
+                              <span className="text-[10px] text-slate-400 block font-mono">{student.rollNo}</span>
+                              <span className="text-xs font-bold text-slate-800">{student.name}</span>
+                            </div>
+
+                            <div className="col-span-1">
+                              <label className="text-[9px] font-bold uppercase text-slate-400 block mb-0.5">Marks Scored</label>
+                              <input
+                                id={`input-marks-${student.id}`}
+                                type="number"
+                                max={tests.find(t => t.id === selectedTestId)?.totalMarks}
+                                min={0}
+                                required
+                                value={testMarksEntry[student.id]?.marks || 0}
+                                onChange={(e) => setTestMarksEntry(prev => ({
+                                  ...prev,
+                                  [student.id]: {
+                                    ...prev[student.id],
+                                    marks: Number(e.target.value)
+                                  }
+                                }))}
+                                className="w-full rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-slate-50"
+                              />
+                            </div>
+
+                            <div className="col-span-1">
+                              <label className="text-[9px] font-bold uppercase text-slate-400 block mb-0.5">Remarks Comments</label>
+                              <input
+                                id={`input-remarks-${student.id}`}
+                                type="text"
+                                placeholder="e.g. Excellent formula steps!"
+                                value={testMarksEntry[student.id]?.remarks || ''}
+                                onChange={(e) => setTestMarksEntry(prev => ({
+                                  ...prev,
+                                  [student.id]: {
+                                    ...prev[student.id],
+                                    remarks: e.target.value
+                                  }
+                                }))}
+                                className="w-full rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-slate-50"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button
+                          id="btn-grading-cancel"
+                          type="button"
+                          onClick={() => setSelectedTestId('')}
+                          className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          id="btn-grading-submit"
+                          type="submit"
+                          className="rounded-xl bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow hover:bg-emerald-800"
+                        >
+                          Publish Report Grades
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 6: SCHEDULE PLANNER */}
+          {activeTab === 'schedule' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                  <div>
+                    <h3 className="font-display font-bold text-lg text-slate-800">Smart Lecture Scheduler</h3>
+                    <p className="text-xs text-slate-500">Add, edit, or remove classroom allocations, lecture timings, and post holiday updates for students.</p>
+                  </div>
+                  <button
+                    id="btn-open-add-slot-modal"
+                    onClick={() => setIsAddSlotOpen(true)}
+                    className="rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-4 py-2.5 shadow flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus size={14} /> Add Lecture / Holiday Notice
+                  </button>
+                </div>
+
+                {/* Filters */}
+                <div className="border border-slate-100 rounded-xl overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        <th className="p-3">Day</th>
+                        <th className="p-3">Target Class</th>
+                        <th className="p-3">Subject</th>
+                        <th className="p-3">Faculty / Teacher</th>
+                        <th className="p-3">Time Window</th>
+                        <th className="p-3">Room / Status</th>
+                        <th className="p-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {timetableList.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-slate-400 font-medium">No schedule slots registered in Sunshine Classes database yet.</td>
+                        </tr>
+                      ) : (
+                        timetableList.map((entry) => (
+                          <tr key={entry.id} className="hover:bg-slate-50/30">
+                            <td className="p-3 font-bold text-slate-800">{entry.day}</td>
+                            <td className="p-3 font-semibold text-slate-600">{entry.className}</td>
+                            <td className="p-3">
+                              <span className="rounded bg-indigo-50 px-2 py-0.5 font-bold text-indigo-700 text-[10px]">
+                                {entry.subject}
+                              </span>
+                            </td>
+                            <td className="p-3 text-slate-600 font-medium">{entry.teacherName}</td>
+                            <td className="p-3 text-slate-500 font-mono text-[10px]">{entry.startTime} - {entry.endTime}</td>
+                            <td className="p-3">
+                              {entry.isHoliday ? (
+                                <span className="rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-[10px] font-bold text-rose-700">
+                                  Holiday: {entry.holidayReason || 'N/A'}
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold text-slate-700">
+                                  {entry.room}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 text-right">
+                              <button
+                                id={`btn-delete-slot-${entry.id}`}
+                                onClick={() => handleDeleteTimetableSlot(entry.id)}
+                                className="rounded p-1.5 text-rose-600 hover:bg-rose-50 hover:text-rose-800 transition-colors"
+                                title="Delete Slot"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Add Slot Dialog Modal */}
+              {isAddSlotOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                  <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+                    <h3 className="font-display font-bold text-base text-slate-800 mb-1">Create Lecture or Holiday Notice</h3>
+                    <p className="text-xs text-slate-500 mb-4">Draft slot timings, classroom allocations or schedule general holiday suspensions.</p>
+
+                    <form onSubmit={handleCreateTimetableSlot} className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-700">Select Day</label>
+                          <select
+                            id="select-slot-day"
+                            value={slotDay}
+                            onChange={(e: any) => setSlotDay(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                          >
+                            {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => (
+                              <option key={d} value={d}>{d}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-700">Select Target Class</label>
+                          <select
+                            id="select-slot-class"
+                            value={slotClass}
+                            onChange={(e) => setSlotClass(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                          >
+                            {['Class 10', 'Class 9', 'Class 8'].map(c => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-700">Subject Name</label>
+                          <select
+                            id="select-slot-subject"
+                            value={slotSubject}
+                            onChange={(e) => setSlotSubject(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                          >
+                            {['Mathematics', 'Science (Phy/Chem/Bio)', 'English Literature & Grammar', 'Social Studies', 'Physics', 'Chemistry', 'Biology'].map(s => (
+                              <option key={s} value={s}>{s}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-700">Room / Lecture Hall</label>
+                          <input
+                            id="input-slot-room"
+                            type="text"
+                            required
+                            placeholder="e.g. Room A, Lab 3"
+                            value={slotRoom}
+                            onChange={(e) => setSlotRoom(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-700">Start Time</label>
+                          <input
+                            id="input-slot-start"
+                            type="text"
+                            required
+                            placeholder="e.g. 10:00 AM"
+                            value={slotStartTime}
+                            onChange={(e) => setSlotStartTime(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-700">End Time</label>
+                          <input
+                            id="input-slot-end"
+                            type="text"
+                            required
+                            placeholder="e.g. 11:30 AM"
+                            value={slotEndTime}
+                            onChange={(e) => setSlotEndTime(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Holiday toggle */}
+                      <div className="space-y-2 pt-1">
+                        <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                          <input
+                            id="input-slot-holiday"
+                            type="checkbox"
+                            checked={slotIsHoliday}
+                            onChange={(e) => setSlotIsHoliday(e.target.checked)}
+                            className="rounded text-emerald-700 focus:ring-emerald-600 h-4 w-4"
+                          />
+                          Mark as Holiday Notice (Suspends Lectures)
+                        </label>
+
+                        {slotIsHoliday && (
+                          <div>
+                            <label className="mb-1.5 block text-[10px] font-bold text-rose-700 uppercase">Reason for Holiday Notice</label>
+                            <input
+                              id="input-slot-holiday-reason"
+                              type="text"
+                              required
+                              placeholder="e.g. Christmas Vacation, Teacher Training Seminar"
+                              value={slotHolidayReason}
+                              onChange={(e) => setSlotHolidayReason(e.target.value)}
+                              className="w-full rounded-xl border border-rose-200 bg-rose-50/30 px-3 py-2 text-xs text-rose-900 outline-none focus:border-rose-500 focus:bg-white"
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button
+                          id="btn-slot-cancel"
+                          type="button"
+                          onClick={() => setIsAddSlotOpen(false)}
+                          className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          id="btn-slot-submit"
+                          type="submit"
+                          className="rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 text-xs font-bold shadow-md cursor-pointer"
+                        >
+                          Publish Slot
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
