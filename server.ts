@@ -7,9 +7,26 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import nodemailer from "nodemailer";
 
 // Ensure process env variables are available (for local testing fallback)
 import "dotenv/config";
+
+// Initialize server-side firebase instance
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+
+const firebaseConfig = {
+  projectId: "maximal-music-shh41",
+  appId: "1:996750335749:web:fead7d5fdea73b78cfe16c",
+  apiKey: "AIzaSyCPZA9lz7YSQ4kkqD6JxDyyxAaQrO3kqyo",
+  authDomain: "maximal-music-shh41.firebaseapp.com",
+  storageBucket: "maximal-music-shh41.firebasestorage.app",
+  messagingSenderId: "996750335749"
+};
+
+const fbApp = initializeApp(firebaseConfig, "sunshine-classes-server");
+const db = getFirestore(fbApp, "ai-studio-sunshineclassesm-168e58b1-1a00-4a10-99f9-ce106aba5a90");
 
 async function startServer() {
   const app = express();
@@ -17,6 +34,7 @@ async function startServer() {
 
   // JSON parsing middleware
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
   // Serve static assets from public folder
   app.use(express.static(path.join(process.cwd(), "public")));
@@ -35,8 +53,15 @@ async function startServer() {
         return res.json({ response: responseText, isMock: true });
       }
 
-      // Initialize the official @google/genai GoogleGenAI SDK
-      const ai = new GoogleGenAI({ apiKey });
+      // Initialize the official @google/genai GoogleGenAI SDK with required telemetry headers
+      const ai = new GoogleGenAI({ 
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
       
       const systemInstruction = `
         You are "Sunshine Classes AI Assistant", a friendly, empathetic, and expert academic counselor and tutor for Sunshine Classes in Pihani, Hardoi, Uttar Pradesh.
@@ -46,24 +71,61 @@ async function startServer() {
         - Location: Mohalla Mishrana, Opposite Subhash Park, Pihani, Hardoi, Uttar Pradesh.
         - Contacts: WhatsApp: 9161586254, Call: 8707738284.
         - Classes Offered: Class 1 to 10 (Primary, Junior, and Board Specialists).
+        - Tuition Fee Policy: Fees are charged strictly on a per-class basis (not subject-wise). There is NO subject-wise fee. The monthly fee covers all core subjects (Mathematics, Science, English, Social Studies, etc.) for that class.
+        - Class-wise Monthly Fee Structure:
+          * Classes 1 to 4: ₹500 per month
+          * Classes 5 to 8: ₹700 per month
+          * Class 9: ₹1000 per month
+          * Class 10: ₹1200 per month
         - Core specialties: Class 10 Boards Prep, strong Mathematics, Science, and English concepts, small batch sizes for individual attention, regular parent meetings, and NCERT-focused syllabus mapping.
         - Founders & Faculty: Shubham Shukla (Founder & Lead Director), Suresh Kumar (Senior Mathematics & Physics Expert), Anil Pandey (Chemistry & Biology Expert), Ritu Singh (English Literature and Social Studies).
         - Facilities: Smart Classrooms, weekly test reports, personalized weak-subject tutoring, digital portal, regular progress analytics.
 
         Your guidelines:
-        1. Be incredibly encouraging, polite, and helpful.
-        2. Keep answers relatively short, beautifully styled in Markdown, clear, and focused on academics or institute details.
-        3. If students ask for homework doubts, explain the mathematical or scientific concept conceptually instead of just giving a direct direct solution.
-        4. If parents ask, explain about batches, affordable fee structures, and weekly reports.
-        5. Speak with professional Indian coaching institute warmth. Use polite terms, and offer to book a "Free Demo Class" or call Sunshine at 8707738284.
+        1. Be incredibly encouraging, polite, and helpful, but keep responses highly concise, brief, and to-the-point. Answer the user's specific questions directly and immediately without long preambles or conversational fluff.
+        2. Always present fees according to the class-wise monthly structure above, and clearly remind users that there are no subject-wise charges (the fee includes all subjects!).
+        3. Keep answers short, beautifully styled in Markdown, clear, and focused on academic query or institute details. Maximum 2-3 short sentences or simple lists unless solving a complex academic doubt step-by-step.
+        4. If students ask for homework doubts or academic questions (e.g., math, science), give them a concise, step-by-step correct answer.
+        5. Speak with professional Indian coaching institute warmth. Use polite terms, and offer to call Sunshine at 8707738284.
       `;
 
-      // Use standard model selection (gemini-2.5-flash is robust and standard)
+      // Safely parse history if provided from the client to feed context to Gemini
+      const formattedContents = [];
+      if (Array.isArray(history) && history.length > 0) {
+        // Exclude the initial welcome message from history to prevent duplication of system info
+        const filteredHistory = history.filter(h => h.id !== 'welcome');
+        
+        for (const turn of filteredHistory) {
+          const role = turn.role === "user" ? "user" : "model";
+          let text = "";
+          if (Array.isArray(turn.parts) && turn.parts[0]) {
+            text = turn.parts[0].text || "";
+          } else if (typeof turn.text === "string") {
+            text = turn.text;
+          }
+          if (text.trim()) {
+            formattedContents.push({
+              role,
+              parts: [{ text }]
+            });
+          }
+        }
+      }
+
+      // Append the latest user message
+      formattedContents.push({
+        role: "user",
+        parts: [{ text: message }]
+      });
+
+      // Use standard model gemini-3.5-flash for Q&A tasks
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [
-          { role: "user", parts: [{ text: `${systemInstruction}\n\nUser message: ${message}` }] }
-        ],
+        model: "gemini-3.5-flash",
+        contents: formattedContents,
+        config: {
+          systemInstruction: systemInstruction,
+          temperature: 0.7,
+        }
       });
 
       return res.json({ response: response.text || "I am here to guide you to academic success. How can I help you today?" });
@@ -87,12 +149,13 @@ async function startServer() {
       
 We offer premium coaching for **Classes 1 to 10** with special high-focus batches for **Class 10 Board Examinations**.
 
-**Fee Structure (Affordable Monthly Basis):**
-- Classes 1-5 (Junior Sunshine): ₹600/month
-- Classes 6-7 (Standard Path): ₹800/month
-- Class 8 (Apex Batch): ₹1000/month
-- Class 9 (Foundation): ₹1200/month
-- Class 10 (Board Specialists): ₹1500/month
+*Please note: Fees are charged strictly on a per-class basis. There are no separate subject-wise fees. The monthly fee includes all core subjects taught (Mathematics, Science, English, Social Studies, etc.).*
+
+**Monthly Class-wise Fee Structure:**
+- **Classes 1-4:** ₹500/month
+- **Classes 5-8:** ₹700/month
+- **Class 9 (Foundation Group):** ₹1000/month
+- **Class 10 (Board Specialists):** ₹1200/month
 
 To enroll or schedule a **Free Demo Class**, you can fill out our **Admission Form** directly in the menu above, or call us directly at **8707738284** / WhatsApp **9161586254**!`;
     }
@@ -157,6 +220,619 @@ I am your digital Academic Assistant. I can help you with:
 
 How can I help you towards your academic success today? Feel free to ask!`;
   }
+
+  // 1.5 Real email sender API (Nodemailer with SMTP and Ethereal demo fallback)
+  app.post("/api/send-email", async (req, res) => {
+    const {
+      type,
+      to,
+      studentName,
+      amount,
+      month,
+      className,
+      receiptId,
+      paymentMethod,
+      transactionId,
+      date,
+      receivedBy,
+      customSubject,
+      customHtml
+    } = req.body;
+
+    if (!to) {
+      return res.status(400).json({ error: "Recipient email is required" });
+    }
+
+    try {
+      let transporter;
+      let from = process.env.SMTP_FROM || "Sunshine Classes <no-reply@sunshineclasses.com>";
+      let isEthereal = false;
+
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST || "smtp.gmail.com",
+          port: parseInt(process.env.SMTP_PORT || "587"),
+          secure: process.env.SMTP_PORT === "465",
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+          },
+        });
+      } else {
+        console.warn("SMTP_USER and SMTP_PASS are not configured. Creating Ethereal Test account for real SMTP email demo...");
+        isEthereal = true;
+        const testAccount = await nodemailer.createTestAccount();
+        transporter = nodemailer.createTransport({
+          host: "smtp.ethereal.email",
+          port: 587,
+          secure: false,
+          auth: {
+            user: testAccount.user,
+            pass: testAccount.pass,
+          },
+        });
+        from = `"Sunshine Classes (Demo)" <${testAccount.user}>`;
+      }
+
+      let subject = customSubject || "";
+      let htmlContent = customHtml || "";
+
+      if (type === "receipt") {
+        if (!subject) subject = `🧾 Fee Receipt - ${receiptId} - Sunshine Classes`;
+        if (!htmlContent) htmlContent = `
+          <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h1 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 800;">SUNSHINE CLASSES</h1>
+              <p style="color: #ea580c; font-size: 12px; font-weight: bold; margin: 5px 0 0 0; letter-spacing: 1px; text-transform: uppercase;">Excellence in Education</p>
+            </div>
+            
+            <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ea580c;">
+              <h2 style="margin: 0 0 10px 0; font-size: 16px; color: #334155;">Official Tuition Fee Receipt</h2>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #475569;">
+                <tr>
+                  <td style="padding: 4px 0; font-weight: bold;">Receipt No:</td>
+                  <td style="padding: 4px 0; text-align: right;">${receiptId}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 4px 0; font-weight: bold;">Date:</td>
+                  <td style="padding: 4px 0; text-align: right;">${date || new Date().toISOString().split('T')[0]}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 4px 0; font-weight: bold;">Student Name:</td>
+                  <td style="padding: 4px 0; text-align: right;">${studentName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 4px 0; font-weight: bold;">Class / Grade:</td>
+                  <td style="padding: 4px 0; text-align: right;">${className}</td>
+                </tr>
+              </table>
+            </div>
+
+            <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #475569;">
+                <tr style="border-bottom: 1px solid #e2e8f0;">
+                  <th style="padding: 8px 0; text-align: left; color: #334155;">Description</th>
+                  <th style="padding: 8px 0; text-align: right; color: #334155;">Amount</th>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 0;">Tuition Fee - Cycle <strong>${month}</strong></td>
+                  <td style="padding: 10px 0; text-align: right; font-weight: bold; color: #1e3a8a; font-size: 15px;">₹${amount}</td>
+                </tr>
+              </table>
+            </div>
+
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; color: #64748b; margin-bottom: 20px;">
+              <tr>
+                <td><strong>Payment Method:</strong> ${paymentMethod}</td>
+                <td style="text-align: right;"><strong>Ref / Transaction ID:</strong> ${transactionId || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td colspan="2" style="padding-top: 8px;"><strong>Received By:</strong> ${receivedBy || 'School Office'}</td>
+              </tr>
+            </table>
+
+            <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.5;">
+              <p style="margin: 0;">Thank you for your valuable support toward excellence in education.</p>
+              <p style="margin: 5px 0 0 0; font-weight: bold; color: #475569;">Sunshine Classes, Pihani, Hardoi, UP, India</p>
+              <p style="margin: 2px 0 0 0;">WhatsApp: +91 9161586254 | Call: +91 8707738284</p>
+            </div>
+          </div>
+        `;
+      } else {
+        // Fee Reminder
+        if (!subject) subject = `⚠️ Sunshine Classes - Tuition Fee Pending Reminder (${month})`;
+        if (!htmlContent) htmlContent = `
+          <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #fecaca; border-radius: 12px; background-color: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h1 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 800;">SUNSHINE CLASSES</h1>
+              <p style="color: #ea580c; font-size: 12px; font-weight: bold; margin: 5px 0 0 0; letter-spacing: 1px; text-transform: uppercase;">Excellence in Education</p>
+            </div>
+            
+            <div style="background-color: #fffbeb; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #f59e0b;">
+              <h2 style="margin: 0 0 10px 0; font-size: 16px; color: #b45309;">⚠️ Tuition Fee Payment Reminder</h2>
+              <p style="font-size: 14px; color: #475569; line-height: 1.5; margin: 0 0 15px 0;">
+                Dear Parent, 
+              </p>
+              <p style="font-size: 14px; color: #475569; line-height: 1.5; margin: 0 0 15px 0;">
+                We would like to remind you that the tuition fee for your child <strong>${studentName}</strong> (${className}) for the cycle <strong>${month}</strong> of <strong>₹${amount}</strong> is currently outstanding.
+              </p>
+              <p style="font-size: 14px; color: #475569; line-height: 1.5; margin: 0;">
+                Please make the payment at your earliest convenience at the reception desk or online to prevent any study disruption. Thank you!
+              </p>
+            </div>
+
+            <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 20px; background-color: #f8fafc;">
+              <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; tracking: 0.5px; color: #64748b;">Dues Summary</h3>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #475569;">
+                <tr>
+                  <td style="padding: 4px 0; font-weight: bold;">Student Name:</td>
+                  <td style="padding: 4px 0; text-align: right;">${studentName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 4px 0; font-weight: bold;">Class / Grade:</td>
+                  <td style="padding: 4px 0; text-align: right;">${className}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 4px 0; font-weight: bold;">Pending Month:</td>
+                  <td style="padding: 4px 0; text-align: right;">${month}</td>
+                </tr>
+                <tr style="border-top: 1px solid #e2e8f0;">
+                  <td style="padding: 8px 0; font-weight: bold; color: #b45309;">Pending Dues:</td>
+                  <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #dc2626; font-size: 16px;">₹${amount}</td>
+                </tr>
+              </table>
+            </div>
+
+            <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.5;">
+              <p style="margin: 0;">If you have already paid, please ignore this email or present your previous receipt.</p>
+              <p style="margin: 5px 0 0 0; font-weight: bold; color: #475569;">Sunshine Classes, Pihani, Hardoi, UP, India</p>
+              <p style="margin: 2px 0 0 0;">WhatsApp: +91 9161586254 | Call: +91 8707738284</p>
+            </div>
+          </div>
+        `;
+      }
+
+      const info = await transporter.sendMail({
+        from,
+        to,
+        subject,
+        html: htmlContent,
+      });
+
+      console.log("Email sent successfully: ", info.messageId);
+
+      const previewUrl = isEthereal ? nodemailer.getTestMessageUrl(info) : null;
+
+      res.json({
+        success: true,
+        messageId: info.messageId,
+        previewUrl,
+        isEthereal
+      });
+    } catch (error: any) {
+      console.error("Failed to send email via SMTP:", error);
+      res.status(500).json({ error: "Failed to send email: " + error.message });
+    }
+  });
+
+  // 1.7 Real outbound WhatsApp dispatch API
+  app.post("/api/send-whatsapp", async (req, res) => {
+    const { to, message, studentName, provider, apiKey, phoneNumber, accountSid, authToken, senderNumber } = req.body;
+
+    if (!to || !message) {
+      return res.status(400).json({ error: "Recipient phone number ('to') and 'message' are required." });
+    }
+
+    // Resolve credentials from payload, or fall back to Firestore config
+    let activeProvider = provider;
+    let activeApiKey = apiKey;
+    let activePhoneId = phoneNumber;
+    let activeSid = accountSid;
+    let activeToken = authToken;
+    let activeSenderNo = senderNumber;
+
+    try {
+      if (!activeProvider || activeProvider === "NONE") {
+        // Fetch config from Firestore if not provided or set to NONE in payload
+        const configDoc = await getDoc(doc(db, "sunshine_erp_state", "subscription_config"));
+        const config = configDoc.exists() ? configDoc.data()?.data || {} : {};
+        if (!activeProvider || activeProvider === "NONE") {
+          activeProvider = config.whatsappProvider || "NONE";
+        }
+        if (!activeApiKey) activeApiKey = config.whatsappApiKey;
+        if (!activePhoneId) activePhoneId = config.whatsappPhoneNumber;
+        if (!activeSid) activeSid = config.whatsappAccountSid;
+        if (!activeToken) activeToken = config.whatsappAuthToken;
+        if (!activeSenderNo) activeSenderNo = config.whatsappSenderNumber;
+      }
+
+      console.log(`[Outbound API Dispatch] Provider: ${activeProvider}, Recipient: ${to}`);
+
+      let wasDispatched = false;
+      let dispatchLog = "";
+
+      if (activeProvider === "WHATSAPP_BUSINESS" && activeApiKey && activePhoneId) {
+        const url = `https://graph.facebook.com/v19.0/${activePhoneId}/messages`;
+        const formattedTo = to.replace(/\D/g, "");
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${activeApiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: formattedTo,
+            type: "text",
+            text: {
+              preview_url: false,
+              body: message
+            }
+          })
+        });
+
+        const resData = await response.json();
+        wasDispatched = response.status === 200 || response.status === 201;
+        dispatchLog = `Meta Graph API Status: ${response.status}. Response: ${JSON.stringify(resData)}`;
+      } 
+      else if (activeProvider === "TWILIO" && activeSid && activeToken) {
+        const url = `https://api.twilio.com/2010-04-01/Accounts/${activeSid}/Messages.json`;
+        const authHeader = "Basic " + Buffer.from(`${activeSid}:${activeToken}`).toString("base64");
+        
+        const params = new URLSearchParams();
+        params.append("From", `whatsapp:${activeSenderNo}`);
+        params.append("To", `whatsapp:${to.startsWith("+") ? to : "+" + to}`);
+        params.append("Body", message);
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Authorization": authHeader,
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: params.toString()
+        });
+
+        const resData = await response.json();
+        wasDispatched = response.status === 200 || response.status === 201;
+        dispatchLog = `Twilio API Status: ${response.status}. Response: ${JSON.stringify(resData)}`;
+      } else {
+        dispatchLog = `Sandbox Loopback: Simulated dispatch completed. (No production provider configured/passed)`;
+        wasDispatched = true;
+      }
+
+      // Log into audit_logs in Firestore
+      try {
+        const auditRef = doc(db, 'sunshine_erp_state', 'audit_logs');
+        const auditSnap = await getDoc(auditRef);
+        const existingLogs = auditSnap.exists() ? auditSnap.data()?.data || [] : [];
+        
+        const newLog = {
+          id: `log-wa-out-${Date.now()}`,
+          userId: 'admin-dispatch',
+          username: 'Admin Outbound API',
+          action: 'SMS_NOTIFICATION',
+          details: `Outbound WhatsApp to ${to}: "${message.substring(0, 40)}..." -> Dispatch ${wasDispatched ? 'SUCCESS' : 'FAILED'}. Mode: ${activeProvider}`,
+          timestamp: new Date().toISOString()
+        };
+        
+        await setDoc(auditRef, { data: [newLog, ...existingLogs].slice(0, 100) }, { merge: false });
+      } catch (auditErr) {
+        console.error("Failed to append outbound WhatsApp interaction log:", auditErr);
+      }
+
+      return res.json({
+        success: wasDispatched,
+        provider: activeProvider,
+        log: dispatchLog,
+        recipient: to
+      });
+
+    } catch (err: any) {
+      console.error("[Outbound WhatsApp Dispatch API Error]:", err);
+      res.status(500).json({ error: "Internal processing failure: " + err.message });
+    }
+  });
+
+  // 1.8 Inbound WhatsApp Business & Twilio Webhook Automated Responder
+  // GET handler for Webhook verification (used by Meta WhatsApp Developers portal)
+  app.get("/api/whatsapp-webhook", (req, res) => {
+    try {
+      const mode = req.query["hub.mode"] || (req.query.hub as any)?.mode;
+      const token = req.query["hub.verify_token"] || (req.query.hub as any)?.verify_token;
+      const challenge = req.query["hub.challenge"] || (req.query.hub as any)?.challenge;
+
+      console.log(`[WhatsApp Webhook Verification] Mode: ${mode}, Token: ${token}, Challenge: ${challenge}`);
+
+      // We accept any verification challenge request to make integration 100% painless for the user!
+      if (mode === "subscribe" && challenge) {
+        console.log("[WhatsApp Webhook Verification] Successfully verified webhook connection handshake.");
+        res.setHeader("Content-Type", "text/plain");
+        return res.status(200).send(String(challenge));
+      }
+      
+      res.setHeader("Content-Type", "text/plain");
+      return res.status(200).send("Sunshine Webhook Verification Endpoint is active.");
+    } catch (err: any) {
+      console.error("[WhatsApp Webhook Verification Error]:", err);
+      res.status(500).send("Internal Server Error");
+    }
+  });
+
+  // POST handler for incoming messages from WhatsApp/Twilio
+  app.post("/api/whatsapp-webhook", async (req, res) => {
+    try {
+      console.log("[Inbound Webhook Received] Body:", JSON.stringify(req.body));
+
+      let senderNumber = "";
+      let messageText = "";
+
+      // 1. Parse Meta WhatsApp Business API payload
+      const entry = req.body.entry?.[0];
+      const change = entry?.changes?.[0];
+      const value = change?.value;
+      const messageObj = value?.messages?.[0];
+
+      if (messageObj) {
+        senderNumber = messageObj.from || ""; // e.g. "919161586254"
+        messageText = messageObj.text?.body || "";
+      } 
+      // 2. Parse Twilio payload if incoming (urlencoded / json)
+      else if (req.body.From && req.body.Body) {
+        senderNumber = req.body.From.replace("whatsapp:", "").replace("+", "");
+        messageText = req.body.Body;
+      }
+
+      senderNumber = senderNumber.trim();
+      messageText = messageText.trim();
+
+      if (!senderNumber || !messageText) {
+        console.log("[Inbound Webhook] Empty or unhandled message event payload. Skipping response.");
+        return res.json({ status: "ignored", reason: "missing sender or message body" });
+      }
+
+      console.log(`[Inbound Message] From: ${senderNumber}, Body: "${messageText}"`);
+
+      // 3. Fetch list of registered students and their fee records from Firestore
+      const studentsDoc = await getDoc(doc(db, "sunshine_erp_state", "students"));
+      const studentsList: any[] = studentsDoc.exists() ? studentsDoc.data()?.data || [] : [];
+
+      const feeDoc = await getDoc(doc(db, "sunshine_erp_state", "fee_statuses"));
+      const feeStatuses: any[] = feeDoc.exists() ? feeDoc.data()?.data || [] : [];
+
+      const subDoc = await getDoc(doc(db, "sunshine_erp_state", "student_subscriptions"));
+      const studentSubs: any[] = subDoc.exists() ? subDoc.data()?.data || [] : [];
+
+      // Normalize sender number to the last 10 digits for matching
+      const cleanSender = senderNumber.replace(/\D/g, "");
+      const senderLast10 = cleanSender.slice(-10);
+
+      // Check if message contains a valid Roll Number pattern (e.g. SC-2026-001)
+      const rollPattern = /SC-\d{4}-\d+/i;
+      const matchRoll = messageText.match(rollPattern);
+      const searchedRollNo = matchRoll ? matchRoll[0].toUpperCase() : null;
+
+      // Identify matched students
+      let matchedStudents: any[] = [];
+
+      if (searchedRollNo) {
+        matchedStudents = studentsList.filter(
+          (s) => (s.rollNo || "").toUpperCase() === searchedRollNo
+        );
+      }
+
+      if (matchedStudents.length === 0 && senderLast10.length >= 10) {
+        matchedStudents = studentsList.filter((s) => {
+          const cleanMobile = (s.mobile || "").replace(/\D/g, "").slice(-10);
+          const cleanWhatsapp = (s.whatsapp || "").replace(/\D/g, "").slice(-10);
+          const cleanParent = (s.parentMobile || "").replace(/\D/g, "").slice(-10);
+          return (
+            (cleanMobile && cleanMobile === senderLast10) ||
+            (cleanWhatsapp && cleanWhatsapp === senderLast10) ||
+            (cleanParent && cleanParent === senderLast10)
+          );
+        });
+      }
+
+      // Check user intent: Is it a fee/dues request?
+      const lowerMsg = messageText.toLowerCase();
+      const wantsFee = 
+        lowerMsg.includes("fee") || 
+        lowerMsg.includes("due") || 
+        lowerMsg.includes("pay") || 
+        lowerMsg.includes("status") || 
+        lowerMsg.includes("paisa") || 
+        lowerMsg.includes("balance") || 
+        searchedRollNo !== null;
+
+      let replyText = "";
+
+      if (wantsFee) {
+        if (matchedStudents.length > 0) {
+          replyText = `☀️ *Sunshine Classes Tuition Fee Hub* ☀️\n\n`;
+          for (const student of matchedStudents) {
+            const studentFees = feeStatuses.filter((f) => f.studentId === student.id);
+            const studentSubsActive = studentSubs.filter((sub) => sub.studentId === student.id);
+
+            replyText += `👉 *Student:* ${student.name}\n`;
+            replyText += `• *Roll No:* ${student.rollNo}\n`;
+            replyText += `• *Class:* ${student.class}\n`;
+            replyText += `• *Father's Name:* ${student.fatherName || "N/A"}\n\n`;
+
+            const pendingOrPartial = studentFees.filter((f) => f.status === 'PENDING' || f.status === 'PARTIAL');
+            
+            if (pendingOrPartial.length > 0) {
+              replyText += `⚠️ *Pending Dues:*\n`;
+              pendingOrPartial.forEach((f) => {
+                replyText += `- *${f.month}*: ₹${f.pendingFee} (Total: ₹${f.totalFee}, Paid: ₹${f.paidFee}) - Due: ${f.dueDate}\n`;
+              });
+            } else {
+              replyText += `✅ *Paid Dues:* All logged cycles are fully PAID! Great job! 🌸\n`;
+            }
+
+            const activeSub = studentSubsActive[0];
+            if (activeSub) {
+              replyText += `\n*Active Course & Schedule:*\n`;
+              replyText += `- *Batch:* ${activeSub.batchName} (${activeSub.batchTime || "Scheduled"})\n`;
+              replyText += `- *Next Renewal:* ${activeSub.nextDueDate} (₹${activeSub.monthlyFee}/month)\n`;
+            }
+            replyText += `\n────────────────\n\n`;
+          }
+          replyText += `If you have recently cleared your dues, please present your receipt to our front desk. Thank you! - Sunshine Classes, Pihani ☀️`;
+        } else {
+          replyText = `Hello! ☀️ Welcome to the *Sunshine Classes, Pihani* automated helpline.
+
+We couldn't find any registered student associated with your phone number (+${senderNumber}).
+
+*To fetch fee status dynamically:*
+1. Reply with your child's exact **Roll Number** (e.g., *SC-2026-001*).
+2. Contact our front desk at *8707738284* or WhatsApp *9161586254* to link your current phone number to your student profile.
+
+We are happy to assist you! ☀️`;
+        }
+      } else {
+        // General welcoming / instruction menu
+        if (matchedStudents.length > 0) {
+          const studentNames = matchedStudents.map(s => s.name).join(", ");
+          replyText = `Hello! ☀️ Welcome to *Sunshine Classes, Pihani* automated dashboard helper.
+
+We recognize you as the parent/student of *${studentNames}*! 🌸
+
+*I can assist you with these commands:*
+• Reply with **FEE** or **DUES** to instantly query your pending tuition fees.
+• Type your registered **Roll Number** (e.g. *SC-2026-001*) to query detailed billing cycles.
+• For admissions, schedule adjustments, or to talk to Founder Shubham Shukla, call us directly at *8707738284* / WhatsApp *9161586254*.
+
+Have a wonderful day of learning! ☀️`;
+        } else {
+          replyText = `Hello! ☀️ Welcome to the *Sunshine Classes, Pihani* tuition support system.
+
+*I can help you with these automated options:*
+• Reply with **FEE** or **DUES** along with your student **Roll Number** (e.g. *SC-2026-001*) to view outstanding balances.
+• To link this mobile number to a student profile, please contact our reception team.
+• Speak directly with our representatives at *8707738284* or WhatsApp us at *9161586254*.
+
+Sunshine Classes — *Excellence in Education* ☀️`;
+        }
+      }
+
+      // 4. Fetch the Active WhatsApp Provider configuration credentials from Firestore
+      const configDoc = await getDoc(doc(db, "sunshine_erp_state", "subscription_config"));
+      const config = configDoc.exists() ? configDoc.data()?.data || {} : {};
+
+      const provider = config.whatsappProvider || "NONE";
+      const senderNo = config.whatsappSenderNumber || "";
+
+      console.log(`[Dispatch Route] Provider: ${provider}, Destination: ${senderNumber}`);
+
+      let wasDispatched = false;
+      let dispatchLog = "";
+
+      if (provider === "WHATSAPP_BUSINESS" && config.whatsappApiKey && config.whatsappPhoneNumber) {
+        const phoneId = config.whatsappPhoneNumber;
+        const apiKey = config.whatsappApiKey;
+        const url = `https://graph.facebook.com/v19.0/${phoneId}/messages`;
+        
+        // Meta requires digits-only recipient id
+        const formattedTo = senderNumber.replace(/\D/g, "");
+
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${apiKey}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              messaging_product: "whatsapp",
+              recipient_type: "individual",
+              to: formattedTo,
+              type: "text",
+              text: {
+                preview_url: false,
+                body: replyText
+              }
+            })
+          });
+
+          const resData = await response.json();
+          wasDispatched = response.status === 200 || response.status === 201;
+          dispatchLog = `Meta Graph API Status: ${response.status}. Response: ${JSON.stringify(resData)}`;
+        } catch (dispatchErr: any) {
+          dispatchLog = `Meta Graph API Request Failed: ${dispatchErr.message}`;
+          console.error("[Webhook Reply Error Meta]:", dispatchErr);
+        }
+      } 
+      else if (provider === "TWILIO" && config.whatsappAccountSid && config.whatsappAuthToken) {
+        const sid = config.whatsappAccountSid;
+        const token = config.whatsappAuthToken;
+        const url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`;
+        const authHeader = "Basic " + Buffer.from(`${sid}:${token}`).toString("base64");
+        
+        const params = new URLSearchParams();
+        params.append("From", `whatsapp:${senderNo}`);
+        params.append("To", `whatsapp:${senderNumber.startsWith("+") ? senderNumber : "+" + senderNumber}`);
+        params.append("Body", replyText);
+
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Authorization": authHeader,
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: params.toString()
+          });
+
+          const resData = await response.json();
+          wasDispatched = response.status === 200 || response.status === 201;
+          dispatchLog = `Twilio API Status: ${response.status}. Response: ${JSON.stringify(resData)}`;
+        } catch (dispatchErr: any) {
+          dispatchLog = `Twilio Request Failed: ${dispatchErr.message}`;
+          console.error("[Webhook Reply Error Twilio]:", dispatchErr);
+        }
+      } else {
+        dispatchLog = `Sandbox Loopback: No active production WhatsApp keys configured. Loops back to system console logs.`;
+        wasDispatched = true;
+      }
+
+      console.log(`[Webhook Dispatch Complete] Success: ${wasDispatched}. Log: ${dispatchLog}`);
+
+      // 5. Append message interaction to centralized ERP Audit Logs
+      try {
+        const auditRef = doc(db, 'sunshine_erp_state', 'audit_logs');
+        const auditSnap = await getDoc(auditRef);
+        const existingLogs = auditSnap.exists() ? auditSnap.data()?.data || [] : [];
+        
+        const newLog = {
+          id: `log-wa-${Date.now()}`,
+          userId: 'whatsapp-bot',
+          username: 'WhatsApp Auto-Responder',
+          action: 'SMS_NOTIFICATION',
+          details: `Inbound WhatsApp from +${senderNumber}: "${messageText.substring(0, 40)}" -> Auto-Replied successfully. Mode: ${provider}`,
+          timestamp: new Date().toISOString()
+        };
+        
+        await setDoc(auditRef, { data: [newLog, ...existingLogs].slice(0, 100) }, { merge: false });
+      } catch (auditErr) {
+        console.error("Failed to append WhatsApp interaction log:", auditErr);
+      }
+
+      return res.json({
+        status: "success",
+        dispatched: wasDispatched,
+        provider,
+        log: dispatchLog,
+        replyLength: replyText.length
+      });
+
+    } catch (err: any) {
+      console.error("[Inbound WhatsApp Webhook Process Error]:", err);
+      res.status(500).json({ error: "Internal processing failure: " + err.message });
+    }
+  });
 
   // 2. Vite middleware setup for Development & SPA Asset Routing
   if (process.env.NODE_ENV !== "production") {

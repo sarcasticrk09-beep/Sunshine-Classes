@@ -20,9 +20,14 @@ import {
   MapPin,
   Calendar,
   FileSpreadsheet,
-  Printer
+  Printer,
+  ChevronDown,
+  Check,
+  AlertTriangle,
+  Clock
 } from 'lucide-react';
 import { Admission, Student, FeeStatus, FeeReceipt, Inquiry, Batch, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig } from '../types';
+import { getFeeForClass } from '../data';
 import SunshineLogo from './SunshineLogo';
 
 interface ReceptionDashboardProps {
@@ -34,7 +39,7 @@ interface ReceptionDashboardProps {
   onApproveAdmission: (admissionId: string) => void;
   onRejectAdmission: (admissionId: string) => void;
   onAddInquiry: (inq: Omit<Inquiry, 'id' | 'date'>) => void;
-  onCollectFee: (fee: Omit<FeeReceipt, 'id' | 'date' | 'receivedBy'>) => void;
+  onCollectFee: (fee: Omit<FeeReceipt, 'id' | 'date' | 'receivedBy'> & { skipWhatsApp?: boolean }) => void;
   batches: Batch[];
   subscriptions: StudentSubscription[];
   subPayments: SubscriptionPayment[];
@@ -63,6 +68,7 @@ export default function ReceptionDashboard({
   onPaySubscription
 }: ReceptionDashboardProps) {
   const [activeTab, setActiveTab] = useState<'admissions' | 'inquiries' | 'fees' | 'search'>('admissions');
+  const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Helper for CSV download
@@ -372,6 +378,222 @@ export default function ReceptionDashboard({
     ];
     exportToPDF('Counter Cashflow Revenue Registry', headers, rows, summaryStats);
   };
+
+  const handleDownloadStudentHistoryPDF = (studentId: string, studentName: string) => {
+    const studentReceipts = feeReceipts.filter(r => r.studentId === studentId);
+    const sortedReceipts = [...studentReceipts].sort((a, b) => b.date.localeCompare(a.date));
+
+    const headers = ['Receipt ID', 'Cycle Month', 'Amount Paid', 'Payment Method', 'Date Received', 'Collected By'];
+    const rows = sortedReceipts.map(rec => [
+      rec.id,
+      rec.month,
+      `₹${rec.amountPaid}`,
+      rec.paymentMethod,
+      rec.date,
+      rec.receivedBy || 'Neha Sharma'
+    ]);
+
+    const totalPaid = sortedReceipts.reduce((sum, r) => sum + r.amountPaid, 0);
+
+    const summaryStats = [
+      { label: 'Student Name', value: studentName },
+      { label: 'Total Payments', value: `${sortedReceipts.length} Transactions` },
+      { label: 'Total Amount Paid', value: `₹${totalPaid}` }
+    ];
+
+    exportToPDF(`Fee Payment History - ${studentName}`, headers, rows, summaryStats);
+  };
+
+  const handlePrintSingleReceipt = (rec: FeeReceipt) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert("Please allow popups to print receipt.");
+      return;
+    }
+    const rollNo = students.find(s => s.id === rec.studentId)?.rollNo || 'SC-1001';
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Receipt ${rec.id}</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
+            body {
+              font-family: 'Inter', sans-serif;
+              color: #1e293b;
+              padding: 40px;
+              margin: 0;
+              background-color: #ffffff;
+            }
+            .receipt-card {
+              max-width: 600px;
+              margin: 0 auto;
+              border: 1px solid #e2e8f0;
+              border-radius: 16px;
+              padding: 30px;
+              box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            }
+            .header {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              border-bottom: 2px dashed #e2e8f0;
+              padding-bottom: 20px;
+              margin-bottom: 20px;
+              text-align: center;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+              color: #b45309;
+              font-weight: 800;
+            }
+            .header p {
+              margin: 4px 0 0 0;
+              font-size: 11px;
+              color: #64748b;
+            }
+            .meta-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 15px;
+              font-family: 'JetBrains Mono', monospace;
+              font-size: 11px;
+              background-color: #f8fafc;
+              border-radius: 12px;
+              padding: 15px;
+              margin-bottom: 20px;
+              border: 1px solid #f1f5f9;
+            }
+            .meta-item span {
+              color: #94a3b8;
+            }
+            .table-container {
+              border: 1px solid #e2e8f0;
+              border-radius: 12px;
+              overflow: hidden;
+              margin-bottom: 20px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+            th {
+              background-color: #f8fafc;
+              color: #475569;
+              font-size: 10px;
+              font-weight: 700;
+              text-transform: uppercase;
+              padding: 10px 15px;
+              text-align: left;
+              border-bottom: 1px solid #e2e8f0;
+            }
+            td {
+              padding: 15px;
+              font-size: 12px;
+              border-bottom: 1px solid #f1f5f9;
+            }
+            .total-row {
+              background-color: #fef3c7;
+              font-weight: 700;
+              color: #b45309;
+            }
+            .total-row td {
+              border-bottom: none;
+              font-size: 13px;
+            }
+            .details {
+              font-size: 11px;
+              color: #64748b;
+              margin-bottom: 30px;
+              line-height: 1.6;
+            }
+            .footer {
+              text-align: center;
+              font-size: 10px;
+              color: #94a3b8;
+              border-top: 1px solid #f1f5f9;
+              padding-top: 15px;
+            }
+            @media print {
+              body { padding: 0; }
+              .receipt-card { border: none; box-shadow: none; padding: 10px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="receipt-card">
+            <div class="header">
+              <h1>SUNSHINE CLASSES</h1>
+              <p>Mishra Gali opposite Subhash Park, Pihani, Hardoi</p>
+              <p style="font-size: 9px; margin-top: 2px;">GSTIN / Reg No: 09BCXPS8401H1ZD • Admission & Fee Desk</p>
+            </div>
+            
+            <div style="text-align: center; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; color: #475569; margin-bottom: 15px; text-transform: uppercase;">
+              FEE PAYMENT RECEIPT / TAX INVOICE
+            </div>
+
+            <div class="meta-grid">
+              <div>
+                <div class="meta-item"><span>Receipt ID:</span> ${rec.id}</div>
+                <div class="meta-item"><span>Date Issued:</span> ${rec.date}</div>
+                <div class="meta-item"><span>Student Name:</span> ${rec.studentName}</div>
+              </div>
+              <div style="text-align: right;">
+                <div class="meta-item"><span>Roll No:</span> ${rollNo}</div>
+                <div class="meta-item"><span>Academic Class:</span> ${rec.class}</div>
+                <div class="meta-item"><span>Collected By:</span> ${rec.receivedBy || 'Neha Sharma'}</div>
+              </div>
+            </div>
+
+            <div class="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Description</th>
+                    <th style="text-align: right;">Amount Paid (INR)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>
+                      <div style="font-weight: 600;">Coaching Tuition Fees</div>
+                      <div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Session cycle for ${rec.month}</div>
+                    </td>
+                    <td style="text-align: right; font-weight: 600;">₹${rec.amountPaid}.00</td>
+                  </tr>
+                  <tr class="total-row">
+                    <td>NET PAID TRANSACTION AMOUNT</td>
+                    <td style="text-align: right;">₹${rec.amountPaid}.00</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="details">
+              <div>• Payment Method: <strong>${rec.paymentMethod}</strong></div>
+              \${rec.transactionId ? \`<div>• Reference Transaction ID: <strong>\${rec.transactionId}</strong></div>\` : ''}
+              <div>• Status: <strong>Payment Received & Reconciled</strong></div>
+            </div>
+
+            <div class="footer">
+              This is a computer-generated invoice. No physical signature is required.<br>
+              Thank you for choosing Sunshine Classes for academic excellence!
+            </div>
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.print();
+            }
+          </script>
+        </body>
+      </html>
+    `;
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
   
   // Inquiry Form States
   const [inqName, setInqName] = useState('');
@@ -383,7 +605,7 @@ export default function ReceptionDashboard({
   // Fee Collection States
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [feeMonth, setFeeMonth] = useState('June 2026');
-  const [feeAmount, setFeeAmount] = useState(1500);
+  const [feeAmount, setFeeAmount] = useState(1200);
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI' | 'ONLINE'>('UPI');
   const [transactionId, setTransactionId] = useState('');
   
@@ -442,6 +664,18 @@ export default function ReceptionDashboard({
   const totalDailyInquiries = inquiries.length;
   const totalDailyFeesCollected = feeReceipts.reduce((acc, r) => acc + r.amountPaid, 0);
 
+  // Fee Overview calculations for current selected month cycle
+  const currentMonthLedgers = feeStatuses.filter(f => f.month === feeMonth);
+  const totalCollectedForMonth = currentMonthLedgers.reduce((sum, f) => sum + f.paidFee, 0);
+  const totalPendingForMonth = currentMonthLedgers.reduce((sum, f) => sum + f.pendingFee, 0);
+  const totalTargetForMonth = currentMonthLedgers.reduce((sum, f) => sum + (f.totalFee - f.discount - f.scholarship), 0);
+  
+  // Overdue calculation (due date before June 29, 2026)
+  const todayStr = '2026-06-29';
+  const totalOverdueForMonth = currentMonthLedgers
+    .filter(f => f.pendingFee > 0 && f.dueDate < todayStr)
+    .reduce((sum, f) => sum + f.pendingFee, 0);
+
   return (
     <div id="reception-portal" className="mx-auto max-w-7xl px-4 py-8">
       {/* Welcome Header */}
@@ -487,51 +721,115 @@ export default function ReceptionDashboard({
 
       {/* Main Grid */}
       <div className="grid gap-6 lg:grid-cols-4">
-        {/* Sidebar Menu */}
+        {/* Sidebar Menu / Mobile Switcher */}
         <div className="lg:col-span-1">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-1">
-            <span className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Desk Modules</span>
+          {(() => {
+            const tabsList = [
+              { id: 'admissions', label: `Admissions Desk (${pendingAdmissionsCount})`, icon: <Users size={16} /> },
+              { id: 'inquiries', label: 'Lead & Inquiries log', icon: <Phone size={16} /> },
+              { id: 'fees', label: 'Collect Monthly Fees', icon: <CreditCard size={16} /> },
+              { id: 'search', label: 'Search Students Directory', icon: <Search size={16} /> }
+            ] as const;
 
-            <button
-              id="reception-tab-admissions"
-              onClick={() => setActiveTab('admissions')}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
-                activeTab === 'admissions' ? 'bg-amber-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Users size={16} /> Admissions Desk ({pendingAdmissionsCount})
-            </button>
+            const activeTabObj = tabsList.find(t => t.id === activeTab);
 
-            <button
-              id="reception-tab-inquiries"
-              onClick={() => setActiveTab('inquiries')}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
-                activeTab === 'inquiries' ? 'bg-amber-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Phone size={16} /> Lead & Inquiries log
-            </button>
+            return (
+              <>
+                {/* Mobile Tab Dropdown Selector (Visible on < lg) */}
+                <div className="block lg:hidden mb-4 relative">
+                  <button
+                    id="reception-mobile-tab-dropdown-btn"
+                    type="button"
+                    onClick={() => setIsTabDropdownOpen(!isTabDropdownOpen)}
+                    className="w-full flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-xs font-bold text-slate-800 shadow-sm hover:bg-slate-50 hover:border-amber-200 active:bg-slate-100 transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-amber-600">
+                        {activeTabObj?.icon}
+                      </span>
+                      <span className="font-bold text-slate-800 text-sm">
+                        {activeTabObj?.label}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-slate-400">
+                      <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500 px-2.5 py-1 rounded-full">Menu</span>
+                      <ChevronDown size={18} className={`text-slate-500 transition-transform duration-200 ${isTabDropdownOpen ? 'rotate-180' : ''}`} />
+                    </div>
+                  </button>
 
-            <button
-              id="reception-tab-fees"
-              onClick={() => setActiveTab('fees')}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
-                activeTab === 'fees' ? 'bg-amber-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <CreditCard size={16} /> Collect Monthly Fees
-            </button>
+                  {isTabDropdownOpen && (
+                    <>
+                      {/* Backdrop to close dropdown on tap outside */}
+                      <div 
+                        className="fixed inset-0 z-40 bg-slate-900/10 backdrop-blur-3xs" 
+                        onClick={() => setIsTabDropdownOpen(false)} 
+                      />
+                      
+                      <div className="absolute left-0 right-0 mt-2 z-50 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xl animate-in fade-in slide-in-from-top-2 duration-150 max-h-[420px] overflow-y-auto divide-y divide-slate-50">
+                        <div className="px-3 py-1.5 mb-1.5 text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">
+                          Navigate Desk Modules
+                        </div>
+                        <div className="pt-1.5 space-y-1">
+                          {tabsList.map((tab) => {
+                            const isSelected = activeTab === tab.id;
+                            return (
+                              <button
+                                key={tab.id}
+                                id={`reception-mobile-tab-opt-${tab.id}`}
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab(tab.id);
+                                  setIsTabDropdownOpen(false);
+                                }}
+                                className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-xs font-semibold transition-all cursor-pointer ${
+                                  isSelected 
+                                    ? 'bg-amber-600 text-white shadow-sm font-bold' 
+                                    : 'text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                <span className={isSelected ? 'text-white' : 'text-slate-400'}>
+                                  {tab.icon}
+                                </span>
+                                <span className="text-left font-semibold text-xs flex-1">{tab.label}</span>
+                                {isSelected && (
+                                  <Check size={14} className="text-amber-400 font-bold" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
 
-            <button
-              id="reception-tab-search"
-              onClick={() => setActiveTab('search')}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
-                activeTab === 'search' ? 'bg-amber-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Search size={16} /> Search Students Directory
-            </button>
-          </div>
+                {/* Desktop Navigation Sidebar (Visible on >= lg) */}
+                <div className="hidden lg:block">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3 lg:p-4 shadow-sm space-y-1">
+                    <span className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Desk Modules</span>
+                    <div className="flex flex-col gap-1">
+                      {tabsList.map((tab) => {
+                        const isSelected = activeTab === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            id={`reception-desktop-tab-${tab.id}`}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer ${
+                              isSelected ? 'bg-amber-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            {tab.icon}
+                            <span>{tab.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* Dynamic content screen */}
@@ -693,13 +991,13 @@ export default function ReceptionDashboard({
                 </form>
               </div>
 
-              {/* Inquiry Leads List */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <h3 className="font-display font-bold text-base text-slate-800 mb-4">Logged Inquiries Ledger</h3>
+                {/* Inquiry Leads List */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h3 className="font-display font-bold text-base text-slate-800 mb-4">Logged Inquiries Ledger</h3>
 
-                <div className="overflow-hidden border border-slate-100 rounded-xl">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
+                  <div className="border border-slate-100 rounded-xl bg-white">
+                    <table className="w-full text-left border-collapse block md:table">
+                    <thead className="hidden md:table-header-group">
                       <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                         <th className="p-3">Inquirer</th>
                         <th className="p-3">Target Class</th>
@@ -708,17 +1006,21 @@ export default function ReceptionDashboard({
                         <th className="p-3">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50 text-xs text-slate-700">
+                    <tbody className="block md:table-row-group divide-y divide-slate-100 md:divide-y md:divide-slate-50 text-xs text-slate-700">
                       {inquiries.map((inq) => (
-                        <tr key={inq.id} className="hover:bg-slate-50/50">
-                          <td className="p-3 font-semibold text-slate-800">{inq.name}</td>
-                          <td className="p-3 text-brand-blue font-bold">{inq.className}</td>
-                          <td className="p-3 space-y-0.5">
-                            <div className="text-[10px] text-slate-500">📞 {inq.mobile}</div>
-                            <div className="text-[10px] text-green-600">💬 {inq.whatsapp}</div>
+                        <tr key={inq.id} className="hover:bg-slate-50/50 block md:table-row p-3 md:p-0">
+                          <td className="py-1 px-3 font-semibold text-slate-800 block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-24">Inquirer:</span>{inq.name}</td>
+                          <td className="py-1 px-3 text-brand-blue font-bold block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-24">Class:</span>{inq.className}</td>
+                          <td className="py-1 px-3 space-y-0.5 block md:table-cell md:p-3">
+                            <span className="inline-block md:hidden font-bold text-slate-400 w-24">Contacts:</span>
+                            <div className="inline-flex flex-col gap-0.5 align-middle">
+                              <div className="text-[10px] text-slate-500">📞 {inq.mobile}</div>
+                              <div className="text-[10px] text-green-600">💬 {inq.whatsapp}</div>
+                            </div>
                           </td>
-                          <td className="p-3 max-w-[180px] text-slate-500 leading-snug">{inq.notes}</td>
-                          <td className="p-3">
+                          <td className="py-1 px-3 max-w-full md:max-w-[180px] text-slate-500 leading-snug block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-24">Notes:</span>{inq.notes}</td>
+                          <td className="py-1 px-3 block md:table-cell md:p-3">
+                            <span className="inline-block md:hidden font-bold text-slate-400 w-24">Status:</span>
                             <span className="inline-block rounded bg-amber-50 text-brand-orange border border-amber-200 px-2 py-0.5 text-[10px] font-bold uppercase">
                               {inq.status}
                             </span>
@@ -735,6 +1037,57 @@ export default function ReceptionDashboard({
           {/* TAB 3: COLLECT MONTHLY FEES */}
           {activeTab === 'fees' && (
             <div className="space-y-6">
+              {/* Fee Overview Widget */}
+              <div id="fee-overview-widget" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {/* Collected Card */}
+                <div id="card-fee-collected" className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-5 shadow-sm transition-all hover:shadow-md dark:border-emerald-900/30 dark:bg-emerald-950/10">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">Collected Fees</span>
+                    <div className="p-1.5 rounded-xl bg-emerald-500 text-white shadow-sm shadow-emerald-500/25">
+                      <CheckCircle size={15} />
+                    </div>
+                  </div>
+                  <h3 className="font-display font-black text-2xl text-emerald-800 dark:text-emerald-300">₹{totalCollectedForMonth}</h3>
+                  <p className="text-[10px] text-slate-500 mt-1">Successfully received payments</p>
+                </div>
+
+                {/* Pending Card */}
+                <div id="card-fee-pending" className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5 shadow-sm transition-all hover:shadow-md dark:border-blue-900/30 dark:bg-blue-950/10">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-[10px] font-extrabold uppercase tracking-widest text-blue-600 dark:text-blue-400">Pending Fees</span>
+                    <div className="p-1.5 rounded-xl bg-blue-500 text-white shadow-sm shadow-blue-500/25">
+                      <Clock size={15} />
+                    </div>
+                  </div>
+                  <h3 className="font-display font-black text-2xl text-blue-800 dark:text-blue-300">₹{totalPendingForMonth}</h3>
+                  <p className="text-[10px] text-slate-500 mt-1">Awaiting student remittance</p>
+                </div>
+
+                {/* Overdue Card */}
+                <div id="card-fee-overdue" className="rounded-2xl border border-rose-100 bg-rose-50/50 p-5 shadow-sm transition-all hover:shadow-md dark:border-rose-900/30 dark:bg-rose-950/10">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-[10px] font-extrabold uppercase tracking-widest text-rose-600 dark:text-rose-400">Overdue Fees</span>
+                    <div className="p-1.5 rounded-xl bg-rose-500 text-white shadow-sm shadow-rose-500/25">
+                      <AlertTriangle size={15} />
+                    </div>
+                  </div>
+                  <h3 className="font-display font-black text-2xl text-rose-800 dark:text-rose-300">₹{totalOverdueForMonth}</h3>
+                  <p className="text-[10px] text-slate-500 mt-1">Passed payment due dates</p>
+                </div>
+
+                {/* Monthly Target Card */}
+                <div id="card-fee-target" className="rounded-2xl border border-amber-100 bg-amber-50/50 p-5 shadow-sm transition-all hover:shadow-md dark:border-amber-900/30 dark:bg-amber-950/10">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-600 dark:text-amber-400">Monthly Target</span>
+                    <div className="p-1.5 rounded-xl bg-amber-500 text-white shadow-sm shadow-amber-500/25">
+                      <DollarSign size={15} />
+                    </div>
+                  </div>
+                  <h3 className="font-display font-black text-2xl text-amber-800 dark:text-amber-300">₹{totalTargetForMonth}</h3>
+                  <p className="text-[10px] text-slate-500 mt-1">For {feeMonth} cycle</p>
+                </div>
+              </div>
+
               {/* Fee Collection Form */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <h3 className="font-display font-bold text-base text-slate-800 mb-1">Log Fee Remittance</h3>
@@ -751,7 +1104,7 @@ export default function ReceptionDashboard({
                         onChange={(e) => {
                           setSelectedStudentId(e.target.value);
                           const cls = students.find(s => s.id === e.target.value)?.class || 'Class 10';
-                          setFeeAmount(cls.includes('10') ? 1500 : cls.includes('9') ? 1200 : 1000);
+                          setFeeAmount(getFeeForClass(cls));
                         }}
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-amber-600 focus:bg-white"
                       >
@@ -830,6 +1183,84 @@ export default function ReceptionDashboard({
                 </form>
               </div>
 
+              {/* Student Monthly Fee Ledger with WhatsApp button */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="mb-4">
+                  <h3 className="font-display font-bold text-base text-slate-800">Student Monthly Fee Remittance Ledger ({feeMonth})</h3>
+                  <p className="text-xs text-slate-500">List of student tuition fee obligations for the current cycle. Click 1-Click WhatsApp to send instant reminders.</p>
+                </div>
+
+                <div className="border border-slate-100 rounded-xl bg-white">
+                  <table className="w-full text-left border-collapse block md:table">
+                    <thead className="hidden md:table-header-group">
+                      <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        <th className="p-3">Student details</th>
+                        <th className="p-3">Total Fee</th>
+                        <th className="p-3">Paid</th>
+                        <th className="p-3">Pending</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3 text-center">Action Link</th>
+                      </tr>
+                    </thead>
+                    <tbody className="block md:table-row-group divide-y divide-slate-100 md:divide-y md:divide-slate-50 text-xs">
+                      {currentMonthLedgers.map((ledger) => {
+                        const studentDetails = students.find(s => s.id === ledger.studentId);
+                        const parentMobile = studentDetails?.parentMobile || '9161586254';
+                        const isOverdue = ledger.pendingFee > 0 && ledger.dueDate < todayStr;
+                        
+                        // Construct professional message
+                        const msg = `Dear Parent, this is a friendly fee reminder from Sunshine Classes Pihani. Your ward ${ledger.studentName}'s tuition fee of ₹${ledger.pendingFee} for ${ledger.month} is pending. Please remit before due date ${ledger.dueDate}. Thank you!`;
+                        const encodedMsg = encodeURIComponent(msg);
+                        const waLink = `https://wa.me/91${parentMobile.replace(/\D/g, '')}?text=${encodedMsg}`;
+
+                        return (
+                          <tr key={ledger.id} className="hover:bg-slate-50/50 block md:table-row p-3 md:p-0">
+                            <td className="py-1 px-3 block md:table-cell md:p-3">
+                              <span className="inline-block md:hidden font-bold text-slate-400 w-28">Student:</span>
+                              <div className="inline-block align-middle">
+                                <div className="font-bold text-slate-800">{ledger.studentName}</div>
+                                <div className="text-[10px] text-slate-500 font-medium">{ledger.class} • Parent: {parentMobile}</div>
+                              </div>
+                            </td>
+                            <td className="py-1 px-3 font-semibold text-slate-700 block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Total Fee:</span>₹{ledger.totalFee - ledger.discount - ledger.scholarship}</td>
+                            <td className="py-1 px-3 text-green-600 font-bold block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Paid:</span>₹{ledger.paidFee}</td>
+                            <td className="py-1 px-3 text-slate-800 font-bold block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Pending:</span>₹{ledger.pendingFee}</td>
+                            <td className="py-1 px-3 block md:table-cell md:p-3">
+                              <span className="inline-block md:hidden font-bold text-slate-400 w-28">Status:</span>
+                              {ledger.pendingFee === 0 ? (
+                                <span className="text-[9px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100">Paid</span>
+                              ) : isOverdue ? (
+                                <span className="text-[9px] font-black uppercase text-rose-600 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-100">Overdue ({ledger.dueDate})</span>
+                              ) : (
+                                <span className="text-[9px] font-black uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">Pending</span>
+                              )}
+                            </td>
+                            <td className="py-1 px-3 text-left md:text-center block md:table-cell md:p-3">
+                              <span className="inline-block md:hidden font-bold text-slate-400 w-28">Action:</span>
+                              {ledger.pendingFee > 0 ? (
+                                <button
+                                  type="button"
+                                  id={`btn-wa-remind-${ledger.id}`}
+                                  onClick={() => {
+                                    alert(`WhatsApp Fee Alert Dispatch Initiated for ${ledger.studentName}!\n\nTarget Number: +91 ${parentMobile}\nMessage: "${msg}"\n\nRedirecting to WhatsApp web portal...`);
+                                    window.open(waLink, '_blank');
+                                  }}
+                                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 text-[10px] font-bold text-white shadow-sm transition-all cursor-pointer hover:scale-105"
+                                >
+                                  <MessageCircle size={12} /> 1-Click WhatsApp
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 font-bold">No Pending Fees</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
               {/* Transactions list */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-4">
@@ -853,9 +1284,9 @@ export default function ReceptionDashboard({
                   </div>
                 </div>
 
-                <div className="overflow-hidden border border-slate-100 rounded-xl">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
+                <div className="border border-slate-100 rounded-xl bg-white">
+                  <table className="w-full text-left border-collapse block md:table">
+                    <thead className="hidden md:table-header-group">
                       <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                         <th className="p-3">Receipt ID</th>
                         <th className="p-3">Student Name</th>
@@ -865,22 +1296,33 @@ export default function ReceptionDashboard({
                         <th className="p-3">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50 text-xs">
+                    <tbody className="block md:table-row-group divide-y divide-slate-100 md:divide-y md:divide-slate-50 text-xs">
                       {feeReceipts.map((rec) => (
-                        <tr key={rec.id} className="hover:bg-slate-50/50">
-                          <td className="p-3 font-semibold text-amber-600">{rec.id}</td>
-                          <td className="p-3 font-bold text-slate-800">{rec.studentName}</td>
-                          <td className="p-3 text-slate-600">{rec.month}</td>
-                          <td className="p-3 font-bold text-slate-800">₹{rec.amountPaid}</td>
-                          <td className="p-3 text-slate-500 font-mono text-[10px]">{rec.paymentMethod}</td>
-                          <td className="p-3">
-                            <button
-                              id={`btn-reception-print-${rec.id}`}
-                              onClick={() => setReceiptToPrint(rec)}
-                              className="inline-flex items-center gap-1 rounded bg-slate-100 hover:bg-amber-600 hover:text-white px-2 py-1 text-[10px] font-bold text-slate-700 transition-colors"
-                            >
-                              <Download size={10} /> View / Print
-                            </button>
+                        <tr key={rec.id} className="hover:bg-slate-50/50 block md:table-row p-3 md:p-0">
+                          <td className="py-1 px-3 font-semibold text-amber-600 block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Receipt ID:</span>{rec.id}</td>
+                          <td className="py-1 px-3 font-bold text-slate-800 block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Student:</span>{rec.studentName}</td>
+                          <td className="py-1 px-3 text-slate-600 block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Cycle:</span>{rec.month}</td>
+                          <td className="py-1 px-3 font-bold text-slate-800 block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Amount:</span>₹{rec.amountPaid}</td>
+                          <td className="py-1 px-3 text-slate-500 font-mono text-[10px] block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Method:</span>{rec.paymentMethod}</td>
+                          <td className="py-1 px-3 block md:table-cell md:p-3">
+                            <span className="inline-block md:hidden font-bold text-slate-400 w-28">Actions:</span>
+                            <div className="inline-flex gap-1.5 align-middle">
+                              <button
+                                id={`btn-reception-print-${rec.id}`}
+                                onClick={() => setReceiptToPrint(rec)}
+                                className="inline-flex items-center gap-1 rounded bg-slate-100 hover:bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-700 transition-colors cursor-pointer"
+                              >
+                                <Printer size={10} /> View Voucher
+                              </button>
+                              <button
+                                id={`btn-reception-pdf-history-${rec.id}`}
+                                onClick={() => handleDownloadStudentHistoryPDF(rec.studentId, rec.studentName)}
+                                className="inline-flex items-center gap-1 rounded bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer"
+                                title="Download complete payment history for this student"
+                              >
+                                <Download size={10} /> Download PDF
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1010,19 +1452,30 @@ export default function ReceptionDashboard({
               <button
                 id="btn-rec-print-close"
                 onClick={() => setReceiptToPrint(null)}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
               >
                 Close
               </button>
               <button
-                id="btn-rec-print-pdf"
+                id="btn-rec-history-pdf"
                 onClick={() => {
-                  alert("Voucher file sent to local system printer successfully.");
+                  handleDownloadStudentHistoryPDF(receiptToPrint.studentId, receiptToPrint.studentName);
                   setReceiptToPrint(null);
                 }}
-                className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-amber-700"
+                className="rounded-xl bg-slate-100 hover:bg-slate-200 px-4 py-2 text-xs font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer"
+                title="Download complete payment history for this student"
               >
-                Print Receipt
+                <Download size={13} /> History Ledger PDF
+              </button>
+              <button
+                id="btn-rec-print-pdf"
+                onClick={() => {
+                  handlePrintSingleReceipt(receiptToPrint);
+                  setReceiptToPrint(null);
+                }}
+                className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-amber-700 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Printer size={13} /> Print Receipt
               </button>
             </div>
           </div>

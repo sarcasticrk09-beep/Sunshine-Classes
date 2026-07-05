@@ -19,6 +19,9 @@ import {
   HomeworkSubmission,
   BlogPost,
   Testimonial,
+  Topper,
+  FounderMember,
+  StudyMaterial,
   GalleryItem,
   AppNotification,
   Inquiry,
@@ -28,8 +31,23 @@ import {
   SubscriptionReceipt,
   SubscriptionNotification,
   SubscriptionConfig,
-  TimetableEntry
+  TimetableEntry,
+  EmailTemplatesConfig,
+  WhatsAppTemplatesConfig
 } from './types';
+
+export const getFeeForClass = (classStr: string): number => {
+  if (!classStr) return 700;
+  const match = classStr.match(/\d+/);
+  if (match) {
+    const classNum = parseInt(match[0], 10);
+    if (classNum >= 1 && classNum <= 4) return 500;
+    if (classNum >= 5 && classNum <= 8) return 700;
+    if (classNum === 9) return 1000;
+    if (classNum === 10) return 1200;
+  }
+  return 700; // default backup fee
+};
 
 export const SEED_COURSES: Course[] = [
   {
@@ -38,7 +56,7 @@ export const SEED_COURSES: Course[] = [
     subjects: ['Mathematics', 'Science (Phy/Chem/Bio)', 'English Literature & Grammar', 'Social Studies'],
     duration: '1 Year (Full Session)',
     features: ['Weekly Doubt Clearing', 'Chapter-wise MCQ Tests', 'Previous 10 Years Board Papers', 'NCERT-Based Deep Dives'],
-    fees: 1500
+    fees: 1200
   },
   {
     id: 'c2',
@@ -46,40 +64,32 @@ export const SEED_COURSES: Course[] = [
     subjects: ['Mathematics', 'Science', 'English'],
     duration: '1 Year (Full Session)',
     features: ['Strong concept building', 'Bi-weekly tests', 'Daily revision notes', 'Parent monthly meetups'],
-    fees: 1200
-  },
-  {
-    id: 'c3',
-    name: 'Class 8 Comprehensive Learning',
-    subjects: ['Mathematics', 'Science', 'English', 'Sanskrit/Hindi'],
-    duration: '1 Year',
-    features: ['Interactive modules', 'Doubt clinics', 'Regular assessment reports'],
     fees: 1000
   },
   {
-    id: 'c4',
-    name: 'Classes 6 to 7 Standard Path',
-    subjects: ['All Primary Subjects (NCERT)'],
+    id: 'c3',
+    name: 'Class 5 to 8 Comprehensive Learning',
+    subjects: ['Mathematics', 'Science', 'English', 'Sanskrit/Hindi'],
     duration: '1 Year',
-    features: ['Basic calculations speedups', 'Interactive English reading', 'Fun Science experiments'],
-    fees: 800
+    features: ['Interactive modules', 'Doubt clinics', 'Regular assessment reports'],
+    fees: 700
   },
   {
-    id: 'c5',
-    name: 'Classes 1 to 5 Junior Sunshine',
+    id: 'c4',
+    name: 'Classes 1 to 4 Junior Sunshine',
     subjects: ['All Primary Subjects (NCERT)'],
     duration: '1 Year',
     features: ['Special attention', 'Interactive homework', 'Creative writing classes'],
-    fees: 600
+    fees: 500
   }
 ];
 
 export const SEED_BATCHES: Batch[] = [
-  { id: 'b1', name: 'Class 10 - Morning Excellence', time: '07:00 AM - 09:30 AM', class: 'Class 10', teacherName: 'Suresh Kumar', monthlyFee: 1200, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' },
-  { id: 'b2', name: 'Class 10 - Evening Stars', time: '04:00 PM - 06:30 PM', class: 'Class 10', teacherName: 'Suresh Kumar', monthlyFee: 1200, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' },
+  { id: 'b1', name: 'Class 10 - Morning Excellence', time: '07:00 AM - 09:30 AM', class: 'Class 10', teacherName: 'Priyanshu Gupta', monthlyFee: 1200, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' },
+  { id: 'b2', name: 'Class 10 - Evening Stars', time: '04:00 PM - 06:30 PM', class: 'Class 10', teacherName: 'Priyanshu Gupta', monthlyFee: 1200, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' },
   { id: 'b3', name: 'Class 9 - Foundation Group', time: '03:00 PM - 05:00 PM', class: 'Class 9', teacherName: 'Anil Pandey', monthlyFee: 1000, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' },
-  { id: 'b4', name: 'Class 8 - Apex Batch', time: '02:00 PM - 04:00 PM', class: 'Class 8', teacherName: 'Ritu Singh', monthlyFee: 800, startDate: '2026-05-15', billingCycle: 'Monthly', nextDueDate: '2026-06-15', status: 'DUE' },
-  { id: 'b5', name: 'Primary - Junior Sunshine', time: '01:00 PM - 03:00 PM', class: 'Class 5', teacherName: 'Neha Sharma', monthlyFee: 600, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' }
+  { id: 'b4', name: 'Class 8 - Apex Batch', time: '02:00 PM - 04:00 PM', class: 'Class 8', teacherName: 'Ritu Singh', monthlyFee: 700, startDate: '2026-05-15', billingCycle: 'Monthly', nextDueDate: '2026-06-15', status: 'DUE' },
+  { id: 'b5', name: 'Primary - Junior Sunshine', time: '01:00 PM - 03:00 PM', class: 'Class 5', teacherName: 'Neha Sharma', monthlyFee: 700, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' }
 ];
 
 export const SEED_STUDENT_SUBSCRIPTIONS: StudentSubscription[] = [
@@ -310,15 +320,158 @@ export const SEED_SUBSCRIPTION_CONFIG: SubscriptionConfig = {
   enableOverdueSMS: true,
   enableMidGraceSMS: true,
   enableExpiryWarningSMS: false,
-  enableExpiredSMS: true
+  enableExpiredSMS: true,
+  whatsappProvider: 'NONE',
+  whatsappApiKey: '',
+  whatsappPhoneNumber: '',
+  whatsappAccountSid: '',
+  whatsappAuthToken: '',
+  whatsappSenderNumber: '',
+  enableOnlinePayments: true,
+  paymentGatewayProvider: 'UPI_QR',
+  upiId: '9161586254@upi',
+  upiMerchantName: 'Sunshine Classes Ltd',
+  bankAccountHolder: 'Sunshine Classes ERP Solutions',
+  bankAccountNumber: '33888542347',
+  bankName: 'State Bank of India (Pihani Branch)',
+  bankIfsc: 'SBIN0011180',
+  razorpayKeyId: 'rzp_live_A9B8C7D6E5F4G3',
+  stripePublicKey: 'pk_live_51Mxxxxxxxxxxxxxxxx',
+  allowPartialPayments: false,
+  requireReceiptUpload: true,
+  convenienceFeePercent: 0,
+  enableUpiMethod: true,
+  enableCardMethod: true,
+  enableNetBankingMethod: true,
+  enableBankTransferMethod: true,
+  enableAutomatedFeeAlerts: true
+};
+
+export const SEED_WHATSAPP_TEMPLATES: WhatsAppTemplatesConfig = {
+  receiptTemplate: "Dear Parent, Sunshine Classes has received payment of ₹{{amount}} for {{studentName}} ({{className}}) for the month of {{month}}. Receipt ID: {{receiptId}}. Thank you!",
+  reminderTemplate: "Dear Parent, the monthly tuition fee of ₹{{amount}} for {{studentName}} ({{className}}) is pending for {{month}}. Please pay before the due date {{dueDate}} to avoid late fees. Thank you, Sunshine Classes.",
+  scheduleTemplate: "Hello {{studentName}}, please note that your batch timing for {{className}} has been adjusted. New timing: {{timing}}. Sunshine Classes."
+};
+
+export const SEED_EMAIL_TEMPLATES: EmailTemplatesConfig = {
+  receiptSubject: "🧾 Fee Receipt - {{receiptId}} - Sunshine Classes",
+  receiptBody: `<div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+  <div style="text-align: center; margin-bottom: 20px;">
+    <h1 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 800;">SUNSHINE CLASSES</h1>
+    <p style="color: #ea580c; font-size: 12px; font-weight: bold; margin: 5px 0 0 0; letter-spacing: 1px; text-transform: uppercase;">Excellence in Education</p>
+  </div>
+  
+  <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ea580c;">
+    <h2 style="margin: 0 0 10px 0; font-size: 16px; color: #334155;">Official Tuition Fee Receipt</h2>
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #475569;">
+      <tr>
+        <td style="padding: 4px 0; font-weight: bold;">Receipt No:</td>
+        <td style="padding: 4px 0; text-align: right;">{{receiptId}}</td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 0; font-weight: bold;">Date:</td>
+        <td style="padding: 4px 0; text-align: right;">{{date}}</td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 0; font-weight: bold;">Student Name:</td>
+        <td style="padding: 4px 0; text-align: right;">{{studentName}}</td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 0; font-weight: bold;">Class / Grade:</td>
+        <td style="padding: 4px 0; text-align: right;">{{className}}</td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #475569;">
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <th style="padding: 8px 0; text-align: left; color: #334155;">Description</th>
+        <th style="padding: 8px 0; text-align: right; color: #334155;">Amount</th>
+      </tr>
+      <tr>
+        <td style="padding: 10px 0;">Tuition Fee - Cycle <strong>{{month}}</strong></td>
+        <td style="padding: 10px 0; text-align: right; font-weight: bold; color: #1e3a8a; font-size: 15px;">₹{{amount}}</td>
+      </tr>
+    </table>
+  </div>
+
+  <table style="width: 100%; border-collapse: collapse; font-size: 12px; color: #64748b; margin-bottom: 20px;">
+    <tr>
+      <td><strong>Payment Method:</strong> {{paymentMethod}}</td>
+      <td style="text-align: right;"><strong>Ref / Transaction ID:</strong> {{transactionId}}</td>
+    </tr>
+    <tr>
+      <td colspan="2" style="padding-top: 8px;"><strong>Received By:</strong> {{receivedBy}}</td>
+    </tr>
+  </table>
+
+  <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.5;">
+    <p style="margin: 0;">Thank you for your valuable support toward excellence in education.</p>
+    <p style="margin: 5px 0 0 0; font-weight: bold; color: #475569;">Sunshine Classes, Pihani, Hardoi, UP, India</p>
+    <p style="margin: 2px 0 0 0;">WhatsApp: +91 9161586254 | Call: +91 8707738284</p>
+  </div>
+</div>`,
+  reminderSubject: "⚠️ Sunshine Classes - Tuition Fee Pending Reminder ({{month}})",
+  reminderBody: `<div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #fecaca; border-radius: 12px; background-color: #ffffff;">
+  <div style="text-align: center; margin-bottom: 20px;">
+    <h1 style="color: #1e3a8a; margin: 0; font-size: 24px; font-weight: 800;">SUNSHINE CLASSES</h1>
+    <p style="color: #ea580c; font-size: 12px; font-weight: bold; margin: 5px 0 0 0; letter-spacing: 1px; text-transform: uppercase;">Excellence in Education</p>
+  </div>
+  
+  <div style="background-color: #fffbeb; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #f59e0b;">
+    <h2 style="margin: 0 0 10px 0; font-size: 16px; color: #b45309;">⚠️ Tuition Fee Payment Reminder</h2>
+    <p style="font-size: 14px; color: #475569; line-height: 1.5; margin: 0 0 15px 0;">
+      Dear Parent, 
+    </p>
+    <p style="font-size: 14px; color: #475569; line-height: 1.5; margin: 0 0 15px 0;">
+      We would like to remind you that the tuition fee for your child <strong>{{studentName}}</strong> ({{className}}) for the cycle <strong>{{month}}</strong> of <strong>₹{{amount}}</strong> is currently outstanding.
+    </p>
+    <p style="font-size: 14px; color: #475569; line-height: 1.5; margin: 0;">
+      Please make the payment by the due date of <strong>{{dueDate}}</strong> to prevent late fines or study disruption. Thank you!
+    </p>
+  </div>
+
+  <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 20px; background-color: #f8fafc;">
+    <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; tracking: 0.5px; color: #64748b;">Dues Summary</h3>
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #475569;">
+      <tr>
+        <td style="padding: 4px 0; font-weight: bold;">Student Name:</td>
+        <td style="padding: 4px 0; text-align: right;">{{studentName}}</td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 0; font-weight: bold;">Class / Grade:</td>
+        <td style="padding: 4px 0; text-align: right;">{{className}}</td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 0; font-weight: bold;">Pending Month:</td>
+        <td style="padding: 4px 0; text-align: right;">{{month}}</td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 0; font-weight: bold;">Due Date:</td>
+        <td style="padding: 4px 0; text-align: right;">{{dueDate}}</td>
+      </tr>
+      <tr style="border-top: 1px solid #e2e8f0;">
+        <td style="padding: 8px 0; font-weight: bold; color: #b45309;">Pending Dues:</td>
+        <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #dc2626; font-size: 16px;">₹{{amount}}</td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.5;">
+    <p style="margin: 0;">If you have already paid, please ignore this email or present your previous receipt.</p>
+    <p style="margin: 5px 0 0 0; font-weight: bold; color: #475569;">Sunshine Classes, Pihani, Hardoi, UP, India</p>
+    <p style="margin: 2px 0 0 0;">WhatsApp: +91 9161586254 | Call: +91 8707738284</p>
+  </div>
+</div>`
 };
 
 export const SEED_TEACHERS: Teacher[] = [
   {
     id: 't1',
     userId: 'u2',
-    name: 'Suresh Kumar',
-    email: 'suresh@sunshine.com',
+    name: 'Priyanshu Gupta',
+    email: 'priyanshu@sunshine.com',
     phone: '9876543210',
     qualification: 'M.Sc. Mathematics, B.Ed',
     specialty: ['Mathematics', 'Physics'],
@@ -431,7 +584,7 @@ export const SEED_STUDENTS: Student[] = [
 
 export const SEED_USERS: User[] = [
   { id: 'u1', username: 'admin', name: 'Shubham Shukla (Founder)', email: 'admin@sunshine.com', role: 'ADMIN', phone: '8707738284' },
-  { id: 'u2', username: 'teacher', name: 'Suresh Kumar', email: 'suresh@sunshine.com', role: 'TEACHER', phone: '9876543210' },
+  { id: 'u2', username: 'teacher', name: 'Priyanshu Gupta', email: 'priyanshu@sunshine.com', role: 'TEACHER', phone: '9876543210' },
   { id: 'u3', username: 'reception', name: 'Neha Sharma', email: 'reception@sunshine.com', role: 'RECEPTIONIST', phone: '8707738284' },
   { id: 'u4', username: 'student', name: 'Rahul Verma', email: 'rahul@gmail.com', role: 'STUDENT', phone: '9161586254' },
   { id: 'u5', username: 'anil', name: 'Anil Pandey', email: 'anil@sunshine.com', role: 'TEACHER', phone: '8765432109' },
@@ -482,16 +635,16 @@ export const SEED_ADMISSIONS: Admission[] = [
 
 export const SEED_ATTENDANCE: Attendance[] = [
   // Attendance history for s1 (Rahul)
-  { id: 'at1', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', date: '2026-06-24', status: 'PRESENT', markedBy: 'Suresh Kumar' },
-  { id: 'at2', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', date: '2026-06-25', status: 'PRESENT', markedBy: 'Suresh Kumar' },
-  { id: 'at3', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', date: '2026-06-26', status: 'LATE', markedBy: 'Suresh Kumar' },
-  { id: 'at4', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', date: '2026-06-27', status: 'PRESENT', markedBy: 'Suresh Kumar' },
+  { id: 'at1', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', date: '2026-06-24', status: 'PRESENT', markedBy: 'Priyanshu Gupta' },
+  { id: 'at2', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', date: '2026-06-25', status: 'PRESENT', markedBy: 'Priyanshu Gupta' },
+  { id: 'at3', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', date: '2026-06-26', status: 'LATE', markedBy: 'Priyanshu Gupta' },
+  { id: 'at4', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', date: '2026-06-27', status: 'PRESENT', markedBy: 'Priyanshu Gupta' },
   
   // Attendance for s2 (Priya)
-  { id: 'at5', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', date: '2026-06-24', status: 'PRESENT', markedBy: 'Suresh Kumar' },
-  { id: 'at6', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', date: '2026-06-25', status: 'PRESENT', markedBy: 'Suresh Kumar' },
-  { id: 'at7', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', date: '2026-06-26', status: 'PRESENT', markedBy: 'Suresh Kumar' },
-  { id: 'at8', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', date: '2026-06-27', status: 'PRESENT', markedBy: 'Suresh Kumar' },
+  { id: 'at5', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', date: '2026-06-24', status: 'PRESENT', markedBy: 'Priyanshu Gupta' },
+  { id: 'at6', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', date: '2026-06-25', status: 'PRESENT', markedBy: 'Priyanshu Gupta' },
+  { id: 'at7', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', date: '2026-06-26', status: 'PRESENT', markedBy: 'Priyanshu Gupta' },
+  { id: 'at8', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', date: '2026-06-27', status: 'PRESENT', markedBy: 'Priyanshu Gupta' },
 
   // Attendance for s3 (Aditya)
   { id: 'at9', studentId: 's3', studentName: 'Aditya Gupta', class: 'Class 9', date: '2026-06-26', status: 'ABSENT', markedBy: 'Anil Pandey' },
@@ -499,11 +652,11 @@ export const SEED_ATTENDANCE: Attendance[] = [
 ];
 
 export const SEED_FEE_STATUS: FeeStatus[] = [
-  { id: 'fs1', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', month: 'June 2026', totalFee: 1500, discount: 100, scholarship: 200, paidFee: 1200, pendingFee: 0, status: 'PAID', dueDate: '2026-06-10' },
-  { id: 'fs2', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', month: 'July 2026', totalFee: 1500, discount: 0, scholarship: 0, paidFee: 0, pendingFee: 1500, status: 'PENDING', dueDate: '2026-07-10' },
-  { id: 'fs3', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', month: 'June 2026', totalFee: 1500, discount: 0, scholarship: 500, paidFee: 1000, pendingFee: 0, status: 'PAID', dueDate: '2026-06-10' },
-  { id: 'fs4', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', month: 'July 2026', totalFee: 1500, discount: 0, scholarship: 500, paidFee: 0, pendingFee: 1000, status: 'PENDING', dueDate: '2026-07-10' },
-  { id: 'fs5', studentId: 's3', studentName: 'Aditya Gupta', class: 'Class 9', month: 'June 2026', totalFee: 1200, discount: 0, scholarship: 0, paidFee: 600, pendingFee: 600, status: 'PARTIAL', dueDate: '2026-06-10' }
+  { id: 'fs1', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', month: 'June 2026', totalFee: 1200, discount: 0, scholarship: 0, paidFee: 1200, pendingFee: 0, status: 'PAID', dueDate: '2026-06-10' },
+  { id: 'fs2', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', month: 'July 2026', totalFee: 1200, discount: 0, scholarship: 0, paidFee: 0, pendingFee: 1200, status: 'PENDING', dueDate: '2026-07-10' },
+  { id: 'fs3', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', month: 'June 2026', totalFee: 1200, discount: 0, scholarship: 200, paidFee: 1000, pendingFee: 0, status: 'PAID', dueDate: '2026-06-10' },
+  { id: 'fs4', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', month: 'July 2026', totalFee: 1200, discount: 0, scholarship: 200, paidFee: 0, pendingFee: 1000, status: 'PENDING', dueDate: '2026-07-10' },
+  { id: 'fs5', studentId: 's3', studentName: 'Aditya Gupta', class: 'Class 9', month: 'June 2026', totalFee: 1000, discount: 0, scholarship: 0, paidFee: 600, pendingFee: 400, status: 'PARTIAL', dueDate: '2026-06-10' }
 ];
 
 export const SEED_FEE_RECEIPTS: FeeReceipt[] = [
@@ -530,8 +683,8 @@ export const SEED_STUDENT_MARKS: StudentMark[] = [
 ];
 
 export const SEED_HOMEWORK: Homework[] = [
-  { id: 'hw1', title: 'Quadratic Equations Exercise 4.2', description: 'Solve all questions from Exercise 4.2 of NCERT textbook and show steps clearly in your notebook.', class: 'Class 10', subject: 'Mathematics', date: '2026-06-25', dueDate: '2026-06-28', teacherId: 't1', teacherName: 'Suresh Kumar' },
-  { id: 'hw2', title: 'Chemical Reactions Balancing', description: 'Balance the 15 equations provided in the sheet. Upload a clean photograph or PDF of the completed work.', class: 'Class 10', subject: 'Science', date: '2026-06-26', dueDate: '2026-06-29', teacherId: 't1', teacherName: 'Suresh Kumar' },
+  { id: 'hw1', title: 'Quadratic Equations Exercise 4.2', description: 'Solve all questions from Exercise 4.2 of NCERT textbook and show steps clearly in your notebook.', class: 'Class 10', subject: 'Mathematics', date: '2026-06-25', dueDate: '2026-06-28', teacherId: 't1', teacherName: 'Priyanshu Gupta' },
+  { id: 'hw2', title: 'Chemical Reactions Balancing', description: 'Balance the 15 equations provided in the sheet. Upload a clean photograph or PDF of the completed work.', class: 'Class 10', subject: 'Science', date: '2026-06-26', dueDate: '2026-06-29', teacherId: 't1', teacherName: 'Priyanshu Gupta' },
   { id: 'hw3', title: 'Nouns & Pronouns Worksheet', description: 'Complete the preposition and pronoun filling exercise uploaded in study materials.', class: 'Class 8', subject: 'English', date: '2026-06-26', dueDate: '2026-06-28', teacherId: 't3', teacherName: 'Ritu Singh' }
 ];
 
@@ -557,7 +710,7 @@ export const SEED_BLOGS: BlogPost[] = [
     excerpt: 'Physics is easy when you relate it to daily life. Here is our teaching methodology to make science your favorite subject.',
     content: 'Many students struggle with physics numericals because they try to mug up formulas without understanding the fundamental physics behind them. At Sunshine Classes, we focus on visualization. When studying refraction, we show live glass slab experiments. Once you visualize light bending as it changes medium, formulas like Snell\'s Law become logical instead of intimidating.',
     category: 'Study Hacks',
-    author: 'Suresh Kumar (Senior Faculty)',
+    author: 'Priyanshu Gupta (Senior Faculty)',
     date: '2026-06-22',
     imageUrl: 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=600&auto=format&fit=crop&q=60'
   },
@@ -627,20 +780,65 @@ export const SEED_AUDIT_LOGS: AuditLog[] = [
 ];
 
 export const SEED_TIMETABLE: TimetableEntry[] = [
-  { id: 'tt1', day: 'Monday', className: 'Class 10', subject: 'Mathematics', teacherName: 'Suresh Kumar', room: 'Room 101', startTime: '07:00 AM', endTime: '08:30 AM' },
-  { id: 'tt2', day: 'Monday', className: 'Class 10', subject: 'Physics', teacherName: 'Suresh Kumar', room: 'Room 101', startTime: '08:30 AM', endTime: '09:30 AM' },
+  { id: 'tt1', day: 'Monday', className: 'Class 10', subject: 'Mathematics', teacherName: 'Priyanshu Gupta', room: 'Room 101', startTime: '07:00 AM', endTime: '08:30 AM' },
+  { id: 'tt2', day: 'Monday', className: 'Class 10', subject: 'Physics', teacherName: 'Priyanshu Gupta', room: 'Room 101', startTime: '08:30 AM', endTime: '09:30 AM' },
   { id: 'tt3', day: 'Monday', className: 'Class 9', subject: 'Chemistry', teacherName: 'Anil Pandey', room: 'Room 102', startTime: '03:00 PM', endTime: '04:30 PM' },
   { id: 'tt4', day: 'Monday', className: 'Class 10', subject: 'English', teacherName: 'Ritu Singh', room: 'Room 103', startTime: '04:00 PM', endTime: '05:30 PM' },
-  { id: 'tt5', day: 'Tuesday', className: 'Class 10', subject: 'Mathematics', teacherName: 'Suresh Kumar', room: 'Room 101', startTime: '07:00 AM', endTime: '08:30 AM' },
+  { id: 'tt5', day: 'Tuesday', className: 'Class 10', subject: 'Mathematics', teacherName: 'Priyanshu Gupta', room: 'Room 101', startTime: '07:00 AM', endTime: '08:30 AM' },
   { id: 'tt6', day: 'Tuesday', className: 'Class 10', subject: 'Biology', teacherName: 'Anil Pandey', room: 'Room 101', startTime: '08:30 AM', endTime: '09:30 AM' },
-  { id: 'tt7', day: 'Tuesday', className: 'Class 9', subject: 'Mathematics', teacherName: 'Suresh Kumar', room: 'Room 102', startTime: '03:00 PM', endTime: '05:00 PM' },
-  { id: 'tt8', day: 'Wednesday', className: 'Class 10', subject: 'Physics', teacherName: 'Suresh Kumar', room: 'Room 101', startTime: '07:00 AM', endTime: '08:30 AM' },
+  { id: 'tt7', day: 'Tuesday', className: 'Class 9', subject: 'Mathematics', teacherName: 'Priyanshu Gupta', room: 'Room 102', startTime: '03:00 PM', endTime: '05:00 PM' },
+  { id: 'tt8', day: 'Wednesday', className: 'Class 10', subject: 'Physics', teacherName: 'Priyanshu Gupta', room: 'Room 101', startTime: '07:00 AM', endTime: '08:30 AM' },
   { id: 'tt9', day: 'Wednesday', className: 'Class 10', subject: 'Chemistry', teacherName: 'Anil Pandey', room: 'Room 101', startTime: '08:30 AM', endTime: '09:30 AM' },
   { id: 'tt10', day: 'Wednesday', className: 'Class 8', subject: 'English', teacherName: 'Ritu Singh', room: 'Room 103', startTime: '02:00 PM', endTime: '04:00 PM' },
-  { id: 'tt11', day: 'Thursday', className: 'Class 10', subject: 'Mathematics', teacherName: 'Suresh Kumar', room: 'Room 101', startTime: '07:00 AM', endTime: '08:30 AM' },
+  { id: 'tt11', day: 'Thursday', className: 'Class 10', subject: 'Mathematics', teacherName: 'Priyanshu Gupta', room: 'Room 101', startTime: '07:00 AM', endTime: '08:30 AM' },
   { id: 'tt12', day: 'Thursday', className: 'Class 10', subject: 'Social Studies', teacherName: 'Ritu Singh', room: 'Room 101', startTime: '08:30 AM', endTime: '09:30 AM' },
-  { id: 'tt13', day: 'Friday', className: 'Class 10', subject: 'Mathematics', teacherName: 'Suresh Kumar', room: 'Room 101', startTime: '07:00 AM', endTime: '08:30 AM' },
+  { id: 'tt13', day: 'Friday', className: 'Class 10', subject: 'Mathematics', teacherName: 'Priyanshu Gupta', room: 'Room 101', startTime: '07:00 AM', endTime: '08:30 AM' },
   { id: 'tt14', day: 'Friday', className: 'Class 10', subject: 'English', teacherName: 'Ritu Singh', room: 'Room 101', startTime: '08:30 AM', endTime: '09:30 AM' },
-  { id: 'tt15', day: 'Saturday', className: 'Class 10', subject: 'Revision Test Session', teacherName: 'Suresh Kumar', room: 'Main Hall', startTime: '08:00 AM', endTime: '11:00 AM' }
+  { id: 'tt15', day: 'Saturday', className: 'Class 10', subject: 'Revision Test Session', teacherName: 'Priyanshu Gupta', room: 'Main Hall', startTime: '08:00 AM', endTime: '11:00 AM' }
 ];
+
+export const SEED_TOPPERS: Topper[] = [
+  { id: 'top1', name: 'Priya Mishra', score: '98.4%', rank: 'State Topper Rank 4', desc: 'Outstanding logical step marks in Math & Physics numerical sheets.', img: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&auto=format&fit=crop&q=60' },
+  { id: 'top2', name: 'Anuj Soni', score: '96.2%', rank: 'Hardoi District Rank 12', desc: 'Outstanding chemical reactions balancing with flawless grammar papers.', img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=60' },
+  { id: 'top3', name: 'Aditi Shukla', score: '95.0%', rank: 'District Rank 18', desc: 'Perfect scoring in Social Studies maps and English grammar assessments.', img: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&auto=format&fit=crop&q=60' }
+];
+
+export const SEED_STUDY_MATERIALS: StudyMaterial[] = [
+  { id: 'mat1', title: 'Class 10 Math Formula Cheat-Sheet', subject: 'Mathematics', desc: 'Complete algebraic, quadratic, and trigonometric formulas in 2 clean pages.', file: 'math_formulas.pdf', size: '1.2 MB', class: 'Class 10', category: 'NOTES' },
+  { id: 'mat2', title: 'Chemical Reactions and Equations PDF', subject: 'Science', desc: 'NCERT back exercise solved chemical reactions with balancing shortcuts.', file: 'chemical_equations.pdf', size: '2.5 MB', class: 'Class 10', category: 'NOTES' },
+  { id: 'mat3', title: 'Active & Passive Voice Rules Guide', subject: 'English', desc: 'English grammar rules with pre-board mock practice questions.', file: 'english_grammar_voice.pdf', size: '800 KB', class: 'Class 8', category: 'QUESTION_PAPER' },
+  { id: 'mat4', title: 'Class 10 Physics Ray Diagrams', subject: 'Science', desc: 'Hand-drawn mirror and lens ray formation scenarios for board exam reference.', file: 'physics_ray_diagrams.pdf', size: '4.1 MB', class: 'Class 10', category: 'NOTES' }
+];
+
+export const SEED_FOUNDERS: FounderMember[] = [
+  {
+    id: 'fm-shubham',
+    name: 'Shubham Shukla',
+    title: 'Founder Director & Lead Mathematics Faculty',
+    qualification: 'M.Sc. Mathematics, B.Ed. | UGC NET Qualified',
+    message: 'At Sunshine Classes, we believe that education is not merely about cramming question banks. It is about kindling curiosity. When a student visualizes the reflection rays or understands why a quadratic solution represents a graphical curve, they don\'t just score marks — they become innovators. Our doors are always open to parents who wish to participate actively in their child\'s daily progress.',
+    tuitionFocus: 'Board Mathematics',
+    avatarInitials: 'SS'
+  },
+  {
+    id: 'fm-suresh',
+    name: 'Priyanshu Gupta (Priyanshu Sir)',
+    title: 'Co-Founder & Senior Science Specialist',
+    qualification: 'B.Sc. Physics & Chemistry, B.Ed. | 12+ Years Exp',
+    message: 'True science begins with observation. By teaching our board aspirants to dissect and visualize physical models and chemical reactions, we dismantle exam fear and instill everlasting analytical reasoning. Every student has immense potential; we simply provide the lens of extreme clarity.',
+    tuitionFocus: 'Board Physics & Chemistry',
+    avatarInitials: 'S'
+  }
+];
+
+export const interpolateTemplate = (templateStr: string, variables: Record<string, any>): string => {
+  let result = templateStr;
+  for (const [key, value] of Object.entries(variables)) {
+    const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+    result = result.replace(placeholder, value !== undefined && value !== null ? String(value) : '');
+  }
+  return result;
+};
+
+
 

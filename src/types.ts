@@ -11,6 +11,7 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
+  password?: string;
   avatarUrl?: string;
   phone?: string;
 }
@@ -109,6 +110,8 @@ export interface StudentSubscription {
   daysRemaining: number;
   lastPaymentDate?: string;
   gracePeriodDays: number;
+  batchTime?: string;
+  tempTimeChange?: string;
 }
 
 export interface SubscriptionPayment {
@@ -161,6 +164,32 @@ export interface SubscriptionConfig {
   enableMidGraceSMS?: boolean;
   enableExpiryWarningSMS?: boolean;
   enableExpiredSMS?: boolean;
+  whatsappProvider?: 'TWILIO' | 'WHATSAPP_BUSINESS' | 'NONE';
+  whatsappApiKey?: string;
+  whatsappPhoneNumber?: string;
+  whatsappAccountSid?: string;
+  whatsappAuthToken?: string;
+  whatsappSenderNumber?: string;
+  // Secure Payment Gateway / Fee Collection options
+  enableOnlinePayments?: boolean;
+  paymentGatewayProvider?: 'UPI_QR' | 'RAZORPAY' | 'STRIPE' | 'BANK_TRANSFER' | 'MOCK';
+  upiId?: string;
+  upiMerchantName?: string;
+  bankAccountHolder?: string;
+  bankAccountNumber?: string;
+  bankName?: string;
+  bankIfsc?: string;
+  razorpayKeyId?: string;
+  stripePublicKey?: string;
+  // Advanced Fee Collection Controls
+  allowPartialPayments?: boolean;
+  requireReceiptUpload?: boolean;
+  convenienceFeePercent?: number;
+  enableUpiMethod?: boolean;
+  enableCardMethod?: boolean;
+  enableNetBankingMethod?: boolean;
+  enableBankTransferMethod?: boolean;
+  enableAutomatedFeeAlerts?: boolean;
 }
 
 export interface Attendance {
@@ -270,6 +299,40 @@ export interface Testimonial {
   avatarUrl: string;
 }
 
+export interface Topper {
+  id: string;
+  name: string;
+  score: string;
+  rank: string;
+  desc: string;
+  img: string;
+}
+
+export interface FounderMember {
+  id: string;
+  name: string;
+  title: string;
+  qualification: string;
+  message: string;
+  tuitionFocus: string;
+  avatarInitials: string;
+  photoUrl?: string;
+}
+
+export interface StudyMaterial {
+  id: string;
+  title: string;
+  subject: string;
+  desc: string;
+  file: string;
+  size: string;
+  class: string;
+  category: 'NOTES' | 'QUESTION_PAPER';
+  uploadedBy?: string;
+  date?: string;
+  fileData?: string;
+}
+
 export interface GalleryItem {
   id: string;
   title: string;
@@ -295,6 +358,10 @@ export interface AppNotification {
   targetRole: 'ALL' | 'STUDENT' | 'TEACHER' | 'RECEPTIONIST';
   date: string;
   isRead?: boolean;
+  targetBatch?: string;
+  targetClass?: string;
+  sentAsEmail?: boolean;
+  emailRecipientsCount?: number;
 }
 
 export interface Inquiry {
@@ -320,4 +387,18 @@ export interface TimetableEntry {
   isHoliday?: boolean;
   holidayReason?: string;
 }
+
+export interface EmailTemplatesConfig {
+  receiptSubject: string;
+  receiptBody: string;
+  reminderSubject: string;
+  reminderBody: string;
+}
+
+export interface WhatsAppTemplatesConfig {
+  receiptTemplate: string;
+  reminderTemplate: string;
+  scheduleTemplate: string;
+}
+
 

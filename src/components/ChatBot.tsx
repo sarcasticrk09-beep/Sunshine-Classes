@@ -6,6 +6,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { MessageSquare, X, Send, Sparkles, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import SunshineLogo from './SunshineLogo';
 
 interface ChatMessage {
   id: string;
@@ -91,17 +92,19 @@ export default function ChatBot() {
   return (
     <>
       {/* Floating Action Button */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3">
-        <motion.button
-          id="btn-chatbot-toggle"
-          onClick={() => setIsOpen(!isOpen)}
-          whileHover={{ scale: 1.08 }}
-          whileTap={{ scale: 0.95 }}
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-orange text-white shadow-lg hover:bg-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-300"
-        >
-          {isOpen ? <X size={24} /> : <MessageSquare size={24} />}
-        </motion.button>
-      </div>
+      {!isOpen && (
+        <div className="fixed bottom-24 right-6 z-50 flex flex-col gap-3">
+          <motion.button
+            id="btn-chatbot-toggle"
+            onClick={() => setIsOpen(!isOpen)}
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.95 }}
+            className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-orange text-white shadow-lg hover:bg-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-300"
+          >
+            <MessageSquare size={24} />
+          </motion.button>
+        </div>
+      )}
 
       {/* Expanded Chat Box */}
       <AnimatePresence>
@@ -111,13 +114,13 @@ export default function ChatBot() {
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
-            className="fixed right-6 bottom-24 z-50 flex h-[500px] w-[360px] flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl md:w-[400px]"
+            className="fixed right-4 bottom-24 z-50 flex h-[500px] w-[calc(100vw-2rem)] max-w-[360px] md:max-w-[400px] md:right-6 flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl"
           >
             {/* Header */}
             <div className="flex items-center justify-between rounded-t-2xl bg-brand-blue px-4 py-3 text-white">
               <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-400">
-                  <Sparkles size={18} className="text-brand-blue" />
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white p-0.5 shadow-inner">
+                  <SunshineLogo size={28} showText={false} />
                 </div>
                 <div>
                   <h4 className="font-display font-semibold text-sm">Sunshine Classes AI</h4>

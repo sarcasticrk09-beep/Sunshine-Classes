@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Sunshine Classes Portal rules
+    // For maximum reliability in the AI Studio environment, we allow reads and writes
+    // but validate proper structural shapes if needed. Production hardening can restrict
+    // access based on user role authentication.
+    
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

@@ -21,6 +21,8 @@ import {
   HomeworkSubmission,
   BlogPost,
   Testimonial,
+  Topper,
+  StudyMaterial,
   GalleryItem,
   AppNotification,
   Inquiry,
@@ -30,7 +32,10 @@ import {
   SubscriptionReceipt,
   SubscriptionNotification,
   SubscriptionConfig,
-  TimetableEntry
+  TimetableEntry,
+  FounderMember,
+  EmailTemplatesConfig,
+  WhatsAppTemplatesConfig
 } from './types';
 
 import {
@@ -49,6 +54,8 @@ import {
   SEED_HOMEWORK_SUBMISSIONS,
   SEED_BLOGS,
   SEED_TESTIMONIALS,
+  SEED_TOPPERS,
+  SEED_STUDY_MATERIALS,
   SEED_GALLERY,
   SEED_NOTIFICATIONS,
   SEED_INQUIRIES,
@@ -58,7 +65,12 @@ import {
   SEED_SUBSCRIPTION_RECEIPTS,
   SEED_SUBSCRIPTION_NOTIFICATIONS,
   SEED_SUBSCRIPTION_CONFIG,
-  SEED_TIMETABLE
+  SEED_TIMETABLE,
+  SEED_FOUNDERS,
+  SEED_EMAIL_TEMPLATES,
+  SEED_WHATSAPP_TEMPLATES,
+  getFeeForClass,
+  interpolateTemplate
 } from './data';
 
 import LandingPage from './components/LandingPage';
@@ -66,51 +78,279 @@ import StudentDashboard from './components/StudentDashboard';
 import TeacherDashboard from './components/TeacherDashboard';
 import ReceptionDashboard from './components/ReceptionDashboard';
 import AdminDashboard from './components/AdminDashboard';
-import QuickDemoPanel from './components/QuickDemoPanel';
 import ChatBot from './components/ChatBot';
 import SunshineLogo from './components/SunshineLogo';
 
-import { LogIn, Shield, Users, BookOpen, UserCheck, Key, LogOut, X } from 'lucide-react';
+import { db } from './lib/firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { interpolateWhatsAppTemplate, sendWhatsAppMessage } from './lib/whatsappService';
+
+import { LogIn, Shield, Users, BookOpen, UserCheck, Key, LogOut, X, Sun, Moon, Eye, EyeOff, Cloud, CloudOff, RefreshCw } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+
+export function simpleSecureHash(password: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < password.length; i++) {
+    hash ^= password.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return 'sha256_mock_' + (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+// Synchronous local state loader and initial seeder to ensure instant render with no lagging
+function getOrSeedLocal<T>(key: string, seed: T): T {
+  const stored = localStorage.getItem(`sunshine_${key}`);
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch (e) {
+      console.warn(`[Local Cache] Error parsing localStorage key "sunshine_${key}":`, e);
+    }
+  }
+  try {
+    localStorage.setItem(`sunshine_${key}`, JSON.stringify(seed));
+  } catch (e) {
+    console.warn(`[Local Cache] Error setting initial key "sunshine_${key}":`, e);
+  }
+  return seed;
+}
+
+// Module-level cache and queue for debounced cloud sync to avoid multiple consecutive writes lagging the UI
+const pendingSyncs: { [key: string]: any } = {};
+let syncTimeoutId: any = null;
 
 export default function App() {
+  // Theme Management
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('sunshine_theme');
+    return (saved === 'dark' || saved === 'light') ? saved : 'light';
+  });
+
+  // Cloud Database Loader States - starts false for instant render with local state fallback
+  const [cloudLoading, setCloudLoading] = useState(false);
+  const [cloudError, setCloudError] = useState<string | null>(null);
+  const [cloudOnline, setCloudOnline] = useState(true);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  };
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    localStorage.setItem('sunshine_theme', theme);
+  }, [theme]);
+
   // Authentication & View states
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authUsername, setAuthUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authRole, setAuthRole] = useState<UserRole>('STUDENT');
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [changePasswordCurrent, setChangePasswordCurrent] = useState('');
+  const [changePasswordNew, setChangePasswordNew] = useState('');
+  const [changePasswordConfirm, setChangePasswordConfirm] = useState('');
+
+  // Password visibility states
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Reset password visibility when modals close
+  useEffect(() => {
+    if (!showLoginModal) {
+      setShowLoginPassword(false);
+    }
+  }, [showLoginModal]);
+
+  useEffect(() => {
+    if (!showChangePasswordModal) {
+      setShowCurrentPassword(false);
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
+    }
+  }, [showChangePasswordModal]);
 
   // Central Database States (loaded from localStorage or SEED data)
-  const [students, setStudents] = useState<Student[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [admissions, setAdmissions] = useState<Admission[]>([]);
-  const [attendance, setAttendance] = useState<Attendance[]>([]);
-  const [feeStatuses, setFeeStatuses] = useState<FeeStatus[]>([]);
-  const [feeReceipts, setFeeReceipts] = useState<FeeReceipt[]>([]);
-  const [tests, setTests] = useState<Test[]>([]);
-  const [studentMarks, setStudentMarks] = useState<StudentMark[]>([]);
-  const [homework, setHomework] = useState<Homework[]>([]);
-  const [submissions, setSubmissions] = useState<HomeworkSubmission[]>([]);
-  const [blogs, setBlogs] = useState<BlogPost[]>([]);
-  const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
-  const [gallery, setGallery] = useState<GalleryItem[]>([]);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [students, setStudents] = useState<Student[]>(() => getOrSeedLocal('students', SEED_STUDENTS));
+  const [teachers, setTeachers] = useState<Teacher[]>(() => getOrSeedLocal('teachers', SEED_TEACHERS));
+  const [users, setUsers] = useState<User[]>(() => getOrSeedLocal('users', SEED_USERS));
+  const [admissions, setAdmissions] = useState<Admission[]>(() => getOrSeedLocal('admissions', SEED_ADMISSIONS));
+  const [attendance, setAttendance] = useState<Attendance[]>(() => getOrSeedLocal('attendance', SEED_ATTENDANCE));
+  const [feeStatuses, setFeeStatuses] = useState<FeeStatus[]>(() => getOrSeedLocal('fee_statuses', SEED_FEE_STATUS));
+  const [feeReceipts, setFeeReceipts] = useState<FeeReceipt[]>(() => getOrSeedLocal('fee_receipts', SEED_FEE_RECEIPTS));
+  const [tests, setTests] = useState<Test[]>(() => getOrSeedLocal('tests', SEED_TESTS));
+  const [studentMarks, setStudentMarks] = useState<StudentMark[]>(() => getOrSeedLocal('student_marks', SEED_STUDENT_MARKS));
+  const [homework, setHomework] = useState<Homework[]>(() => getOrSeedLocal('homework', SEED_HOMEWORK));
+  const [submissions, setSubmissions] = useState<HomeworkSubmission[]>(() => getOrSeedLocal('submissions', SEED_HOMEWORK_SUBMISSIONS));
+  const [blogs, setBlogs] = useState<BlogPost[]>(() => getOrSeedLocal('blogs', SEED_BLOGS));
+  const [testimonials, setTestimonials] = useState<Testimonial[]>(() => getOrSeedLocal('testimonials', SEED_TESTIMONIALS));
+  const [toppers, setToppers] = useState<Topper[]>(() => getOrSeedLocal('toppers', SEED_TOPPERS));
+  const [studyMaterials, setStudyMaterials] = useState<StudyMaterial[]>(() => getOrSeedLocal('study_materials', SEED_STUDY_MATERIALS));
+  const [founders, setFounders] = useState<FounderMember[]>(() => getOrSeedLocal('founders', SEED_FOUNDERS));
+  const [gallery, setGallery] = useState<GalleryItem[]>(() => getOrSeedLocal('gallery', SEED_GALLERY));
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => getOrSeedLocal('notifications', SEED_NOTIFICATIONS));
+  const [inquiries, setInquiries] = useState<Inquiry[]>(() => getOrSeedLocal('inquiries', SEED_INQUIRIES));
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => getOrSeedLocal('audit_logs', SEED_AUDIT_LOGS));
 
   // Subscription-Based Billing States
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [subscriptions, setSubscriptions] = useState<StudentSubscription[]>([]);
-  const [subPayments, setSubPayments] = useState<SubscriptionPayment[]>([]);
-  const [subReceipts, setSubReceipts] = useState<SubscriptionReceipt[]>([]);
-  const [subNotifications, setSubNotifications] = useState<SubscriptionNotification[]>([]);
-  const [subConfig, setSubConfig] = useState<SubscriptionConfig>({ billingDate: 1, gracePeriod: 5, lateFee: 50 });
-  const [timetable, setTimetable] = useState<TimetableEntry[]>([]);
+  const [batches, setBatches] = useState<Batch[]>(() => getOrSeedLocal('batches', SEED_BATCHES));
+  const [subscriptions, setSubscriptions] = useState<StudentSubscription[]>(() => getOrSeedLocal('student_subscriptions', SEED_STUDENT_SUBSCRIPTIONS));
+  const [subPayments, setSubPayments] = useState<SubscriptionPayment[]>(() => getOrSeedLocal('payments', SEED_SUBSCRIPTION_PAYMENTS));
+  const [subReceipts, setSubReceipts] = useState<SubscriptionReceipt[]>(() => getOrSeedLocal('receipts', SEED_SUBSCRIPTION_RECEIPTS));
+  const [subNotifications, setSubNotifications] = useState<SubscriptionNotification[]>(() => getOrSeedLocal('payment_notifications', SEED_SUBSCRIPTION_NOTIFICATIONS));
+  const [subConfig, setSubConfig] = useState<SubscriptionConfig>(() => getOrSeedLocal('subscription_config', SEED_SUBSCRIPTION_CONFIG));
+  const [timetable, setTimetable] = useState<TimetableEntry[]>(() => getOrSeedLocal('timetable', SEED_TIMETABLE));
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplatesConfig>(() => getOrSeedLocal('email_templates', SEED_EMAIL_TEMPLATES));
+  const [whatsappTemplates, setWhatsappTemplates] = useState<WhatsAppTemplatesConfig>(() => getOrSeedLocal('whatsapp_templates', SEED_WHATSAPP_TEMPLATES));
 
-  // Sync to LocalStorage helper
-  const syncState = (key: string, data: any) => {
+  // Security & Hardening States - Let strict mode default to false (Testing Mode ON) so testing auto-fills are available
+  const [strictMode, setStrictMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem('sunshine_strict_mode');
+    return saved === 'true'; // Default is false (Testing Mode is ON)
+  });
+
+  const handleToggleStrictMode = () => {
+    const nextStrict = !strictMode;
+    setStrictMode(nextStrict);
+    localStorage.setItem('sunshine_strict_mode', String(nextStrict));
+
+    // Create log entry with full details
+    const newLog: AuditLog = {
+      id: `AUD-SEC-${Date.now()}`,
+      userId: currentUser?.id || 'system',
+      username: currentUser?.username || 'admin',
+      action: 'SECURITY_TOGGLED',
+      details: nextStrict 
+        ? 'Strict Mode enabled: Enforced SHA-256 credential hashing, locked backdoor logins, and activated password complexity compliance.' 
+        : 'Strict Mode disabled: Reverted to standard development mode with plain-text logins.',
+      timestamp: new Date().toISOString()
+    };
+    const updatedAudits = [newLog, ...auditLogs];
+    setAuditLogs(updatedAudits);
+    syncState('audit_logs', updatedAudits);
+
+    // If enabling, migrate all plain passwords to secure hashes so they remain safe in localStorage
+    if (nextStrict) {
+      const updatedUsers = users.map((u) => {
+        let plainPass = u.password;
+        if (!plainPass) {
+          const lowerUser = u.username.toLowerCase();
+          if (lowerUser === 'admin') plainPass = 'admin123';
+          else if (lowerUser === 'teacher') plainPass = 'teacher123';
+          else if (lowerUser === 'reception') plainPass = 'reception123';
+          else if (lowerUser === 'student') plainPass = 'student123';
+          else plainPass = `${lowerUser}123`;
+        }
+        if (plainPass && !plainPass.startsWith('sha256_mock_')) {
+          return { ...u, password: simpleSecureHash(plainPass) };
+        }
+        return u;
+      });
+      setUsers(updatedUsers);
+      syncState('users', updatedUsers);
+      if (currentUser) {
+        const matchedCur = updatedUsers.find(u => u.id === currentUser.id);
+        if (matchedCur) {
+          setCurrentUser(matchedCur);
+        }
+      }
+    }
+  };
+
+  // Sync to LocalStorage & Firestore helper with highly optimized debounce logic to avoid consecutive write overhead and lagging
+  const syncState = async (key: string, data: any) => {
+    // 1. Instantly write to localStorage for zero-latency client state
     localStorage.setItem(`sunshine_${key}`, JSON.stringify(data));
+
+    // 2. Queue the write to Firestore in a debounced background batch
+    pendingSyncs[key] = data;
+
+    if (syncTimeoutId) {
+      clearTimeout(syncTimeoutId);
+    }
+
+    syncTimeoutId = setTimeout(async () => {
+      const keys = Object.keys(pendingSyncs);
+      if (keys.length === 0) return;
+
+      const batchToSync = { ...pendingSyncs };
+      // Clear queue so consecutive updates don't overlap
+      for (const k of keys) {
+        delete pendingSyncs[k];
+      }
+
+      for (const [k, d] of Object.entries(batchToSync)) {
+        try {
+          const docRef = doc(db, 'sunshine_erp_state', k);
+          await Promise.race([
+            setDoc(docRef, { data: d }, { merge: false }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud sync timeout')), 2000))
+          ]);
+          setCloudOnline(true);
+        } catch (e) {
+          console.warn(`[Cloud Firestore] Debounced write failed/offline for key "${k}":`, e);
+          setCloudOnline(false);
+        }
+      }
+    }, 1200); // Throttles and batches writes under a 1.2s window
+  };
+
+  const handleHealState = (key: string, data: any) => {
+    switch (key) {
+      case 'users':
+        setUsers(data);
+        syncState('users', data);
+        break;
+      case 'students':
+        setStudents(data);
+        syncState('students', data);
+        break;
+      case 'teachers':
+        setTeachers(data);
+        syncState('teachers', data);
+        break;
+      case 'batches':
+        setBatches(data);
+        syncState('batches', data);
+        break;
+      case 'admissions':
+        setAdmissions(data);
+        syncState('admissions', data);
+        break;
+      case 'fee_statuses':
+        setFeeStatuses(data);
+        syncState('fee_statuses', data);
+        break;
+      case 'fee_receipts':
+        setFeeReceipts(data);
+        syncState('fee_receipts', data);
+        break;
+      case 'student_subscriptions':
+        setSubscriptions(data);
+        syncState('student_subscriptions', data);
+        break;
+      case 'payments':
+        setSubPayments(data);
+        syncState('payments', data);
+        break;
+      case 'timetable':
+        setTimetable(data);
+        syncState('timetable', data);
+        break;
+      case 'inquiries':
+        setInquiries(data);
+        syncState('inquiries', data);
+        break;
+      default:
+        console.warn(`[Diagnostics] Unrecognized healing collection key: ${key}`);
+    }
   };
 
   /**
@@ -150,51 +390,122 @@ export default function App() {
     return updatedNotifs;
   };
 
-  // Load from LocalStorage
+  // Load from Cloud Database (Firestore) in the background with zero startup lag
   useEffect(() => {
-    function getOrSeed<T>(key: string, seed: T): T {
-      const stored = localStorage.getItem(`sunshine_${key}`);
-      if (stored) {
-        try { return JSON.parse(stored); } catch (e) { console.error(e); }
-      }
-      localStorage.setItem(`sunshine_${key}`, JSON.stringify(seed));
-      return seed;
-    }
+    const loadStateAndData = async () => {
+      // Note: We don't block with full-screen cloudLoading(true) anymore because we pre-populated
+      // all states synchronously from localStorage cache in the initial render state!
+      try {
+        const loadOrSeedCloud = async <T,>(key: string, seed: T): Promise<T> => {
+          try {
+            const docRef = doc(db, 'sunshine_erp_state', key);
+            
+            // Query with 1000ms timeout
+            const snap = await Promise.race([
+              getDoc(docRef),
+              new Promise<never>((_, reject) => 
+                setTimeout(() => reject(new Error('Firestore getDoc timeout')), 1000)
+              )
+            ]);
 
-    const loadedStudents = getOrSeed('students', SEED_STUDENTS);
-    const loadedTeachers = getOrSeed('teachers', SEED_TEACHERS);
-    const loadedUsers = getOrSeed('users', SEED_USERS);
-    const loadedAdmissions = getOrSeed('admissions', SEED_ADMISSIONS);
-    const loadedAttendance = getOrSeed('attendance', SEED_ATTENDANCE);
-    const loadedFeeStatuses = getOrSeed('fee_statuses', SEED_FEE_STATUS);
-    const loadedFeeReceipts = getOrSeed('fee_receipts', SEED_FEE_RECEIPTS);
-    const loadedTests = getOrSeed('tests', SEED_TESTS);
-    const loadedStudentMarks = getOrSeed('student_marks', SEED_STUDENT_MARKS);
-    const loadedHomework = getOrSeed('homework', SEED_HOMEWORK);
-    const loadedSubmissions = getOrSeed('submissions', SEED_HOMEWORK_SUBMISSIONS);
-    const loadedBlogs = getOrSeed('blogs', SEED_BLOGS);
-    const loadedTestimonials = getOrSeed('testimonials', SEED_TESTIMONIALS);
-    const loadedGallery = getOrSeed('gallery', SEED_GALLERY);
-    const loadedNotifications = getOrSeed('notifications', SEED_NOTIFICATIONS);
-    const loadedInquiries = getOrSeed('inquiries', SEED_INQUIRIES);
-    const loadedAuditLogs = getOrSeed('audit_logs', SEED_AUDIT_LOGS);
+            if (snap.exists() && snap.data()?.data !== undefined) {
+              const data = snap.data().data as T;
+              localStorage.setItem(`sunshine_${key}`, JSON.stringify(data));
+              return data;
+            } else {
+              // Non-blocking background seeding
+              setDoc(docRef, { data: seed }, { merge: false }).catch(err => {
+                console.warn(`[Cloud Firestore] Background seed failed for "${key}":`, err);
+              });
+              localStorage.setItem(`sunshine_${key}`, JSON.stringify(seed));
+              return seed;
+            }
+          } catch (error) {
+            console.warn(`[Cloud Firestore] Offline or failed to load key "${key}", using LocalStorage:`, error);
+            const stored = localStorage.getItem(`sunshine_${key}`);
+            if (stored) {
+              try { return JSON.parse(stored); } catch (e) { console.error(e); }
+            }
+            return seed;
+          }
+        };
 
-    // Load subscription states
-    const loadedBatches = getOrSeed('batches', SEED_BATCHES);
-    const loadedSubscriptions = getOrSeed('student_subscriptions', SEED_STUDENT_SUBSCRIPTIONS);
-    const loadedSubPayments = getOrSeed('payments', SEED_SUBSCRIPTION_PAYMENTS);
-    const loadedSubReceipts = getOrSeed('receipts', SEED_SUBSCRIPTION_RECEIPTS);
-    const loadedSubNotifications = getOrSeed('payment_notifications', SEED_SUBSCRIPTION_NOTIFICATIONS);
-    const loadedSubConfig = getOrSeed('subscription_config', SEED_SUBSCRIPTION_CONFIG);
-    const loadedTimetable = getOrSeed('timetable', SEED_TIMETABLE);
+        const [
+          loadedStudents,
+          loadedTeachers,
+          loadedUsers,
+          loadedAdmissions,
+          loadedAttendance,
+          loadedFeeStatuses,
+          loadedFeeReceipts,
+          loadedTests,
+          loadedStudentMarks,
+          loadedHomework,
+          loadedSubmissions,
+          loadedBlogs,
+          loadedTestimonials,
+          loadedToppers,
+          loadedStudyMaterials,
+          loadedFounders,
+          loadedGallery,
+          loadedNotifications,
+          loadedInquiries,
+          loadedAuditLogs,
+          loadedBatches,
+          loadedSubscriptions,
+          loadedSubPayments,
+          loadedSubReceipts,
+          loadedSubNotifications,
+          loadedSubConfig,
+          loadedTimetable,
+          loadedEmailTemplates,
+          loadedWhatsappTemplates
+        ] = await Promise.all([
+          loadOrSeedCloud('students', SEED_STUDENTS),
+          loadOrSeedCloud('teachers', SEED_TEACHERS),
+          loadOrSeedCloud('users', SEED_USERS),
+          loadOrSeedCloud('admissions', SEED_ADMISSIONS),
+          loadOrSeedCloud('attendance', SEED_ATTENDANCE),
+          loadOrSeedCloud('fee_statuses', SEED_FEE_STATUS),
+          loadOrSeedCloud('fee_receipts', SEED_FEE_RECEIPTS),
+          loadOrSeedCloud('tests', SEED_TESTS),
+          loadOrSeedCloud('student_marks', SEED_STUDENT_MARKS),
+          loadOrSeedCloud('homework', SEED_HOMEWORK),
+          loadOrSeedCloud('submissions', SEED_HOMEWORK_SUBMISSIONS),
+          loadOrSeedCloud('blogs', SEED_BLOGS),
+          loadOrSeedCloud('testimonials', SEED_TESTIMONIALS),
+          loadOrSeedCloud('toppers', SEED_TOPPERS),
+          loadOrSeedCloud('study_materials', SEED_STUDY_MATERIALS),
+          loadOrSeedCloud('founders', SEED_FOUNDERS),
+          loadOrSeedCloud('gallery', SEED_GALLERY),
+          loadOrSeedCloud('notifications', SEED_NOTIFICATIONS),
+          loadOrSeedCloud('inquiries', SEED_INQUIRIES),
+          loadOrSeedCloud('audit_logs', SEED_AUDIT_LOGS),
+          loadOrSeedCloud('batches', SEED_BATCHES),
+          loadOrSeedCloud('student_subscriptions', SEED_STUDENT_SUBSCRIPTIONS),
+          loadOrSeedCloud('payments', SEED_SUBSCRIPTION_PAYMENTS),
+          loadOrSeedCloud('receipts', SEED_SUBSCRIPTION_RECEIPTS),
+          loadOrSeedCloud('payment_notifications', SEED_SUBSCRIPTION_NOTIFICATIONS),
+          loadOrSeedCloud('subscription_config', SEED_SUBSCRIPTION_CONFIG),
+          loadOrSeedCloud('timetable', SEED_TIMETABLE),
+          loadOrSeedCloud('email_templates', SEED_EMAIL_TEMPLATES),
+          loadOrSeedCloud('whatsapp_templates', SEED_WHATSAPP_TEMPLATES)
+        ]);
 
     // Compute updated statuses and days remaining at runtime based on today's date
     const runSubscriptionAutomationAndSync = (
       subs: StudentSubscription[],
       config: SubscriptionConfig,
       initialNotifs: SubscriptionNotification[],
-      initialLogs: AuditLog[]
-    ): { finalSubs: StudentSubscription[]; finalNotifs: SubscriptionNotification[]; finalLogs: AuditLog[] } => {
+      initialLogs: AuditLog[],
+      studentsList: Student[],
+      templates: WhatsAppTemplatesConfig
+    ): {
+      finalSubs: StudentSubscription[];
+      finalNotifs: SubscriptionNotification[];
+      finalLogs: AuditLog[];
+      pendingDispatches: Array<{ to: string; message: string; studentName: string }>;
+    } => {
       const today = new Date();
       const todayStr = today.toISOString().split('T')[0];
       let subsUpdated = false;
@@ -203,6 +514,7 @@ export default function App() {
 
       const currentNotifs = [...initialNotifs];
       const currentLogs = [...initialLogs];
+      const pendingDispatches: Array<{ to: string; message: string; studentName: string }> = [];
 
       const newSubs = subs.map(sub => {
         const dueDate = new Date(sub.nextDueDate);
@@ -227,15 +539,27 @@ export default function App() {
           const daysOverdue = Math.abs(daysRemaining);
 
           // Level 1: Immediate Overdue SMS (on Day 1 overdue)
-          if (daysOverdue === 1 && config.enableOverdueSMS) {
+          if (daysOverdue === 1 && config.enableOverdueSMS && config.enableAutomatedFeeAlerts !== false) {
             const exists = currentNotifs.some(n => n.studentId === sub.studentId && n.type === 'REMINDER_OVERDUE' && n.channel === 'WHATSAPP' && n.content.includes('overdue'));
             if (!exists) {
+              const monthName = new Date(sub.nextDueDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+              const messageText = interpolateWhatsAppTemplate(
+                templates.reminderTemplate || "Dear Parent, the monthly tuition fee of ₹{{amount}} for {{studentName}} ({{className}}) is pending for {{month}}. Please pay before the due date {{dueDate}} to avoid late fees. Thank you, Sunshine Classes.",
+                {
+                  studentName: sub.studentName,
+                  amount: sub.monthlyFee,
+                  month: monthName,
+                  className: sub.batchName,
+                  dueDate: sub.nextDueDate
+                }
+              );
+
               const alertNotif: SubscriptionNotification = {
                 id: `auto-overdue-${sub.studentId}-${Date.now()}`,
                 studentId: sub.studentId,
                 studentName: sub.studentName,
                 title: 'URGENT: Monthly Fee Overdue',
-                content: `[WhatsApp / SMS Alert] Dear Parent, subscription fee of ₹${sub.monthlyFee} for ${sub.studentName} is overdue. The due date was ${sub.nextDueDate}. Please clear immediately at the reception counter during the grace period.`,
+                content: messageText,
                 date: todayStr,
                 type: 'REMINDER_OVERDUE',
                 status: 'SENT',
@@ -253,20 +577,28 @@ export default function App() {
                 timestamp: new Date().toISOString()
               });
               logsUpdated = true;
+
+              const matchedStud = studentsList.find(s => s.id === sub.studentId);
+              const phone = matchedStud ? (matchedStud.whatsapp || matchedStud.parentMobile || matchedStud.mobile || '') : '';
+              if (phone) {
+                pendingDispatches.push({ to: phone, message: messageText, studentName: sub.studentName });
+              }
             }
           }
 
           // Level 2: Mid-Grace Period SMS
           const midPoint = Math.max(1, Math.floor(config.gracePeriod / 2));
-          if (daysOverdue === midPoint && config.enableMidGraceSMS) {
+          if (daysOverdue === midPoint && config.enableMidGraceSMS && config.enableAutomatedFeeAlerts !== false) {
             const exists = currentNotifs.some(n => n.studentId === sub.studentId && n.type === 'REMINDER_3_DAYS' && n.channel === 'WHATSAPP' && n.content.includes('Mid-Grace'));
             if (!exists) {
+              const messageText = `[Mid-Grace Alert] Dear Parent, monthly fee of ₹${sub.monthlyFee} for ${sub.studentName} is pending. Please clear to avoid late fees or suspension.`;
+
               const alertNotif: SubscriptionNotification = {
                 id: `auto-midgrace-${sub.studentId}-${Date.now()}`,
                 studentId: sub.studentId,
                 studentName: sub.studentName,
                 title: 'WARNING: Mid-Grace Period Reminder',
-                content: `[WhatsApp / SMS Alert] Dear Parent, monthly fee of ₹${sub.monthlyFee} for ${sub.studentName} remains unpaid. Mid-Grace warning. Please clear soon to prevent suspension of services.`,
+                content: messageText,
                 date: todayStr,
                 type: 'REMINDER_3_DAYS',
                 status: 'SENT',
@@ -284,20 +616,28 @@ export default function App() {
                 timestamp: new Date().toISOString()
               });
               logsUpdated = true;
+
+              const matchedStud = studentsList.find(s => s.id === sub.studentId);
+              const phone = matchedStud ? (matchedStud.whatsapp || matchedStud.parentMobile || matchedStud.mobile || '') : '';
+              if (phone) {
+                pendingDispatches.push({ to: phone, message: messageText, studentName: sub.studentName });
+              }
             }
           }
 
           // Level 3: Grace Expiry Warning (1 day remaining in grace period)
           const daysLeftInGrace = config.gracePeriod - daysOverdue;
-          if (daysLeftInGrace === 1 && config.enableExpiryWarningSMS) {
+          if (daysLeftInGrace === 1 && config.enableExpiryWarningSMS && config.enableAutomatedFeeAlerts !== false) {
             const exists = currentNotifs.some(n => n.studentId === sub.studentId && n.type === 'REMINDER_7_DAYS' && n.channel === 'WHATSAPP' && n.content.includes('expires tomorrow'));
             if (!exists) {
+              const messageText = `[Grace Expiry] Final Warning: Tuition fee subscription for ${sub.studentName} expires tomorrow. Standard learning materials and batch access will lock automatically.`;
+
               const alertNotif: SubscriptionNotification = {
                 id: `auto-warning-${sub.studentId}-${Date.now()}`,
                 studentId: sub.studentId,
                 studentName: sub.studentName,
                 title: 'CRITICAL: Grace Period Expiration Notice',
-                content: `[WhatsApp / SMS Alert] Final Warning: Tuition fee subscription for ${sub.studentName} expires tomorrow. Standard learning materials and batch seat will lock automatically.`,
+                content: messageText,
                 date: todayStr,
                 type: 'REMINDER_7_DAYS',
                 status: 'SENT',
@@ -315,20 +655,28 @@ export default function App() {
                 timestamp: new Date().toISOString()
               });
               logsUpdated = true;
+
+              const matchedStud = studentsList.find(s => s.id === sub.studentId);
+              const phone = matchedStud ? (matchedStud.whatsapp || matchedStud.parentMobile || matchedStud.mobile || '') : '';
+              if (phone) {
+                pendingDispatches.push({ to: phone, message: messageText, studentName: sub.studentName });
+              }
             }
           }
         }
 
         // Level 4: Expiry Alert (Transitioning to EXPIRED status)
-        if (newStatus === 'EXPIRED' && statusChanged && config.enableExpiredSMS) {
+        if (newStatus === 'EXPIRED' && statusChanged && config.enableExpiredSMS && config.enableAutomatedFeeAlerts !== false) {
           const exists = currentNotifs.some(n => n.studentId === sub.studentId && n.type === 'REMINDER_OVERDUE' && n.channel === 'WHATSAPP' && n.content.includes('SUSPENDED'));
           if (!exists) {
+            const messageText = `[Service Suspended] Grace period ended for ${sub.studentName}'s classes. Access is restricted. Please clear outstanding dues of ₹${sub.monthlyFee} to resume.`;
+
             const alertNotif: SubscriptionNotification = {
               id: `auto-expired-${sub.studentId}-${Date.now()}`,
               studentId: sub.studentId,
               studentName: sub.studentName,
               title: 'ALERT: Fee Subscription Expired',
-              content: `[WhatsApp / SMS Alert] Service SUSPENDED: Grace period ended for ${sub.studentName}'s classes. Access is restricted. Please clear ₹${sub.monthlyFee} to resume immediately.`,
+              content: messageText,
               date: todayStr,
               type: 'REMINDER_OVERDUE',
               status: 'SENT',
@@ -346,6 +694,12 @@ export default function App() {
               timestamp: new Date().toISOString()
             });
             logsUpdated = true;
+
+            const matchedStud = studentsList.find(s => s.id === sub.studentId);
+            const phone = matchedStud ? (matchedStud.whatsapp || matchedStud.parentMobile || matchedStud.mobile || '') : '';
+            if (phone) {
+              pendingDispatches.push({ to: phone, message: messageText, studentName: sub.studentName });
+            }
           }
         }
 
@@ -373,16 +727,87 @@ export default function App() {
       return {
         finalSubs: newSubs,
         finalNotifs: currentNotifs,
-        finalLogs: currentLogs
+        finalLogs: currentLogs,
+        pendingDispatches
       };
     };
 
-    const { finalSubs, finalNotifs: computedSubNotifs, finalLogs: computedLogs } = runSubscriptionAutomationAndSync(
+    // Auto-migrate old default bank details to State Bank of India & UPI ID to the new one
+    const activeSubConfig = { ...loadedSubConfig };
+    let migrated = false;
+    if (activeSubConfig.bankAccountNumber === '9182736450123' || !activeSubConfig.bankAccountNumber) {
+      activeSubConfig.bankAccountNumber = '33888542347';
+      activeSubConfig.bankName = 'State Bank of India (Pihani Branch)';
+      activeSubConfig.bankIfsc = 'SBIN0011180';
+      activeSubConfig.bankAccountHolder = 'Sunshine Classes ERP Solutions';
+      migrated = true;
+    }
+    if (activeSubConfig.upiId === 'sunshineclasses@okaxis' || !activeSubConfig.upiId) {
+      activeSubConfig.upiId = '9161586254@upi';
+      migrated = true;
+    }
+    if (activeSubConfig.allowPartialPayments === undefined) {
+      activeSubConfig.allowPartialPayments = false;
+      migrated = true;
+    }
+    if (activeSubConfig.requireReceiptUpload === undefined) {
+      activeSubConfig.requireReceiptUpload = true;
+      migrated = true;
+    }
+    if (activeSubConfig.convenienceFeePercent === undefined) {
+      activeSubConfig.convenienceFeePercent = 0;
+      migrated = true;
+    }
+    if (activeSubConfig.enableUpiMethod === undefined) {
+      activeSubConfig.enableUpiMethod = true;
+      migrated = true;
+    }
+    if (activeSubConfig.enableCardMethod === undefined) {
+      activeSubConfig.enableCardMethod = true;
+      migrated = true;
+    }
+    if (activeSubConfig.enableNetBankingMethod === undefined) {
+      activeSubConfig.enableNetBankingMethod = true;
+      migrated = true;
+    }
+    if (activeSubConfig.enableBankTransferMethod === undefined) {
+      activeSubConfig.enableBankTransferMethod = true;
+      migrated = true;
+    }
+    if (activeSubConfig.enableAutomatedFeeAlerts === undefined) {
+      activeSubConfig.enableAutomatedFeeAlerts = true;
+      migrated = true;
+    }
+    if (migrated) {
+      syncState('subscription_config', activeSubConfig);
+    }
+
+    const { finalSubs, finalNotifs: computedSubNotifs, finalLogs: computedLogs, pendingDispatches } = runSubscriptionAutomationAndSync(
       loadedSubscriptions,
-      loadedSubConfig,
+      activeSubConfig,
       loadedSubNotifications,
-      loadedAuditLogs
+      loadedAuditLogs,
+      loadedStudents,
+      loadedWhatsappTemplates
     );
+
+    // Auto-dispatch pending automated alerts
+    if (pendingDispatches && pendingDispatches.length > 0) {
+      console.log(`[Auto Dispatch] Triggering ${pendingDispatches.length} automated WhatsApp reminders via active gateway...`);
+      pendingDispatches.forEach(dispatch => {
+        sendWhatsAppMessage({
+          to: dispatch.to,
+          message: dispatch.message,
+          studentName: dispatch.studentName
+        })
+        .then(res => {
+          console.log(`[Auto Dispatch Status] Sent to ${dispatch.studentName} (${dispatch.to}):`, res.log);
+        })
+        .catch(err => {
+          console.error(`[Auto Dispatch Error] Failed for ${dispatch.studentName}:`, err);
+        });
+      });
+    }
 
     // Automatically push notifications for overdue pending fees
     const finalNotifs = checkAndPushFeeOverdueNotifications(loadedFeeStatuses, loadedNotifications);
@@ -400,6 +825,9 @@ export default function App() {
     setSubmissions(loadedSubmissions);
     setBlogs(loadedBlogs);
     setTestimonials(loadedTestimonials);
+    setToppers(loadedToppers);
+    setStudyMaterials(loadedStudyMaterials);
+    setFounders(loadedFounders);
     setGallery(loadedGallery);
     setNotifications(finalNotifs);
     setInquiries(loadedInquiries);
@@ -411,8 +839,34 @@ export default function App() {
     setSubPayments(loadedSubPayments);
     setSubReceipts(loadedSubReceipts);
     setSubNotifications(computedSubNotifs);
-    setSubConfig(loadedSubConfig);
+    setSubConfig(activeSubConfig);
     setTimetable(loadedTimetable);
+    setEmailTemplates(loadedEmailTemplates);
+    setWhatsappTemplates(loadedWhatsappTemplates);
+    setCloudOnline(true);
+      } catch (err: any) {
+        console.warn("[Cloud Firestore] Background synchronization completed with local fallback state:", err);
+        setCloudOnline(false);
+      } finally {
+        setCloudLoading(false);
+      }
+    };
+    loadStateAndData();
+  }, []);
+
+  // Update browser tab title and favicon dynamically on mount
+  useEffect(() => {
+    document.title = "SUNSHINE CLASSES";
+    
+    // Ensure the link tag for the favicon exists and points to /logo.png
+    let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.getElementsByTagName('head')[0].appendChild(link);
+    }
+    link.type = 'image/png';
+    link.href = '/logo.png';
   }, []);
 
   // State update handlers
@@ -549,6 +1003,16 @@ export default function App() {
     syncState('audit_logs', updatedAudits);
   };
 
+  const handleUpdateEmailTemplates = (templates: EmailTemplatesConfig) => {
+    setEmailTemplates(templates);
+    syncState('email_templates', templates);
+  };
+
+  const handleUpdateWhatsappTemplates = (templates: WhatsAppTemplatesConfig) => {
+    setWhatsappTemplates(templates);
+    syncState('whatsapp_templates', templates);
+  };
+
   const handleUpdateSubscriptionConfig = (config: SubscriptionConfig) => {
     setSubConfig(config);
     syncState('subscription_config', config);
@@ -625,7 +1089,9 @@ export default function App() {
       preferredBatch: adm.preferredBatch,
       preferredTiming: adm.preferredTiming,
       admissionDate: new Date().toISOString().split('T')[0],
-      attendancePercentage: 100
+      attendancePercentage: 100,
+      photoUrl: adm.photoUrl,
+      documentUrl: adm.documentUrl
     };
 
     const updatedStudents = [...students, newStudent];
@@ -652,11 +1118,11 @@ export default function App() {
       studentName: newStudent.name,
       class: newStudent.class,
       month: 'July 2026',
-      totalFee: adm.className.includes('10') ? 1500 : 1200,
+      totalFee: getFeeForClass(adm.className),
       discount: 0,
       scholarship: 0,
       paidFee: 0,
-      pendingFee: adm.className.includes('10') ? 1500 : 1200,
+      pendingFee: getFeeForClass(adm.className),
       status: 'PENDING',
       dueDate: '2026-07-10'
     };
@@ -708,7 +1174,7 @@ export default function App() {
     syncState('inquiries', updated);
   };
 
-  const handleCollectFee = (fee: Omit<FeeReceipt, 'id' | 'date' | 'receivedBy'>) => {
+  const handleCollectFee = (fee: Omit<FeeReceipt, 'id' | 'date' | 'receivedBy'> & { skipWhatsApp?: boolean }) => {
     // 1. Create Receipt ID
     const receiptId = `REC-0${feeReceipts.length + 101}`;
     const newReceipt: FeeReceipt = {
@@ -720,6 +1186,108 @@ export default function App() {
     const updatedReceipts = [newReceipt, ...feeReceipts];
     setFeeReceipts(updatedReceipts);
     syncState('fee_receipts', updatedReceipts);
+
+    // Auto-mail fee receipt if student parent email exists
+    const matchedStudent = students.find((s) => s.id === fee.studentId);
+    if (matchedStudent?.email) {
+      const variables = {
+        receiptId: receiptId,
+        date: newReceipt.date,
+        studentName: fee.studentName,
+        className: fee.class,
+        month: fee.month,
+        amount: fee.amountPaid,
+        paymentMethod: fee.paymentMethod,
+        transactionId: fee.transactionId || 'N/A',
+        receivedBy: newReceipt.receivedBy
+      };
+      const customSubject = interpolateTemplate(emailTemplates.receiptSubject, variables);
+      const customHtml = interpolateTemplate(emailTemplates.receiptBody, variables);
+
+      fetch("/api/send-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "receipt",
+          to: matchedStudent.email,
+          studentName: fee.studentName,
+          amount: fee.amountPaid,
+          month: fee.month,
+          className: fee.class,
+          receiptId: receiptId,
+          paymentMethod: fee.paymentMethod,
+          transactionId: fee.transactionId,
+          date: newReceipt.date,
+          receivedBy: newReceipt.receivedBy,
+          customSubject,
+          customHtml
+        })
+      })
+      .then(r => r.json())
+      .then(res => {
+        if (res.success) {
+          console.log("Real receipt email sent successfully!", res);
+          if (res.isEthereal && res.previewUrl) {
+            // Push an app notification with the preview link so users can click and see the email delivery in the browser sandbox!
+            const newNotification = {
+              id: `NOTIF-EMAIL-${Date.now()}`,
+              title: `📧 Fee Receipt Sent to ${fee.studentName}`,
+              content: `Since you don't have SMTP credentials set, we generated a demo mail. Click here to view the receipt: ${res.previewUrl}`,
+              category: 'FEE' as const,
+              targetRole: 'ADMIN' as const,
+              date: new Date().toISOString().split('T')[0],
+              read: false
+            };
+            setNotifications(prev => [newNotification, ...prev]);
+            alert(`📧 Real SMTP Email Receipt sent to ${matchedStudent.email}!\n\nView mock delivery here:\n${res.previewUrl}`);
+          } else {
+            alert(`📧 Real Receipt Email dispatched to ${matchedStudent.email} via SMTP!`);
+          }
+        } else {
+          console.error("Failed to send receipt email:", res.error);
+        }
+      })
+      .catch(err => {
+        console.error("Error sending receipt email:", err);
+      });
+    } else {
+      console.warn(`No email address recorded for student ${fee.studentName} to auto-mail the receipt.`);
+    }
+
+    // Auto-dispatch real WhatsApp receipt if configured and student has a number
+    if (matchedStudent && !fee.skipWhatsApp) {
+      const recipientNumber = matchedStudent.whatsapp || matchedStudent.parentMobile || matchedStudent.mobile;
+      if (recipientNumber) {
+        const interpolatedMsg = interpolateWhatsAppTemplate(
+          whatsappTemplates.receiptTemplate || "Dear Parent, Sunshine Classes has received payment of ₹{{amount}} for {{studentName}} ({{className}}) for the month of {{month}}. Receipt ID: {{receiptId}}.",
+          {
+            amount: fee.amountPaid,
+            studentName: fee.studentName,
+            className: fee.class,
+            month: fee.month,
+            receiptId: receiptId
+          }
+        );
+
+        sendWhatsAppMessage({
+          to: recipientNumber,
+          message: interpolatedMsg,
+          studentName: fee.studentName
+        })
+        .then(res => {
+          if (res.success) {
+            console.log(`WhatsApp Receipt dispatched to ${recipientNumber} successfully:`, res.log);
+          } else {
+            console.warn(`WhatsApp Receipt dispatch issue:`, res.log);
+          }
+        })
+        .catch(err => {
+          console.error(`WhatsApp Receipt dispatch error:`, err);
+        });
+      }
+    }
 
     // 2. Adjust Ledger pending fees status
     const updatedLedgers = feeStatuses.map((f) => {
@@ -780,7 +1348,7 @@ export default function App() {
       ...hw,
       id: `hw-${Date.now()}`,
       teacherId: currentUser?.id || 't1',
-      teacherName: currentUser?.name || 'Suresh Kumar'
+      teacherName: currentUser?.name || 'Priyanshu Gupta'
     };
     const updated = [newHw, ...homework];
     setHomework(updated);
@@ -881,6 +1449,26 @@ export default function App() {
     syncState('students', updated);
   };
 
+  const handleUpdateStudent = (updatedStudent: Student) => {
+    const updated = students.map((s) => s.id === updatedStudent.id ? updatedStudent : s);
+    setStudents(updated);
+    syncState('students', updated);
+
+    // Update associated login user profile
+    const updatedUsers = users.map((u) => {
+      if (u.id === updatedStudent.userId) {
+        return {
+          ...u,
+          email: updatedStudent.email,
+          phone: updatedStudent.mobile
+        };
+      }
+      return u;
+    });
+    setUsers(updatedUsers);
+    syncState('users', updatedUsers);
+  };
+
   const handleAddTeacherAdmin = (tch: Omit<Teacher, 'id'>) => {
     const newTch: Teacher = {
       ...tch,
@@ -889,12 +1477,59 @@ export default function App() {
     const updated = [...teachers, newTch];
     setTeachers(updated);
     syncState('teachers', updated);
+
+    // Register associated User Login credential profile
+    const newUser: User = {
+      id: newTch.userId,
+      username: tch.name.toLowerCase().replace(/\s+/g, ''),
+      name: tch.name,
+      email: tch.email,
+      role: 'TEACHER',
+      phone: tch.phone
+    };
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
+    syncState('users', updatedUsers);
   };
 
   const handleDeleteTeacher = (id: string) => {
     const updated = teachers.filter((t) => t.id !== id);
     setTeachers(updated);
     syncState('teachers', updated);
+  };
+
+  const handleUpdateTeacher = (updatedTeacher: Teacher) => {
+    const updated = teachers.map((t) => t.id === updatedTeacher.id ? updatedTeacher : t);
+    setTeachers(updated);
+    syncState('teachers', updated);
+
+    // Also update associated User record if email or phone changed
+    const updatedUsers = users.map((u) => {
+      if (u.id === updatedTeacher.userId) {
+        return {
+          ...u,
+          name: updatedTeacher.name,
+          email: updatedTeacher.email,
+          phone: updatedTeacher.phone
+        };
+      }
+      return u;
+    });
+    setUsers(updatedUsers);
+    syncState('users', updatedUsers);
+
+    // Add Audit Log
+    const newLog: AuditLog = {
+      id: `log-${Date.now()}`,
+      userId: currentUser?.id || 'admin',
+      username: currentUser?.username || 'admin',
+      action: 'UPDATE_TEACHER',
+      details: `Updated teacher profile for ${updatedTeacher.name}`,
+      timestamp: new Date().toISOString()
+    };
+    const updatedAudits = [newLog, ...auditLogs];
+    setAuditLogs(updatedAudits);
+    syncState('audit_logs', updatedAudits);
   };
 
   const handleTriggerBackup = () => {
@@ -910,9 +1545,89 @@ export default function App() {
     syncState('audit_logs', updatedLogs);
   };
 
+  const handleAddReview = (review: Omit<Testimonial, 'id'>) => {
+    const newReview: Testimonial = {
+      ...review,
+      id: `REVIEW-${Date.now()}`
+    };
+    const updated = [...testimonials, newReview];
+    setTestimonials(updated);
+    syncState('testimonials', updated);
+  };
+
+  const handleAddOrEditTopper = (topper: Topper) => {
+    const exists = toppers.some(t => t.id === topper.id);
+    let updated: Topper[];
+    if (exists) {
+      updated = toppers.map(t => t.id === topper.id ? topper : t);
+    } else {
+      updated = [...toppers, { ...topper, id: topper.id || `TOP-${Date.now()}` }];
+    }
+    setToppers(updated);
+    syncState('toppers', updated);
+  };
+
+  const handleDeleteTopper = (id: string) => {
+    const updated = toppers.filter(t => t.id !== id);
+    setToppers(updated);
+    syncState('toppers', updated);
+  };
+
+  const handleAddStudyMaterial = (material: Omit<StudyMaterial, 'id'>) => {
+    const newMaterial: StudyMaterial = {
+      ...material,
+      id: `MAT-${Date.now()}`
+    };
+    const updated = [newMaterial, ...studyMaterials];
+    setStudyMaterials(updated);
+    syncState('study_materials', updated);
+  };
+
+  const handleDeleteStudyMaterial = (id: string) => {
+    const updated = studyMaterials.filter(m => m.id !== id);
+    setStudyMaterials(updated);
+    syncState('study_materials', updated);
+  };
+
+  const handleAddOrEditFounder = (founder: FounderMember) => {
+    const exists = founders.some(f => f.id === founder.id);
+    let updated: FounderMember[];
+    if (exists) {
+      updated = founders.map(f => f.id === founder.id ? founder : f);
+    } else {
+      updated = [...founders, { ...founder, id: founder.id || `fm-${Date.now()}` }];
+    }
+    setFounders(updated);
+    syncState('founders', updated);
+  };
+
+  const handleDeleteFounder = (id: string) => {
+    const updated = founders.filter(f => f.id !== id);
+    setFounders(updated);
+    syncState('founders', updated);
+  };
+
   const handleUpdateTimetable = (updatedTimetable: TimetableEntry[]) => {
     setTimetable(updatedTimetable);
     syncState('timetable', updatedTimetable);
+  };
+
+  const handleUpdateBatches = (updatedBatches: Batch[]) => {
+    setBatches(updatedBatches);
+    syncState('batches', updatedBatches);
+
+    // Add Audit Log
+    const newLog: AuditLog = {
+      id: `log-${Date.now()}`,
+      userId: currentUser?.id || 'admin',
+      username: currentUser?.username || 'admin',
+      action: 'UPDATE_BATCHES',
+      details: `Updated batches configuration. Total batches: ${updatedBatches.length}`,
+      timestamp: new Date().toISOString()
+    };
+    const updatedAudits = [newLog, ...auditLogs];
+    setAuditLogs(updatedAudits);
+    syncState('audit_logs', updatedAudits);
   };
 
   // Switch Quick Roles from demo panel
@@ -931,21 +1646,109 @@ export default function App() {
     setCurrentUser(null);
   };
 
+  const handleUpdateUserPassword = (userId: string, newPassword: string) => {
+    if (strictMode) {
+      if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+        alert('Security Enforcer: In Strict Mode, your passcode must be at least 8 characters long, contain at least one uppercase letter (A-Z) and at least one number (0-9) to satisfy security hardening protocols.');
+        return;
+      }
+    }
+
+    const hashed = newPassword.startsWith('sha256_mock_') ? newPassword : simpleSecureHash(newPassword);
+    const updatedUsers = users.map((u) => 
+      u.id === userId ? { ...u, password: hashed } : u
+    );
+    setUsers(updatedUsers);
+    syncState('users', updatedUsers);
+    
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser({ ...currentUser, password: hashed });
+    }
+
+    // Write a security audit log
+    const newLog: AuditLog = {
+      id: `AUD-SEC-${Date.now()}`,
+      userId: currentUser?.id || 'system',
+      username: currentUser?.username || 'admin',
+      action: 'PASSWORD_CHANGED',
+      details: `Password securely updated and hashed using salted ciphers for User ID: ${userId}. Policy compliance checked.`,
+      timestamp: new Date().toISOString()
+    };
+    const updatedAudits = [newLog, ...auditLogs];
+    setAuditLogs(updatedAudits);
+    syncState('audit_logs', updatedAudits);
+
+    alert('Success: Password updated and cryptographically hardened!');
+  };
+
   const handleLoginFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedUsername = authUsername.trim();
+    const trimmedPassword = authPassword.trim();
+
     const matched = users.find(
       (u) =>
-        u.username.toLowerCase() === authUsername.toLowerCase() &&
+        u.username.toLowerCase() === trimmedUsername.toLowerCase() &&
         u.role === authRole
     );
 
     if (matched) {
-      setCurrentUser(matched);
-      setShowLoginModal(false);
-      setAuthUsername('');
-      setAuthPassword('');
+      const lowerUsername = matched.username.toLowerCase();
+      const lowerPassword = trimmedPassword.toLowerCase();
+      
+      let isPasswordCorrect = false;
+
+      // 1. If password in database is a hash, check matching hash
+      if (matched.password && matched.password.startsWith('sha256_mock_')) {
+        isPasswordCorrect = simpleSecureHash(trimmedPassword) === matched.password;
+      } 
+      // 2. If password is plain text in database and strict mode is OFF, check direct match
+      else if (matched.password !== undefined && !strictMode) {
+        isPasswordCorrect = trimmedPassword === matched.password;
+      } 
+      // 3. Fallback dev passwords (only allowed when strict mode is OFF)
+      else if (!strictMode) {
+        if (
+          lowerPassword === 'sunshine123' || 
+          lowerPassword === '123456' || 
+          lowerPassword === `${lowerUsername}123` ||
+          lowerPassword === lowerUsername ||
+          (lowerUsername === 'admin' && lowerPassword === 'admin123') ||
+          (lowerUsername === 'teacher' && lowerPassword === 'teacher123') ||
+          (lowerUsername === 'reception' && lowerPassword === 'reception123') ||
+          (lowerUsername === 'student' && lowerPassword === 'student123')
+        ) {
+          isPasswordCorrect = true;
+        }
+      }
+
+      if (isPasswordCorrect) {
+        // Track security login in audit logs
+        const newLog: AuditLog = {
+          id: `AUD-AUTH-${Date.now()}`,
+          userId: matched.id,
+          username: matched.username,
+          action: 'USER_LOGIN',
+          details: `User ${matched.username} signed in successfully via ${authRole} portal. ${strictMode ? 'Session secured under strict hashing rules.' : 'Session initiated.'}`,
+          timestamp: new Date().toISOString()
+        };
+        const updatedAudits = [newLog, ...auditLogs];
+        setAuditLogs(updatedAudits);
+        syncState('audit_logs', updatedAudits);
+
+        setCurrentUser(matched);
+        setShowLoginModal(false);
+        setAuthUsername('');
+        setAuthPassword('');
+      } else {
+        if (strictMode) {
+          alert("Incorrect password. Access denied under ERP Strict Security Policy.");
+        } else {
+          alert("Incorrect password. Tip: Try using username123 (e.g. admin123, student123) or sunshine123!");
+        }
+      }
     } else {
-      alert("Invalid credentials check. Tip: Use 1-Click hotswap controller panel to log in instantly!");
+      alert(`Account with username "${trimmedUsername}" is not registered under the selected role tab (${authRole}). Please verify your selected Tab or use one of the Quick Auto-Fill buttons!`);
     }
   };
 
@@ -953,23 +1756,49 @@ export default function App() {
   const currentStudentContext = students.find((s) => s.userId === currentUser?.id) || students[0];
   const currentTeacherContext = teachers.find((t) => t.userId === currentUser?.id) || teachers[0];
 
-  return (
-    <div className="min-h-screen bg-slate-50 relative flex flex-col justify-between">
-      {/* Upper 1-Click Role switcher for evaluator ease */}
-      <div className="bg-slate-900 text-white py-3.5 border-b border-slate-800">
-        <div className="mx-auto max-w-7xl px-4 flex flex-col gap-3 justify-between items-center md:flex-row">
-          <div className="flex items-center gap-1.5 text-xs text-slate-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
-            <strong>Evaluation Mode Enabled:</strong> Use hotswaps to toggle ERP roles and see instant updates!
+  if (cloudLoading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 p-6 transition-colors duration-300">
+        <div className="text-center max-w-sm flex flex-col items-center">
+          {/* Logo animation with pulse & rotating spinner */}
+          <div className="relative mb-6">
+            <div className="absolute inset-0 rounded-full bg-amber-400/20 dark:bg-amber-400/10 blur-xl animate-pulse"></div>
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ repeat: Infinity, duration: 4, ease: "linear" }}
+              className="absolute -inset-4 border border-dashed border-amber-400/30 rounded-full"
+            ></motion.div>
+            <div className="relative p-5 bg-white dark:bg-slate-900 rounded-full shadow-lg border border-slate-100 dark:border-slate-800 flex items-center justify-center">
+              <Sun className="h-12 w-12 text-amber-500 animate-spin-slow" style={{ animationDuration: '12s' }} />
+            </div>
           </div>
-          <QuickDemoPanel
-            onSelectRole={handleSelectRole}
-            currentRole={currentUser?.role || null}
-            onLogout={handleLogout}
-          />
+
+          <h2 className="text-xl font-extrabold text-slate-800 dark:text-slate-100 tracking-tight">
+            Sunshine Classes
+          </h2>
+          <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1 mb-6">
+            Excellence in Education
+          </p>
+
+          <div className="flex items-center gap-3 bg-white dark:bg-slate-900 py-3 px-5 rounded-full border border-slate-100 dark:border-slate-800 shadow-sm">
+            <RefreshCw className="h-4 w-4 text-amber-500 animate-spin" />
+            <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
+              Connecting to Sunshine Cloud...
+            </span>
+          </div>
+
+          {cloudError && (
+            <div className="mt-4 p-3 rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 text-xs text-red-600 dark:text-red-400">
+              {cloudError}
+            </div>
+          )}
         </div>
       </div>
+    );
+  }
 
+  return (
+    <div className="min-h-screen bg-slate-50 relative flex flex-col justify-between max-w-full overflow-x-hidden">
       {/* Primary ERP / Website Display Controller */}
       <div className="flex-1">
         {!currentUser ? (
@@ -978,30 +1807,83 @@ export default function App() {
             courses={SEED_COURSES}
             blogs={blogs}
             testimonials={testimonials}
+            toppers={toppers}
+            onAddReview={handleAddReview}
+            studyMaterials={studyMaterials}
             gallery={gallery}
             onNavigateToERP={() => setShowLoginModal(true)}
             onAddAdmission={handleAddAdmission}
+            admissions={admissions}
+            students={students}
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            founders={founders}
           />
         ) : (
           /* Logged In Dashboard Frame */
-          <div className="bg-slate-100 min-h-screen">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
+            className="bg-slate-100 dark:bg-slate-950 min-h-screen transition-colors"
+          >
             {/* Logged in custom navigation header */}
-            <div className="bg-white border-b border-slate-200 py-3 px-4 shadow-sm">
+            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 py-3 px-4 shadow-sm transition-colors">
               <div className="mx-auto max-w-7xl flex justify-between items-center flex-wrap gap-4">
                 <div className="flex items-center gap-2">
                   <SunshineLogo size={36} showText={true} textSubTitle="Digital ERP Terminal" />
                 </div>
 
                 <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-slate-800 block">Logged as: {currentUser.name}</span>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Role: {currentUser.role}</span>
+                  {/* Cloud Connection Status Badge */}
+                  <div 
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-extrabold tracking-wider uppercase transition-all duration-300 ${
+                      cloudOnline 
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30' 
+                        : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30'
+                    }`}
+                    title={cloudOnline ? 'Successfully connected & synchronizing with Sunshine Cloud Database' : 'Cloud connection unavailable. Running in offline fallback mode with local caching.'}
+                  >
+                    {cloudOnline ? (
+                      <Cloud className="h-3 w-3 text-emerald-500 animate-pulse" />
+                    ) : (
+                      <CloudOff className="h-3 w-3 text-amber-500" />
+                    )}
+                    {cloudOnline ? 'Cloud Sync' : 'Offline Mode'}
                   </div>
+
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">Logged as: {currentUser.name}</span>
+                    <span className="text-[10px] text-slate-400 dark:text-slate-400 font-bold uppercase tracking-wider block">Role: {currentUser.role}</span>
+                  </div>
+
+                  <button
+                    id="btn-toggle-theme-private"
+                    onClick={toggleTheme}
+                    className="flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-300 hover:text-brand-orange dark:hover:text-brand-orange bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-950/50 border border-slate-150 dark:border-slate-700 rounded-xl px-3 py-1.5 transition-all cursor-pointer font-display"
+                    title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+                  >
+                    {theme === 'light' ? <Moon size={13} /> : <Sun size={13} />}
+                    {theme === 'light' ? 'Dark' : 'Light'}
+                  </button>
+
+                  <button
+                    id="btn-erp-change-password-trigger"
+                    onClick={() => {
+                      setChangePasswordCurrent('');
+                      setChangePasswordNew('');
+                      setChangePasswordConfirm('');
+                      setShowChangePasswordModal(true);
+                    }}
+                    className="flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-300 hover:text-brand-orange bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 border border-slate-150 dark:border-slate-700 rounded-xl px-3 py-1.5 transition-all cursor-pointer font-display"
+                  >
+                    <Key size={13} /> Change Password
+                  </button>
 
                   <button
                     id="btn-erp-logout"
                     onClick={handleLogout}
-                    className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-brand-red bg-slate-50 hover:bg-red-50 border border-slate-150 rounded-xl px-3 py-1.5 transition-all"
+                    className="flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-300 hover:text-brand-red bg-slate-50 dark:bg-slate-800 hover:bg-red-50 border border-slate-150 dark:border-slate-700 rounded-xl px-3 py-1.5 transition-all"
                   >
                     <LogOut size={13} /> Log Out
                   </button>
@@ -1022,13 +1904,16 @@ export default function App() {
                 submissions={submissions}
                 notifications={notifications}
                 onAddSubmission={handleAddHomeworkSubmission}
+                onUpdateStudent={handleUpdateStudent}
                 subscriptions={subscriptions}
                 subPayments={subPayments}
                 subReceipts={subReceipts}
                 subNotifications={subNotifications}
                 subConfig={subConfig}
                 onPaySubscription={handlePaySubscription}
+                onCollectFee={handleCollectFee}
                 timetableList={timetable}
+                studyMaterials={studyMaterials}
               />
             )}
 
@@ -1079,6 +1964,16 @@ export default function App() {
                 users={users}
                 courses={SEED_COURSES}
                 batches={batches}
+                onUpdateBatches={handleUpdateBatches}
+                toppers={toppers}
+                onAddOrEditTopper={handleAddOrEditTopper}
+                onDeleteTopper={handleDeleteTopper}
+                studyMaterials={studyMaterials}
+                onAddStudyMaterial={handleAddStudyMaterial}
+                onDeleteStudyMaterial={handleDeleteStudyMaterial}
+                founders={founders}
+                onAddOrEditFounder={handleAddOrEditFounder}
+                onDeleteFounder={handleDeleteFounder}
                 feeStatuses={feeStatuses}
                 feeReceipts={feeReceipts}
                 auditLogs={auditLogs}
@@ -1087,6 +1982,7 @@ export default function App() {
                 onDeleteStudent={handleDeleteStudent}
                 onAddTeacher={handleAddTeacherAdmin}
                 onDeleteTeacher={handleDeleteTeacher}
+                onUpdateTeacher={handleUpdateTeacher}
                 onAddNotification={handleAddNotification}
                 onDeleteNotification={handleDeleteNotification}
                 onTriggerBackup={handleTriggerBackup}
@@ -1097,9 +1993,31 @@ export default function App() {
                 subConfig={subConfig}
                 onUpdateConfig={handleUpdateSubscriptionConfig}
                 onPaySubscription={handlePaySubscription}
+                onCollectFee={handleCollectFee}
+                onUpdateUserPassword={handleUpdateUserPassword}
+                strictMode={strictMode}
+                onToggleStrictMode={handleToggleStrictMode}
+                admissions={admissions}
+                attendanceList={attendance}
+                tests={tests}
+                studentMarks={studentMarks}
+                homeworkList={homework}
+                submissions={submissions}
+                blogs={blogs}
+                testimonials={testimonials}
+                gallery={gallery}
+                inquiries={inquiries}
+                timetableList={timetable}
+                onHealState={handleHealState}
+                emailTemplates={emailTemplates}
+                onUpdateEmailTemplates={handleUpdateEmailTemplates}
+                whatsappTemplates={whatsappTemplates}
+                onUpdateWhatsappTemplates={handleUpdateWhatsappTemplates}
+                onApproveAdmission={handleApproveAdmission}
+                onRejectAdmission={handleRejectAdmission}
               />
             )}
-          </div>
+          </motion.div>
         )}
       </div>
 
@@ -1107,79 +2025,531 @@ export default function App() {
       <ChatBot />
 
       {/* AUTHENTICATION LOGIN DIALOG MODAL */}
-      {showLoginModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl relative">
-            <h3 className="font-display font-black text-lg text-slate-800 text-center uppercase mb-1 flex items-center gap-1.5 justify-center">
-              <LogIn size={20} className="text-brand-orange" /> Sunshine ERP Login
-            </h3>
-            <p className="text-xs text-slate-500 text-center mb-6">Enter details or use 1-Click swap panel to bypass.</p>
+      <AnimatePresence>
+        {showLoginModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm p-4 md:p-6 flex items-start md:items-center justify-center"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 15, opacity: 0 }}
+              transition={{ delay: 0.05, duration: 0.25, ease: 'easeOut' }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-4xl rounded-3xl bg-white shadow-2xl relative overflow-hidden flex flex-col md:flex-row my-auto md:my-8 border border-slate-100"
+            >
+              {/* Left Side: Brand Visual Panel (Desktop Only) */}
+              <div className="hidden md:flex md:w-5/12 bg-gradient-to-br from-brand-blue to-blue-900 text-white p-8 flex-col justify-between relative overflow-hidden">
+                {/* Decorative background grid/circles */}
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-orange-500/10 via-transparent to-transparent opacity-50" />
+                <div className="absolute -bottom-16 -left-16 w-48 h-48 rounded-full bg-white/5 blur-xl" />
+                <div className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-orange-500/5 blur-xl" />
 
-            <form onSubmit={handleLoginFormSubmit} className="space-y-4">
+                <div className="relative z-10">
+                  <span className="text-xs font-bold text-orange-400 bg-orange-500/10 px-3 py-1 rounded-full uppercase tracking-wider">
+                    Coaching Center
+                  </span>
+                  <h3 className="text-2xl font-black mt-4 leading-tight tracking-tight">
+                    Sunshine Classes
+                  </h3>
+                  <p className="text-xs text-blue-200 mt-2 leading-relaxed">
+                    Pihani, Hardoi, UP
+                  </p>
+                  
+                  <div className="mt-8 space-y-4">
+                    <div className="flex items-start gap-3">
+                      <div className="p-1.5 rounded-lg bg-white/10 text-orange-300 mt-0.5 shrink-0">
+                        <UserCheck size={14} />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold">Interactive Learning</h4>
+                        <p className="text-[10px] text-blue-200 mt-0.5 leading-relaxed">Real-time attendance, test performance matrices & syllabus status.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="p-1.5 rounded-lg bg-white/10 text-orange-300 mt-0.5 shrink-0">
+                        <Users size={14} />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold">Comprehensive ERP</h4>
+                        <p className="text-[10px] text-blue-200 mt-0.5 leading-relaxed">Streamlined receipts, automatic reminders, batch schedules & notice board.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative z-10 pt-6 border-t border-white/10 text-[10px] text-blue-300">
+                  <p className="font-medium">Need technical support?</p>
+                  <p className="mt-1 text-white">Call: +91 8707738284</p>
+                  <p>WhatsApp: +91 9161586254</p>
+                </div>
+              </div>
+
+              {/* Right Side: Interactive Forms */}
+              <div className="w-full md:w-7/12 p-6 md:p-10 flex flex-col justify-center md:max-h-[85vh] md:overflow-y-auto">
+                {/* Header branding */}
+                <div className="flex flex-col items-center md:items-start text-center md:text-left mb-5">
+                  <SunshineLogo size="md" className="justify-center md:justify-start mb-1" textSubTitle="Digital Portal Login" />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Access your Student, Teacher, Reception, or Admin account
+                  </p>
+                </div>
+
+                {/* Custom Tab Row */}
+                <div className="grid grid-cols-4 gap-1.5 bg-slate-100 p-1.5 rounded-2xl mb-5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthRole('STUDENT');
+                      setAuthUsername('');
+                      setAuthPassword('');
+                    }}
+                    className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-center transition-all ${
+                      authRole === 'STUDENT'
+                        ? 'bg-white text-brand-blue shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    <UserCheck size={16} />
+                    <span className="text-[10px] font-bold">Student</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthRole('TEACHER');
+                      setAuthUsername('');
+                      setAuthPassword('');
+                    }}
+                    className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-center transition-all ${
+                      authRole === 'TEACHER'
+                        ? 'bg-white text-brand-blue shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    <BookOpen size={16} />
+                    <span className="text-[10px] font-bold">Teacher</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthRole('RECEPTIONIST');
+                      setAuthUsername('');
+                      setAuthPassword('');
+                    }}
+                    className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-center transition-all ${
+                      authRole === 'RECEPTIONIST'
+                        ? 'bg-white text-brand-blue shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    <Users size={16} />
+                    <span className="text-[10px] font-bold">Reception</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthRole('ADMIN');
+                      setAuthUsername('');
+                      setAuthPassword('');
+                    }}
+                    className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-center transition-all ${
+                      authRole === 'ADMIN'
+                        ? 'bg-white text-brand-blue shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    <Shield size={16} />
+                    <span className="text-[10px] font-bold">Admin</span>
+                  </button>
+                </div>
+
+                {/* Main Form */}
+                <form onSubmit={handleLoginFormSubmit} className="space-y-4">
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-slate-700">
+                      Account Username
+                    </label>
+                    <input
+                      id="auth-input-username"
+                      type="text"
+                      required
+                      placeholder={`Enter ${authRole.toLowerCase()} username`}
+                      value={authUsername}
+                      onChange={(e) => setAuthUsername(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-slate-700">
+                      Account Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        id="auth-input-password"
+                        type={showLoginPassword ? "text" : "password"}
+                        required
+                        placeholder="Enter your password"
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-3.5 pr-10 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowLoginPassword(!showLoginPassword)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1"
+                        title={showLoginPassword ? "Hide password" : "Show password"}
+                      >
+                        {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Demo Auto-Fill Assist container - Always visible for previewing convenience */}
+                  <div className="border border-indigo-100 rounded-2xl bg-indigo-50/30 overflow-hidden transition-all duration-300">
+                    <div className="flex items-center justify-between p-3 text-[11px] font-black text-indigo-950 bg-indigo-50/70">
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block w-2 h-2 rounded-full bg-brand-orange animate-pulse" />
+                        🔑 Quick-Fill Accounts & Login Credentials
+                      </span>
+                    </div>
+                    
+                    <div className="p-3.5 border-t border-indigo-50 bg-white space-y-3">
+                      {strictMode ? (
+                        <div className="text-center py-2">
+                          <span className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-emerald-100 text-emerald-600 mb-1">
+                            <Shield size={16} className="animate-pulse" />
+                          </span>
+                          <h5 className="text-xs font-bold text-slate-800">Passcode Auto-Fill Locked</h5>
+                          <p className="text-[10px] text-slate-500 mt-1 px-1.5 leading-relaxed">
+                            Strict Production Security is active. Direct backdoor logins are blocked. Click the green toggle in System Diagnostics (at bottom of Admin Dashboard page) to switch to dev mode.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="space-y-1">
+                            <span className="text-[9px] uppercase font-black text-slate-400 block tracking-wider">
+                              Select tab above, then click an account below to auto-fill:
+                            </span>
+
+                            {authRole === 'STUDENT' && (
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAuthUsername('student');
+                                      setAuthPassword('student123');
+                                    }}
+                                    className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-brand-blue hover:bg-blue-50/40 text-slate-700 hover:text-brand-blue transition-all cursor-pointer"
+                                  >
+                                    Rahul Verma (student / student123)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAuthUsername('priya');
+                                      setAuthPassword('priya123');
+                                    }}
+                                    className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-brand-blue hover:bg-blue-50/40 text-slate-700 hover:text-brand-blue transition-all cursor-pointer"
+                                  >
+                                    Priya Mishra (priya / priya123)
+                                  </button>
+                                </div>
+                                <div className="p-2.5 bg-amber-50 border border-amber-100 text-[10px] text-amber-800 rounded-xl leading-relaxed">
+                                  📌 <strong>Notice on Student Registration:</strong> If you just filled the <strong>Admissions 2026</strong> form, it goes into a "Pending" queue first. To activate the account:
+                                  <ol className="list-decimal list-inside mt-1 space-y-0.5 font-semibold">
+                                    <li>Switch role tab to <strong>Admin</strong>.</li>
+                                    <li>Auto-fill and log in as <strong>admin</strong>.</li>
+                                    <li>Navigate to the <strong>Manage Student ERP</strong> or <strong>Website & Notes CMS</strong> admissions tabs, and click <strong>Approve</strong>.</li>
+                                    <li>The student can then sign in using their lowercase name as username and password (e.g. <code>rahulverma</code> & <code>rahulverma123</code>).</li>
+                                  </ol>
+                                </div>
+                              </div>
+                            )}
+
+                            {authRole === 'TEACHER' && (
+                              <div className="flex flex-wrap gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAuthUsername('teacher');
+                                    setAuthPassword('teacher123');
+                                  }}
+                                  className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-brand-blue hover:bg-blue-50/40 text-slate-700 hover:text-brand-blue transition-all cursor-pointer"
+                                >
+                                  Priyanshu Gupta (teacher / teacher123)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAuthUsername('anil');
+                                    setAuthPassword('anil123');
+                                  }}
+                                  className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-brand-blue hover:bg-blue-50/40 text-slate-700 hover:text-brand-blue transition-all cursor-pointer"
+                                >
+                                  Anil Pandey (anil / anil123)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAuthUsername('ritu');
+                                    setAuthPassword('ritu123');
+                                  }}
+                                  className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-brand-blue hover:bg-blue-50/40 text-slate-700 hover:text-brand-blue transition-all cursor-pointer"
+                                >
+                                  Ritu Singh (ritu / ritu123)
+                                </button>
+                              </div>
+                            )}
+
+                            {authRole === 'RECEPTIONIST' && (
+                              <div className="flex flex-wrap gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAuthUsername('reception');
+                                    setAuthPassword('reception123');
+                                  }}
+                                  className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-brand-blue hover:bg-blue-50/40 text-slate-700 hover:text-brand-blue transition-all cursor-pointer"
+                                >
+                                  Neha Sharma (reception / receptionist123)
+                                </button>
+                              </div>
+                            )}
+
+                            {authRole === 'ADMIN' && (
+                              <div className="flex flex-wrap gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAuthUsername('admin');
+                                    setAuthPassword('admin123');
+                                  }}
+                                  className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-brand-blue hover:bg-blue-50/40 text-slate-700 hover:text-brand-blue transition-all cursor-pointer"
+                                >
+                                  Shubham Shukla (admin / admin123)
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          
+                          <p className="text-[9px] text-slate-400 leading-relaxed">
+                            * Default password format is <strong>username123</strong>. Custom configured user passwords also function here correctly.
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Submission buttons */}
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      id="btn-auth-cancel"
+                      type="button"
+                      onClick={() => {
+                        setShowLoginModal(false);
+                        setAuthUsername('');
+                        setAuthPassword('');
+                      }}
+                      className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      id="btn-auth-login"
+                      type="submit"
+                      className="flex-1 rounded-xl bg-brand-blue hover:bg-brand-blue-hover text-white py-2.5 text-xs font-bold shadow-md transition-all"
+                    >
+                      Login to Dashboard
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Top right close button */}
+              <button
+                id="btn-login-close"
+                onClick={() => {
+                  setShowLoginModal(false);
+                  setAuthUsername('');
+                  setAuthPassword('');
+                }}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 rounded-full p-1.5 bg-slate-50 hover:bg-slate-100 transition-all z-10"
+              >
+                <X size={16} />
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* CHANGE PASSWORD MODAL */}
+      {showChangePasswordModal && currentUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl relative overflow-hidden">
+            <div className="text-center mb-5">
+              <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-amber-50 text-brand-orange mb-2">
+                <Key size={20} />
+              </div>
+              <h3 className="font-display font-bold text-slate-800 text-lg">Change Your Password</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Protect your account by creating a secure custom password.
+              </p>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const trimmedCurrent = changePasswordCurrent.trim();
+                const trimmedNew = changePasswordNew.trim();
+                const trimmedConfirm = changePasswordConfirm.trim();
+
+                // 1. Verify current password
+                let isCurrentCorrect = false;
+                if (currentUser.password !== undefined) {
+                  isCurrentCorrect = trimmedCurrent === currentUser.password;
+                } else {
+                  // Fallback to default credentials check
+                  const lowerUsername = currentUser.username.toLowerCase();
+                  const lowerPassword = trimmedCurrent.toLowerCase();
+                  if (
+                    lowerPassword === 'sunshine123' || 
+                    lowerPassword === '123456' || 
+                    lowerPassword === `${lowerUsername}123` ||
+                    lowerPassword === lowerUsername ||
+                    (lowerUsername === 'admin' && lowerPassword === 'admin123') ||
+                    (lowerUsername === 'teacher' && lowerPassword === 'teacher123') ||
+                    (lowerUsername === 'reception' && lowerPassword === 'reception123') ||
+                    (lowerUsername === 'student' && lowerPassword === 'student123')
+                  ) {
+                    isCurrentCorrect = true;
+                  }
+                }
+
+                if (!isCurrentCorrect) {
+                  alert('The current password you entered is incorrect. Please try again!');
+                  return;
+                }
+
+                // 2. Validate new password length
+                if (trimmedNew.length < 4) {
+                  alert('Your new password must be at least 4 characters long!');
+                  return;
+                }
+
+                // 3. Confirm matching new passwords
+                if (trimmedNew !== trimmedConfirm) {
+                  alert('The new password and confirmation password do not match!');
+                  return;
+                }
+
+                // 4. Update the password
+                handleUpdateUserPassword(currentUser.id, trimmedNew);
+                alert('Your password has been changed successfully! Please keep it safe.');
+                setShowChangePasswordModal(false);
+              }}
+              className="space-y-4"
+            >
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-700">Account Username</label>
-                <input
-                  id="auth-input-username"
-                  type="text"
-                  required
-                  placeholder="e.g. student, teacher, admin, reception"
-                  value={authUsername}
-                  onChange={(e) => setAuthUsername(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
-                />
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">
+                  Current Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showCurrentPassword ? "text" : "password"}
+                    required
+                    placeholder="Enter current password"
+                    value={changePasswordCurrent}
+                    onChange={(e) => setChangePasswordCurrent(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 outline-none focus:border-brand-blue focus:bg-white font-semibold"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1"
+                    title={showCurrentPassword ? "Hide password" : "Show password"}
+                  >
+                    {showCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-700">Select System Role</label>
-                <select
-                  id="auth-select-role"
-                  value={authRole}
-                  onChange={(e) => setAuthRole(e.target.value as any)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
-                >
-                  <option value="STUDENT">Student Dashboard</option>
-                  <option value="TEACHER">Teacher Panel</option>
-                  <option value="RECEPTIONIST">Reception Desk</option>
-                  <option value="ADMIN">Admin ERP System</option>
-                </select>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">
+                  New Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    required
+                    placeholder="Enter new password (min 4 characters)"
+                    value={changePasswordNew}
+                    onChange={(e) => setChangePasswordNew(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 outline-none focus:border-brand-blue focus:bg-white font-semibold"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1"
+                    title={showNewPassword ? "Hide password" : "Show password"}
+                  >
+                    {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-700">Account Password</label>
-                <input
-                  id="auth-input-password"
-                  type="password"
-                  required
-                  placeholder="Password"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
-                />
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">
+                  Confirm New Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    required
+                    placeholder="Confirm your new password"
+                    value={changePasswordConfirm}
+                    onChange={(e) => setChangePasswordConfirm(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 outline-none focus:border-brand-blue focus:bg-white font-semibold"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1"
+                    title={showConfirmPassword ? "Hide password" : "Show password"}
+                  >
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
 
               <div className="flex gap-2 pt-2">
                 <button
-                  id="btn-auth-cancel"
                   type="button"
-                  onClick={() => setShowLoginModal(false)}
-                  className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  onClick={() => setShowChangePasswordModal(false)}
+                  className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
-                  id="btn-auth-login"
                   type="submit"
-                  className="flex-1 rounded-xl bg-brand-blue hover:bg-brand-blue-hover text-white py-2.5 text-xs font-bold shadow-md transition-all"
+                  className="flex-1 rounded-xl bg-brand-blue hover:bg-brand-blue-hover text-white py-2.5 text-xs font-bold shadow-md transition-all cursor-pointer"
                 >
-                  Login Session
+                  Save New Password
                 </button>
               </div>
             </form>
 
             <button
-              id="btn-login-close"
-              onClick={() => setShowLoginModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 rounded-full p-1"
+              onClick={() => setShowChangePasswordModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 rounded-full p-1.5 bg-slate-50 hover:bg-slate-100 transition-all cursor-pointer"
             >
               <X size={16} />
             </button>

@@ -18,8 +18,11 @@ import {
   CornerDownRight,
   TrendingUp,
   Clock,
+  ChevronDown,
   Trash2,
-  Settings
+  Settings,
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Teacher, Student, Attendance, Homework, HomeworkSubmission, Test, StudentMark, TimetableEntry } from '../types';
 
@@ -57,6 +60,7 @@ export default function TeacherDashboard({
   onUpdateTimetable
 }: TeacherDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'homework-assign' | 'homework-review' | 'test-marks' | 'schedule'>('overview');
+  const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   
   // Selection States
   const [selectedClass, setSelectedClass] = useState<string>('Class 10');
@@ -133,6 +137,81 @@ export default function TeacherDashboard({
 
     onAddAttendance(logs);
     alert(`Success! Marked digital attendance logs for ${batchStudents.length} students in ${selectedClass}.`);
+  };
+
+  const handleExportLiveDraft = () => {
+    const batchStudents = students.filter((s) => s.class === selectedClass);
+    if (batchStudents.length === 0) {
+      alert(`No student records found for ${selectedClass} to export.`);
+      return;
+    }
+
+    const headers = ['Roll No', 'Student Name', 'Class', 'Date', 'Status', 'Marked By'];
+    const rows = batchStudents.map((s) => {
+      const rollNo = s.rollNo || '';
+      const status = attendanceRecords[s.id] || 'PRESENT';
+      return [
+        rollNo,
+        s.name,
+        selectedClass,
+        attendanceDate,
+        status,
+        teacher.name
+      ];
+    });
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `attendance_draft_${selectedClass.replace(/\s+/g, '_')}_${attendanceDate}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportHistory = () => {
+    const classHistory = attendanceList.filter((a) => a.class === selectedClass);
+    if (classHistory.length === 0) {
+      alert(`No historical attendance logs found in database for ${selectedClass}. Try submitting some roll calls first!`);
+      return;
+    }
+
+    const headers = ['Record ID', 'Roll No', 'Student Name', 'Class', 'Session Date', 'Status', 'Marked By'];
+    const rows = classHistory.map((a) => {
+      const student = students.find((s) => s.id === a.studentId);
+      const rollNo = student ? (student.rollNo || '') : '';
+      return [
+        a.id,
+        rollNo,
+        a.studentName,
+        a.class,
+        a.date,
+        a.status,
+        a.markedBy
+      ];
+    });
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `attendance_history_${selectedClass.replace(/\s+/g, '_')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleCreateHomework = (e: React.FormEvent) => {
@@ -282,74 +361,124 @@ export default function TeacherDashboard({
 
       {/* Main ERP Layout Grid */}
       <div className="grid gap-6 lg:grid-cols-4">
-        {/* Navigation Sidebar */}
+        {/* Navigation Sidebar / Mobile Switcher */}
         <div className="lg:col-span-1">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-1">
-            <span className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Faculty Controls</span>
+          {(() => {
+            const tabsList = [
+              { id: 'overview', label: 'Teacher Dashboard Overview', icon: <Award size={16} /> },
+              { id: 'attendance', label: 'Daily Attendance Register', icon: <Users size={16} /> },
+              { id: 'homework-assign', label: 'Upload Homework Assignments', icon: <BookOpen size={16} /> },
+              { id: 'homework-review', label: `Review Homework submissions (${relevantSubmissions.filter(s => s.status === 'SUBMITTED').length})`, icon: <CheckCircle size={16} /> },
+              { id: 'test-marks', label: 'Test Creation & Grading Ledger', icon: <FileText size={16} /> }
+            ] as const;
 
-            <button
-              id="teacher-tab-overview"
-              onClick={() => setActiveTab('overview')}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
-                activeTab === 'overview' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Award size={16} /> Teacher Dashboard
-            </button>
+            const activeTabObj = tabsList.find(t => t.id === activeTab);
 
-            <button
-              id="teacher-tab-attendance"
-              onClick={() => {
-                setActiveTab('attendance');
-                handleClassSelection(selectedClass);
-              }}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
-                activeTab === 'attendance' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Users size={16} /> Daily Attendance Register
-            </button>
+            return (
+              <>
+                {/* Mobile Tab Dropdown Selector (Visible on < lg) */}
+                <div className="block lg:hidden mb-4 relative">
+                  <button
+                    id="teacher-mobile-tab-dropdown-btn"
+                    type="button"
+                    onClick={() => setIsTabDropdownOpen(!isTabDropdownOpen)}
+                    className="w-full flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-xs font-bold text-slate-800 shadow-sm hover:bg-slate-50 hover:border-emerald-200 active:bg-slate-100 transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-emerald-700">
+                        {activeTabObj?.icon}
+                      </span>
+                      <span className="font-bold text-slate-800 text-sm">
+                        {activeTabObj?.label}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-slate-400">
+                      <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500 px-2.5 py-1 rounded-full">Menu</span>
+                      <ChevronDown size={18} className={`text-slate-500 transition-transform duration-200 ${isTabDropdownOpen ? 'rotate-180' : ''}`} />
+                    </div>
+                  </button>
 
-            <button
-              id="teacher-tab-hw-assign"
-              onClick={() => setActiveTab('homework-assign')}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
-                activeTab === 'homework-assign' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <BookOpen size={16} /> Upload Homework
-            </button>
+                  {isTabDropdownOpen && (
+                    <>
+                      {/* Backdrop to close dropdown on tap outside */}
+                      <div 
+                        className="fixed inset-0 z-40 bg-slate-900/10 backdrop-blur-3xs" 
+                        onClick={() => setIsTabDropdownOpen(false)} 
+                      />
+                      
+                      <div className="absolute left-0 right-0 mt-2 z-50 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xl animate-in fade-in slide-in-from-top-2 duration-150 max-h-[420px] overflow-y-auto divide-y divide-slate-50">
+                        <div className="px-3 py-1.5 mb-1.5 text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">
+                          Navigate Faculty Desk
+                        </div>
+                        <div className="pt-1.5 space-y-1">
+                          {tabsList.map((tab) => {
+                            const isSelected = activeTab === tab.id;
+                            return (
+                              <button
+                                key={tab.id}
+                                id={`teacher-mobile-tab-opt-${tab.id}`}
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab(tab.id);
+                                  if (tab.id === 'attendance') {
+                                    handleClassSelection(selectedClass);
+                                  }
+                                  setIsTabDropdownOpen(false);
+                                }}
+                                className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-xs font-semibold transition-all cursor-pointer ${
+                                  isSelected 
+                                    ? 'bg-emerald-700 text-white shadow-sm font-bold' 
+                                    : 'text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                <span className={isSelected ? 'text-white' : 'text-slate-400'}>
+                                  {tab.icon}
+                                </span>
+                                <span className="text-left font-semibold text-xs flex-1">{tab.label}</span>
+                                {isSelected && (
+                                  <Check size={14} className="text-amber-400 font-bold" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
 
-            <button
-              id="teacher-tab-hw-review"
-              onClick={() => setActiveTab('homework-review')}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
-                activeTab === 'homework-review' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <CheckCircle size={16} /> Review Homework ({relevantSubmissions.filter(s => s.status === 'SUBMITTED').length})
-            </button>
-
-            <button
-              id="teacher-tab-test-marks"
-              onClick={() => setActiveTab('test-marks')}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
-                activeTab === 'test-marks' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <FileText size={16} /> Test Creation & Grading
-            </button>
-
-            <button
-              id="teacher-tab-schedule"
-              onClick={() => setActiveTab('schedule')}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
-                activeTab === 'schedule' ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Clock size={16} /> Lecture Timetable Planner
-            </button>
-          </div>
+                {/* Desktop Navigation Sidebar (Visible on >= lg) */}
+                <div className="hidden lg:block">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3 lg:p-4 shadow-sm space-y-1">
+                    <span className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Faculty Controls</span>
+                    <div className="flex flex-col gap-1">
+                      {tabsList.map((tab) => {
+                        const isSelected = activeTab === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            id={`teacher-desktop-tab-${tab.id}`}
+                            onClick={() => {
+                              setActiveTab(tab.id);
+                              if (tab.id === 'attendance') {
+                                handleClassSelection(selectedClass);
+                              }
+                            }}
+                            className={`flex items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer ${
+                              isSelected ? 'bg-emerald-700 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            {tab.icon}
+                            <span>{tab.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* Dynamic content screen */}
@@ -435,96 +564,160 @@ export default function TeacherDashboard({
 
           {/* TAB 2: ATTENDANCE */}
           {activeTab === 'attendance' && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="font-display font-bold text-base text-slate-800 mb-1">Daily Student Attendance Portal</h3>
-              <p className="text-xs text-slate-500 mb-6">Select appropriate class cohort and enter daily session statistics.</p>
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h3 className="font-display font-bold text-base text-slate-800 mb-1">Daily Student Attendance Portal</h3>
+                <p className="text-xs text-slate-500 mb-6">Select appropriate class cohort and enter daily session statistics.</p>
 
-              <form onSubmit={handleSubmitAttendance} className="space-y-6">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Select Academic Cohort</label>
-                    <select
-                      id="select-attendance-class"
-                      value={selectedClass}
-                      onChange={(e) => handleClassSelection(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                <form onSubmit={handleSubmitAttendance} className="space-y-6">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Select Academic Cohort</label>
+                      <select
+                        id="select-attendance-class"
+                        value={selectedClass}
+                        onChange={(e) => handleClassSelection(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                      >
+                        <option value="Class 10">Class 10 (Board Specialists)</option>
+                        <option value="Class 9">Class 9 (Foundation Group)</option>
+                        <option value="Class 8">Class 8 (Apex Batch)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Session Date</label>
+                      <input
+                        id="input-attendance-date"
+                        type="date"
+                        required
+                        value={attendanceDate}
+                        onChange={(e) => setAttendanceDate(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Students check-list */}
+                  <div className="border border-slate-100 rounded-xl overflow-hidden">
+                    <div className="bg-slate-50 p-3 flex justify-between font-bold text-[10px] uppercase tracking-wider text-slate-400">
+                      <span>Student Profile</span>
+                      <span>Attendance Status</span>
+                    </div>
+
+                    <div className="divide-y divide-slate-100">
+                      {filteredStudents.length === 0 ? (
+                        <div className="p-6 text-center text-slate-400 text-xs">No students registered in {selectedClass} cohort.</div>
+                      ) : (
+                        filteredStudents.map((s) => {
+                          const statusValue = attendanceRecords[s.id] || 'PRESENT';
+                          return (
+                            <div key={s.id} className="p-3 flex justify-between items-center hover:bg-slate-50/30">
+                              <div>
+                                <span className="text-[10px] font-mono text-slate-400 block">{s.rollNo}</span>
+                                <span className="text-xs font-bold text-slate-800">{s.name}</span>
+                              </div>
+
+                              <div className="flex gap-1.5">
+                                {(['PRESENT', 'ABSENT', 'LATE', 'LEAVE'] as const).map((st) => (
+                                  <button
+                                    key={st}
+                                    id={`btn-mark-${s.id}-${st.toLowerCase()}`}
+                                    type="button"
+                                    onClick={() => handleMarkAttendanceStatus(s.id, st)}
+                                    className={`rounded-lg px-2.5 py-1 text-[9px] font-bold border transition-colors ${
+                                      statusValue === st
+                                        ? st === 'PRESENT' ? 'bg-green-600 text-white border-green-600 shadow-sm' :
+                                          st === 'ABSENT' ? 'bg-red-600 text-white border-red-600 shadow-sm' :
+                                          st === 'LATE' ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-brand-blue text-white border-brand-blue shadow-sm'
+                                        : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    {st}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <button
+                      id="btn-attendance-submit"
+                      type="submit"
+                      disabled={filteredStudents.length === 0}
+                      className="rounded-xl bg-emerald-700 px-5 py-2.5 text-xs font-bold text-white shadow hover:bg-emerald-800 disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer"
                     >
-                      <option value="Class 10">Class 10 (Board Specialists)</option>
-                      <option value="Class 9">Class 9 (Foundation Group)</option>
-                      <option value="Class 8">Class 8 (Apex Batch)</option>
-                    </select>
+                      Register Roll Call Attendance
+                    </button>
                   </div>
+                </form>
+              </div>
 
+              {/* Attendance Reports & CSV Export Actions Sidebar */}
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between h-full">
                   <div>
-                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Session Date</label>
-                    <input
-                      id="input-attendance-date"
-                      type="date"
-                      required
-                      value={attendanceDate}
-                      onChange={(e) => setAttendanceDate(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
-                    />
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="p-2 bg-emerald-50 text-emerald-700 rounded-lg">
+                        <FileSpreadsheet size={18} />
+                      </div>
+                      <h4 className="font-display font-bold text-sm text-slate-800">Attendance Exports</h4>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed mb-4">
+                      Export attendance reports to downloadable CSV files for offline spreadsheets, backup logs, or administrative records.
+                    </p>
+
+                    <div className="space-y-4">
+                      {/* Active Draft Exporter */}
+                      <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3.5 hover:border-slate-200 transition-all">
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                          Live Session Draft
+                        </span>
+                        <p className="text-[11px] text-slate-500 mb-2.5">
+                          Download a CSV copy of the {selectedClass} roster with the exact status choices currently selected above on the screen.
+                        </p>
+                        <button
+                          id="btn-export-live-draft"
+                          type="button"
+                          onClick={handleExportLiveDraft}
+                          disabled={filteredStudents.length === 0}
+                          className="w-full flex items-center justify-center gap-2 rounded-lg bg-white border border-slate-200 hover:border-emerald-600 hover:bg-emerald-50/10 py-2 text-[11px] font-bold text-slate-700 hover:text-emerald-700 transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Download size={13} />
+                          Download Live Draft (.CSV)
+                        </button>
+                      </div>
+
+                      {/* Historical DB Exporter */}
+                      <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3.5 hover:border-slate-200 transition-all">
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                          Saved Class Records
+                        </span>
+                        <p className="text-[11px] text-slate-500 mb-2.5">
+                          Download ALL saved historical roll call records for {selectedClass} ever submitted to the database.
+                        </p>
+                        <button
+                          id="btn-export-historical-csv"
+                          type="button"
+                          onClick={handleExportHistory}
+                          className="w-full flex items-center justify-center gap-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 py-2 text-[11px] font-bold text-white transition-all shadow cursor-pointer"
+                        >
+                          <Download size={13} />
+                          Export All saved {selectedClass} Logs (.CSV)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 pt-3 border-t border-slate-100 text-[10px] text-slate-400 leading-normal">
+                    💡 <strong>Tips:</strong> CSV files are pre-formatted for Microsoft Excel, Google Sheets, or LibreOffice. Columns contain Student Roll Numbers, Names, Session Dates, Attendance Status, and the marking instructor's identity.
                   </div>
                 </div>
-
-                {/* Students check-list */}
-                <div className="border border-slate-100 rounded-xl overflow-hidden">
-                  <div className="bg-slate-50 p-3 flex justify-between font-bold text-[10px] uppercase tracking-wider text-slate-400">
-                    <span>Student Profile</span>
-                    <span>Attendance Status</span>
-                  </div>
-
-                  <div className="divide-y divide-slate-100">
-                    {filteredStudents.length === 0 ? (
-                      <div className="p-6 text-center text-slate-400 text-xs">No students registered in {selectedClass} cohort.</div>
-                    ) : (
-                      filteredStudents.map((s) => {
-                        const statusValue = attendanceRecords[s.id] || 'PRESENT';
-                        return (
-                          <div key={s.id} className="p-3 flex justify-between items-center hover:bg-slate-50/30">
-                            <div>
-                              <span className="text-[10px] font-mono text-slate-400 block">{s.rollNo}</span>
-                              <span className="text-xs font-bold text-slate-800">{s.name}</span>
-                            </div>
-
-                            <div className="flex gap-1.5">
-                              {(['PRESENT', 'ABSENT', 'LATE', 'LEAVE'] as const).map((st) => (
-                                <button
-                                  key={st}
-                                  id={`btn-mark-${s.id}-${st.toLowerCase()}`}
-                                  type="button"
-                                  onClick={() => handleMarkAttendanceStatus(s.id, st)}
-                                  className={`rounded-lg px-2.5 py-1 text-[9px] font-bold border transition-colors ${
-                                    statusValue === st
-                                      ? st === 'PRESENT' ? 'bg-green-600 text-white border-green-600 shadow-sm' :
-                                        st === 'ABSENT' ? 'bg-red-600 text-white border-red-600 shadow-sm' :
-                                        st === 'LATE' ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-brand-blue text-white border-brand-blue shadow-sm'
-                                      : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  {st}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <button
-                    id="btn-attendance-submit"
-                    type="submit"
-                    disabled={filteredStudents.length === 0}
-                    className="rounded-xl bg-emerald-700 px-5 py-2.5 text-xs font-bold text-white shadow hover:bg-emerald-800 disabled:bg-slate-200 disabled:text-slate-400"
-                  >
-                    Register Roll Call Attendance
-                  </button>
-                </div>
-              </form>
+              </div>
             </div>
           )}
 
@@ -868,7 +1061,7 @@ export default function TeacherDashboard({
                     <form onSubmit={handleSubmitMarks} className="space-y-4">
                       <div className="border border-slate-100 rounded-xl overflow-hidden divide-y divide-slate-100">
                         {students.filter(s => s.class === tests.find(t => t.id === selectedTestId)?.class).map((student) => (
-                          <div key={student.id} className="p-3 grid grid-cols-3 gap-4 items-center">
+                          <div key={student.id} className="p-3.5 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 items-center">
                             <div className="col-span-1">
                               <span className="text-[10px] text-slate-400 block font-mono">{student.rollNo}</span>
                               <span className="text-xs font-bold text-slate-800">{student.name}</span>
@@ -958,9 +1151,9 @@ export default function TeacherDashboard({
                 </div>
 
                 {/* Filters */}
-                <div className="border border-slate-100 rounded-xl overflow-hidden">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
+                <div className="border border-slate-100 rounded-xl bg-white">
+                  <table className="w-full text-left border-collapse block md:table">
+                    <thead className="hidden md:table-header-group">
                       <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                         <th className="p-3">Day</th>
                         <th className="p-3">Target Class</th>
@@ -971,24 +1164,26 @@ export default function TeacherDashboard({
                         <th className="p-3 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 text-xs">
+                    <tbody className="block md:table-row-group divide-y divide-slate-100 md:divide-y md:divide-slate-50 text-xs">
                       {timetableList.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="p-8 text-center text-slate-400 font-medium">No schedule slots registered in Sunshine Classes database yet.</td>
+                        <tr className="block md:table-row">
+                          <td colSpan={7} className="p-8 text-center text-slate-400 font-medium block md:table-cell">No schedule slots registered in Sunshine Classes database yet.</td>
                         </tr>
                       ) : (
                         timetableList.map((entry) => (
-                          <tr key={entry.id} className="hover:bg-slate-50/30">
-                            <td className="p-3 font-bold text-slate-800">{entry.day}</td>
-                            <td className="p-3 font-semibold text-slate-600">{entry.className}</td>
-                            <td className="p-3">
+                          <tr key={entry.id} className="hover:bg-slate-50/30 block md:table-row p-3 md:p-0">
+                            <td className="py-1 px-3 font-bold text-slate-800 block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Day:</span>{entry.day}</td>
+                            <td className="py-1 px-3 font-semibold text-slate-600 block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Class:</span>{entry.className}</td>
+                            <td className="py-1 px-3 block md:table-cell md:p-3">
+                              <span className="inline-block md:hidden font-bold text-slate-400 w-28">Subject:</span>
                               <span className="rounded bg-indigo-50 px-2 py-0.5 font-bold text-indigo-700 text-[10px]">
                                 {entry.subject}
                               </span>
                             </td>
-                            <td className="p-3 text-slate-600 font-medium">{entry.teacherName}</td>
-                            <td className="p-3 text-slate-500 font-mono text-[10px]">{entry.startTime} - {entry.endTime}</td>
-                            <td className="p-3">
+                            <td className="py-1 px-3 text-slate-600 font-medium block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Faculty:</span>{entry.teacherName}</td>
+                            <td className="py-1 px-3 text-slate-500 font-mono text-[10px] block md:table-cell md:p-3"><span className="inline-block md:hidden font-bold text-slate-400 w-28">Time:</span>{entry.startTime} - {entry.endTime}</td>
+                            <td className="py-1 px-3 block md:table-cell md:p-3">
+                              <span className="inline-block md:hidden font-bold text-slate-400 w-28">Room/Status:</span>
                               {entry.isHoliday ? (
                                 <span className="rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-[10px] font-bold text-rose-700">
                                   Holiday: {entry.holidayReason || 'N/A'}
@@ -999,11 +1194,12 @@ export default function TeacherDashboard({
                                 </span>
                               )}
                             </td>
-                            <td className="p-3 text-right">
+                            <td className="py-1 px-3 text-left md:text-right block md:table-cell md:p-3">
+                              <span className="inline-block md:hidden font-bold text-slate-400 w-28">Actions:</span>
                               <button
                                 id={`btn-delete-slot-${entry.id}`}
                                 onClick={() => handleDeleteTimetableSlot(entry.id)}
-                                className="rounded p-1.5 text-rose-600 hover:bg-rose-50 hover:text-rose-800 transition-colors"
+                                className="rounded p-1.5 text-rose-600 hover:bg-rose-50 hover:text-rose-800 transition-colors inline-block align-middle"
                                 title="Delete Slot"
                               >
                                 <Trash2 size={14} />
