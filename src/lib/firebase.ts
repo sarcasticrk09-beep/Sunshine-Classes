@@ -59,7 +59,7 @@ console.error = function (...args) {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 /**
  * Generic helper to fetch all items in a Firestore collection.

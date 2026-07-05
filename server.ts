@@ -30,7 +30,7 @@ const db = getFirestore(fbApp, "ai-studio-sunshineclassesm-168e58b1-1a00-4a10-99
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   // JSON parsing middleware
   app.use(express.json());
