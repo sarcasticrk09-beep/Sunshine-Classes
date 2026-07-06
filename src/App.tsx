@@ -190,7 +190,37 @@ export default function App() {
   // Central Database States (loaded from localStorage or SEED data)
   const [students, setStudents] = useState<Student[]>(() => getOrSeedLocal('students', SEED_STUDENTS));
   const [teachers, setTeachers] = useState<Teacher[]>(() => getOrSeedLocal('teachers', SEED_TEACHERS));
-  const [users, setUsers] = useState<User[]>(() => getOrSeedLocal('users', SEED_USERS));
+  const [users, setUsers] = useState<User[]>(() => {
+    const raw = getOrSeedLocal('users', SEED_USERS);
+    let changed = false;
+    const migrated = raw.map(u => {
+      if (u.username === 'admin' && (u.name.includes('Shubham') || u.email === 'admin@sunshine.com')) {
+        changed = true;
+        return {
+          ...u,
+          name: 'Priyanshu Gupta (Founder)',
+          email: 'guptapriyansu@gmail.com',
+          phone: '9876543210'
+        };
+      }
+      return u;
+    });
+    if (!migrated.some(u => u.username === 'rajeev')) {
+      changed = true;
+      migrated.push({
+        id: 'u8',
+        username: 'rajeev',
+        name: 'Rajeev Kr. Verma (Co-Founder)',
+        email: 'kumarvermarajeev79@gmail.com',
+        role: 'ADMIN',
+        phone: '9161586254'
+      });
+    }
+    if (changed) {
+      localStorage.setItem('sunshine_users', JSON.stringify(migrated));
+    }
+    return migrated;
+  });
   const [admissions, setAdmissions] = useState<Admission[]>(() => getOrSeedLocal('admissions', SEED_ADMISSIONS));
   const [attendance, setAttendance] = useState<Attendance[]>(() => getOrSeedLocal('attendance', SEED_ATTENDANCE));
   const [feeStatuses, setFeeStatuses] = useState<FeeStatus[]>(() => getOrSeedLocal('fee_statuses', SEED_FEE_STATUS));
@@ -203,7 +233,36 @@ export default function App() {
   const [testimonials, setTestimonials] = useState<Testimonial[]>(() => getOrSeedLocal('testimonials', SEED_TESTIMONIALS));
   const [toppers, setToppers] = useState<Topper[]>(() => getOrSeedLocal('toppers', SEED_TOPPERS));
   const [studyMaterials, setStudyMaterials] = useState<StudyMaterial[]>(() => getOrSeedLocal('study_materials', SEED_STUDY_MATERIALS));
-  const [founders, setFounders] = useState<FounderMember[]>(() => getOrSeedLocal('founders', SEED_FOUNDERS));
+  const [founders, setFounders] = useState<FounderMember[]>(() => {
+    const raw = getOrSeedLocal('founders', SEED_FOUNDERS);
+    let changed = false;
+    const migrated = raw.map(f => {
+      if (f.id === 'fm-shubham' || f.name.includes('Shubham')) {
+        changed = true;
+        return {
+          ...f,
+          id: 'fm-priyanshu',
+          name: 'Priyanshu Gupta',
+          avatarInitials: 'PG'
+        };
+      }
+      if (f.id === 'fm-suresh' || (f.name.includes('Priyanshu') && f.title.includes('Co-Founder'))) {
+        changed = true;
+        return {
+          ...f,
+          id: 'fm-rajeev',
+          name: 'Rajeev Kr. Verma',
+          title: 'Co-Founder & Senior Science Specialist',
+          avatarInitials: 'RV'
+        };
+      }
+      return f;
+    });
+    if (changed) {
+      localStorage.setItem('sunshine_founders', JSON.stringify(migrated));
+    }
+    return migrated;
+  });
   const [gallery, setGallery] = useState<GalleryItem[]>(() => getOrSeedLocal('gallery', SEED_GALLERY));
   const [notifications, setNotifications] = useState<AppNotification[]>(() => getOrSeedLocal('notifications', SEED_NOTIFICATIONS));
   const [inquiries, setInquiries] = useState<Inquiry[]>(() => getOrSeedLocal('inquiries', SEED_INQUIRIES));
@@ -822,9 +881,66 @@ export default function App() {
     // Automatically push notifications for overdue pending fees
     const finalNotifs = checkAndPushFeeOverdueNotifications(loadedFeeStatuses, loadedNotifications);
 
+    // Migrate loadedUsers and loadedFounders on startup to ensure database aligns
+    let usersMigrated = false;
+    const migratedLoadedUsers = loadedUsers.map(u => {
+      if (u.username === 'admin' && (u.name.includes('Shubham') || u.email === 'admin@sunshine.com')) {
+        usersMigrated = true;
+        return {
+          ...u,
+          name: 'Priyanshu Gupta (Founder)',
+          email: 'guptapriyansu@gmail.com',
+          phone: '9876543210'
+        };
+      }
+      return u;
+    });
+    if (!migratedLoadedUsers.some(u => u.username === 'rajeev')) {
+      usersMigrated = true;
+      migratedLoadedUsers.push({
+        id: 'u8',
+        username: 'rajeev',
+        name: 'Rajeev Kr. Verma (Co-Founder)',
+        email: 'kumarvermarajeev79@gmail.com',
+        role: 'ADMIN',
+        phone: '9161586254'
+      });
+    }
+
+    let foundersMigrated = false;
+    const migratedLoadedFounders = loadedFounders.map(f => {
+      if (f.id === 'fm-shubham' || f.name.includes('Shubham')) {
+        foundersMigrated = true;
+        return {
+          ...f,
+          id: 'fm-priyanshu',
+          name: 'Priyanshu Gupta',
+          avatarInitials: 'PG'
+        };
+      }
+      if (f.id === 'fm-suresh' || (f.name.includes('Priyanshu') && f.title.includes('Co-Founder'))) {
+        foundersMigrated = true;
+        return {
+          ...f,
+          id: 'fm-rajeev',
+          name: 'Rajeev Kr. Verma',
+          title: 'Co-Founder & Senior Science Specialist',
+          avatarInitials: 'RV'
+        };
+      }
+      return f;
+    });
+
+    if (usersMigrated) {
+      syncState('users', migratedLoadedUsers);
+    }
+    if (foundersMigrated) {
+      syncState('founders', migratedLoadedFounders);
+    }
+
     setStudents(loadedStudents);
     setTeachers(loadedTeachers);
-    setUsers(loadedUsers);
+    setUsers(migratedLoadedUsers);
     setAdmissions(loadedAdmissions);
     setAttendance(loadedAttendance);
     setFeeStatuses(loadedFeeStatuses);
@@ -837,7 +953,7 @@ export default function App() {
     setTestimonials(loadedTestimonials);
     setToppers(loadedToppers);
     setStudyMaterials(loadedStudyMaterials);
-    setFounders(loadedFounders);
+    setFounders(migratedLoadedFounders);
     setGallery(loadedGallery);
     setNotifications(finalNotifs);
     setInquiries(loadedInquiries);
@@ -2028,6 +2144,7 @@ export default function App() {
 
             {currentUser.role === 'ADMIN' && (
               <AdminDashboard
+                currentUser={currentUser}
                 students={students}
                 teachers={teachers}
                 users={users}
@@ -2404,7 +2521,17 @@ export default function App() {
                                   }}
                                   className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-brand-blue hover:bg-blue-50/40 text-slate-700 hover:text-brand-blue transition-all cursor-pointer"
                                 >
-                                  Shubham Shukla (admin / admin123)
+                                  Priyanshu Gupta (admin / admin123)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAuthUsername('rajeev');
+                                    setAuthPassword('rajeev123');
+                                  }}
+                                  className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-brand-blue hover:bg-blue-50/40 text-slate-700 hover:text-brand-blue transition-all cursor-pointer"
+                                >
+                                  Rajeev Kr. Verma (rajeev / rajeev123)
                                 </button>
                               </div>
                             )}

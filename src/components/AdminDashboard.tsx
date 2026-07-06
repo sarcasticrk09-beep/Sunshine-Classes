@@ -108,6 +108,7 @@ interface AdminDashboardProps {
   onUpdateWhatsappTemplates: (templates: WhatsAppTemplatesConfig) => void;
   onApproveAdmission?: (admissionId: string) => void;
   onRejectAdmission?: (admissionId: string) => void;
+  currentUser?: User | null;
 }
 
 export default function AdminDashboard({
@@ -168,7 +169,8 @@ export default function AdminDashboard({
   whatsappTemplates,
   onUpdateWhatsappTemplates,
   onApproveAdmission,
-  onRejectAdmission
+  onRejectAdmission,
+  currentUser
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp'>('overview');
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
@@ -960,7 +962,7 @@ export default function AdminDashboard({
   const [bulkWAFilterBatch, setBulkWAFilterBatch] = useState('ALL');
   const [isSendingBulkWA, setIsSendingBulkWA] = useState(false);
   const [reminderTemplate, setReminderTemplate] = useState(
-    "Dear Parent, this is a friendly reminder from Sunshine Classes, Pihani. The tuition fee of ₹[AMOUNT] for your child [STUDENT_NAME] ([CLASS]) for [MONTH] is currently pending. Please submit the fee at your earliest convenience to avoid any disruption. Thank you! - Shubham Shukla (Founder)"
+    "Dear Parent, this is a friendly reminder from Sunshine Classes, Pihani. The tuition fee of ₹[AMOUNT] for your child [STUDENT_NAME] ([CLASS]) for [MONTH] is currently pending. Please submit the fee at your earliest convenience to avoid any disruption. Thank you! - Priyanshu Gupta (Founder)"
   );
 
   // Recording payments local form states
@@ -1255,7 +1257,7 @@ export default function AdminDashboard({
           </table>
 
           <div class="footer">
-            Sunshine Classes ERP Automated Registry System • Shubham Shukla, Founder.
+            Sunshine Classes ERP Automated Registry System • Priyanshu Gupta, Founder.
           </div>
           <script>
             window.onload = function() {
@@ -1849,7 +1851,7 @@ export default function AdminDashboard({
             <div>
               <p>Sunshine Classes, Pihani, Hardoi</p>
               <div class="sig-box" style="margin-top: 35px;">
-                Shubham Shukla, Founder
+                Priyanshu Gupta, Founder
               </div>
             </div>
           </div>
@@ -3086,9 +3088,9 @@ ${data.log}`
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="font-display text-2xl font-black">Shubham Shukla</h2>
+              <h2 className="font-display text-2xl font-black">{currentUser?.name || 'Priyanshu Gupta'}</h2>
               <span className="rounded bg-brand-orange/20 border border-brand-orange/30 px-2.5 py-0.5 text-xs font-bold text-amber-400 uppercase tracking-wider">
-                Founder & Lead Director
+                {currentUser?.username === 'rajeev' ? 'Co-Founder & Director' : 'Founder & Lead Director'}
               </span>
             </div>
             <p className="text-sm text-slate-300">Sunshine Classes • Mohalla Mishrana, Opposite Subhash Park, Pihani, Hardoi, Uttar Pradesh (Pin: 241406)</p>
@@ -4811,7 +4813,7 @@ ${data.log}`
                         <button
                           type="button"
                           onClick={() => setReminderTemplate(
-                            "Dear Parent, this is a friendly reminder from Sunshine Classes, Pihani. The tuition fee of ₹[AMOUNT] for your child [STUDENT_NAME] ([CLASS]) for [MONTH] is currently pending. Please submit the fee at your earliest convenience to avoid any disruption. Thank you! - Shubham Shukla (Founder)"
+                            "Dear Parent, this is a friendly reminder from Sunshine Classes, Pihani. The tuition fee of ₹[AMOUNT] for your child [STUDENT_NAME] ([CLASS]) for [MONTH] is currently pending. Please submit the fee at your earliest convenience to avoid any disruption. Thank you! - Priyanshu Gupta (Founder)"
                           )}
                           className="text-emerald-700 font-semibold hover:underline"
                         >
@@ -5386,7 +5388,7 @@ ${data.log}`
                       <div>
                         <span className="font-bold text-amber-900 block">1-Teacher Operation Mode</span>
                         <p className="text-slate-600 mt-0.5">
-                          Since you are currently running with a single-teacher setup, new batches will automatically assign <strong>Shubham Shukla</strong> (or the default faculty) as the main teacher unless you specify a secondary educator.
+                          Since you are currently running with a single-teacher setup, new batches will automatically assign <strong>Priyanshu Gupta</strong> (or the default faculty) as the main teacher unless you specify a secondary educator.
                         </p>
                       </div>
                     </div>
@@ -5446,7 +5448,7 @@ ${data.log}`
                           className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white animate-none"
                         >
                           <option value="">-- Choose Educator --</option>
-                          <option value="Shubham Shukla (Founder)">Shubham Shukla (Founder)</option>
+                          <option value="Priyanshu Gupta (Founder)">Priyanshu Gupta (Founder)</option>
                           {teachers.map((t) => (
                             <option key={t.id} value={t.name}>
                               {t.name} ({t.qualification || 'Faculty'})
@@ -5557,7 +5559,7 @@ ${data.log}`
                               {b.time}
                             </td>
                             <td className="px-6 py-4 text-slate-600">
-                              {b.teacherName || 'Founder (Shubham Shukla)'}
+                              {b.teacherName || 'Founder (Priyanshu Gupta)'}
                             </td>
                             <td className="px-6 py-4 font-bold text-slate-900">
                               ₹{b.monthlyFee}
@@ -6719,7 +6721,7 @@ ${data.log}`
                             }
                           }}
                           className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs focus:ring-1 focus:ring-indigo-900 outline-none"
-                          placeholder="e.g., Shubham Shukla"
+                          placeholder="e.g., Priyanshu Gupta"
                         />
                       </div>
                       <div>

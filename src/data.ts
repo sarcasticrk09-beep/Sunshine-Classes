@@ -583,13 +583,14 @@ export const SEED_STUDENTS: Student[] = [
 ];
 
 export const SEED_USERS: User[] = [
-  { id: 'u1', username: 'admin', name: 'Shubham Shukla (Founder)', email: 'admin@sunshine.com', role: 'ADMIN', phone: '8707738284' },
-  { id: 'u2', username: 'teacher', name: 'Priyanshu Gupta', email: 'priyanshu@sunshine.com', role: 'TEACHER', phone: '9876543210' },
+  { id: 'u1', username: 'admin', name: 'Priyanshu Gupta (Founder)', email: 'guptapriyansu@gmail.com', role: 'ADMIN', phone: '9876543210' },
+  { id: 'u2', username: 'teacher', name: 'Priyanshu Gupta', email: 'guptapriyansu@gmail.com', role: 'TEACHER', phone: '9876543210' },
   { id: 'u3', username: 'reception', name: 'Neha Sharma', email: 'reception@sunshine.com', role: 'RECEPTIONIST', phone: '8707738284' },
   { id: 'u4', username: 'student', name: 'Rahul Verma', email: 'rahul@gmail.com', role: 'STUDENT', phone: '9161586254' },
   { id: 'u5', username: 'anil', name: 'Anil Pandey', email: 'anil@sunshine.com', role: 'TEACHER', phone: '8765432109' },
   { id: 'u6', username: 'ritu', name: 'Ritu Singh', email: 'ritu@sunshine.com', role: 'TEACHER', phone: '7654321098' },
-  { id: 'u7', username: 'priya', name: 'Priya Mishra', email: 'priya@gmail.com', role: 'STUDENT', phone: '9450000001' }
+  { id: 'u7', username: 'priya', name: 'Priya Mishra', email: 'priya@gmail.com', role: 'STUDENT', phone: '9450000001' },
+  { id: 'u8', username: 'rajeev', name: 'Rajeev Kr. Verma (Co-Founder)', email: 'kumarvermarajeev79@gmail.com', role: 'ADMIN', phone: '9161586254' }
 ];
 
 export const SEED_ADMISSIONS: Admission[] = [
@@ -700,7 +701,7 @@ export const SEED_BLOGS: BlogPost[] = [
     excerpt: 'Expert strategy tips from Sunshine Classes to conquer your board syllabus with structural revisions, mock tests, and smart planning.',
     content: 'Scoring above 95% in Class 10 board exams is not just about memorizing everything; it is about strategic planning. First, prioritize the NCERT textbook. Every single question in boards originates or aligns with the concepts in NCERT. Second, practice active recall and spaced repetition. Sunshine Classes conducts weekly test series specifically to enforce this. Third, manage your time during the exams. Spend the first 15 minutes reading the question paper meticulously, mapping out which questions to write first. Always start with the sections you are 100% confident in.',
     category: 'Board Preparation',
-    author: 'Shubham Shukla (Founder)',
+    author: 'Priyanshu Gupta (Founder)',
     date: '2026-06-20',
     imageUrl: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=600&auto=format&fit=crop&q=60'
   },
@@ -812,22 +813,22 @@ export const SEED_STUDY_MATERIALS: StudyMaterial[] = [
 
 export const SEED_FOUNDERS: FounderMember[] = [
   {
-    id: 'fm-shubham',
-    name: 'Shubham Shukla',
+    id: 'fm-priyanshu',
+    name: 'Priyanshu Gupta',
     title: 'Founder Director & Lead Mathematics Faculty',
     qualification: 'M.Sc. Mathematics, B.Ed. | UGC NET Qualified',
     message: 'At Sunshine Classes, we believe that education is not merely about cramming question banks. It is about kindling curiosity. When a student visualizes the reflection rays or understands why a quadratic solution represents a graphical curve, they don\'t just score marks — they become innovators. Our doors are always open to parents who wish to participate actively in their child\'s daily progress.',
     tuitionFocus: 'Board Mathematics',
-    avatarInitials: 'SS'
+    avatarInitials: 'PG'
   },
   {
-    id: 'fm-suresh',
-    name: 'Priyanshu Gupta (Priyanshu Sir)',
+    id: 'fm-rajeev',
+    name: 'Rajeev Kr. Verma',
     title: 'Co-Founder & Senior Science Specialist',
     qualification: 'B.Sc. Physics & Chemistry, B.Ed. | 12+ Years Exp',
     message: 'True science begins with observation. By teaching our board aspirants to dissect and visualize physical models and chemical reactions, we dismantle exam fear and instill everlasting analytical reasoning. Every student has immense potential; we simply provide the lens of extreme clarity.',
     tuitionFocus: 'Board Physics & Chemistry',
-    avatarInitials: 'S'
+    avatarInitials: 'RV'
   }
 ];
 
