@@ -875,9 +875,24 @@ Sunshine Classes — *Excellence in Education* ☀️`;
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const primaryServer = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Sunshine Classes Full-Stack Server running on port ${PORT} in ${isProduction ? 'production' : 'development'} mode`);
   });
+
+  // Dual-port binding backup: bind to both common ports (3000 and 8080) in production to ensure Railway auto-detection works perfectly.
+  if (isProduction) {
+    const backupPort = PORT === 3000 ? 8080 : 3000;
+    try {
+      const fallbackServer = app.listen(backupPort, "0.0.0.0", () => {
+        console.log(`[Backup Server] Listening on port ${backupPort} as a fail-safe fallback for health checks and traffic routing`);
+      });
+      fallbackServer.on('error', (err: any) => {
+        console.log(`[Backup Server] Port ${backupPort} unavailable or already bound (normal behavior if proxy/routing is using it):`, err.message);
+      });
+    } catch (e: any) {
+      console.log(`[Backup Server] Failed to establish fallback server on port ${backupPort}:`, e.message);
+    }
+  }
 }
 
 startServer();
