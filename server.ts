@@ -835,13 +835,16 @@ Sunshine Classes — *Excellence in Education* ☀️`;
   });
 
   // 2. Vite middleware setup for Development & SPA Asset Routing
-  if (process.env.NODE_ENV !== "production") {
+  const isProduction = process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT;
+  if (!isProduction) {
+    console.log("[Server] Starting in DEVELOPMENT mode (with Vite middleware)...");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
+    console.log("[Server] Starting in PRODUCTION mode (serving compiled assets)...");
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
@@ -850,7 +853,7 @@ Sunshine Classes — *Excellence in Education* ☀️`;
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Sunshine Classes Full-Stack Server running on port ${PORT}`);
+    console.log(`Sunshine Classes Full-Stack Server running on port ${PORT} in ${isProduction ? 'production' : 'development'} mode`);
   });
 }
 
