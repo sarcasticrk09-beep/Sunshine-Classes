@@ -291,7 +291,7 @@ export default function App() {
           const docRef = doc(db, 'sunshine_erp_state', k);
           await Promise.race([
             setDoc(docRef, { data: d }, { merge: false }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud sync timeout')), 2000))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud sync timeout')), 15000))
           ]);
           setCloudOnline(true);
         } catch (e) {
@@ -400,11 +400,11 @@ export default function App() {
           try {
             const docRef = doc(db, 'sunshine_erp_state', key);
             
-            // Query with 1000ms timeout
+            // Query with 15000ms timeout
             const snap = await Promise.race([
               getDoc(docRef),
               new Promise<never>((_, reject) => 
-                setTimeout(() => reject(new Error('Firestore getDoc timeout')), 1000)
+                setTimeout(() => reject(new Error('Firestore getDoc timeout')), 15000)
               )
             ]);
 
@@ -1099,13 +1099,15 @@ export default function App() {
     syncState('students', updatedStudents);
 
     // 3. Register user profile for login
+    const generatedUsername = adm.studentName.toLowerCase().replace(/\s+/g, '');
     const newUser: User = {
       id: newStudent.userId,
-      username: adm.studentName.toLowerCase().replace(' ', ''),
+      username: generatedUsername,
       name: adm.studentName,
       email: adm.email,
       role: 'STUDENT',
-      phone: adm.mobile
+      phone: adm.mobile,
+      password: strictMode ? simpleSecureHash(`${generatedUsername}123`) : `${generatedUsername}123`
     };
     const updatedUsers = [...users, newUser];
     setUsers(updatedUsers);
