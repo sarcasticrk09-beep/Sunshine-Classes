@@ -36,6 +36,20 @@ async function startServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
+  // Custom request logging middleware
+  app.use((req, res, next) => {
+    console.log(`[HTTP Request] ${req.method} ${req.url} - IP: ${req.ip} - User-Agent: ${req.get('user-agent') || 'none'}`);
+    next();
+  });
+
+  // Add /health and /api/health endpoints for fast health checking/probing
+  app.get("/health", (req, res) => {
+    res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
+  });
+  app.get("/api/health", (req, res) => {
+    res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
+  });
+
   // Serve static assets from public folder
   app.use(express.static(path.join(process.cwd(), "public")));
 
@@ -845,10 +859,19 @@ Sunshine Classes — *Excellence in Education* ☀️`;
     app.use(vite.middlewares);
   } else {
     console.log("[Server] Starting in PRODUCTION mode (serving compiled assets)...");
-    const distPath = path.join(process.cwd(), "dist");
+    const isBundled = __dirname.endsWith("dist") || __dirname.includes("/dist");
+    const distPath = isBundled ? __dirname : path.join(process.cwd(), "dist");
+    console.log(`[Server] Production Assets Path: "${distPath}"`);
+    
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      const indexPath = path.join(distPath, "index.html");
+      res.sendFile(indexPath, (err) => {
+        if (err) {
+          console.error(`[Server] Error sending index.html:`, err);
+          res.status(500).send("Error loading application shell. Please check server logs.");
+        }
+      });
     });
   }
 
