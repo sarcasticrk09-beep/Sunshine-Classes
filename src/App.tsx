@@ -126,6 +126,16 @@ export default function App() {
     return (saved === 'dark' || saved === 'light') ? saved : 'light';
   });
 
+  // State for the stunning brand introduction splash screen/preloader
+  const [showSplash, setShowSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 2500); // Elegant 2.5 seconds showcase
+    return () => clearTimeout(timer);
+  }, []);
+
   // Cloud Database Loader States - starts false for instant render with local state fallback
   const [cloudLoading, setCloudLoading] = useState(false);
   const [cloudError, setCloudError] = useState<string | null>(null);
@@ -1800,7 +1810,64 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 relative flex flex-col justify-between max-w-full overflow-x-hidden">
+    <>
+      <AnimatePresence mode="wait">
+        {showSplash && (
+          <motion.div
+            key="splash-screen"
+            initial={{ opacity: 1 }}
+            exit={{ 
+              opacity: 0,
+              y: -80,
+              transition: { duration: 0.6, ease: [0.76, 0, 0.24, 1] } 
+            }}
+            className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 p-6 transition-colors duration-300 select-none"
+          >
+            {/* Ambient Background Glows */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-amber-400/10 dark:bg-amber-400/5 blur-[120px] animate-pulse"></div>
+              <div className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full bg-blue-600/10 dark:bg-blue-600/5 blur-[120px] animate-pulse" style={{ animationDelay: '1.5s' }}></div>
+            </div>
+
+            <div className="text-center max-w-md flex flex-col items-center relative z-10">
+              {/* Logo container with scale-up entrance */}
+              <motion.div
+                initial={{ scale: 0.85, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.8, ease: [0.34, 1.56, 0.64, 1] }}
+                className="mb-8"
+              >
+                <SunshineLogo size="xl" layout="vertical" />
+              </motion.div>
+
+              {/* Technical elegant custom loading bar */}
+              <div className="w-64 h-[3px] bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden mb-6 relative">
+                <motion.div
+                  initial={{ width: "0%" }}
+                  animate={{ width: "100%" }}
+                  transition={{ duration: 2.2, ease: "easeInOut" }}
+                  className="h-full bg-gradient-to-r from-brand-orange via-amber-400 to-brand-blue rounded-full"
+                ></motion.div>
+              </div>
+
+              {/* Interactive subtle status description */}
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 0.8, y: 0 }}
+                transition={{ delay: 0.4, duration: 0.5 }}
+                className="flex items-center gap-2 bg-white dark:bg-slate-900 py-2.5 px-5 rounded-full border border-slate-100 dark:border-slate-800 shadow-sm transition-colors"
+              >
+                <RefreshCw className="h-3.5 w-3.5 text-brand-orange animate-spin" />
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 tracking-wider uppercase">
+                  Initializing Sunshine Experience...
+                </span>
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 relative flex flex-col justify-between max-w-full overflow-x-hidden transition-colors duration-300">
       {/* Primary ERP / Website Display Controller */}
       <div className="flex-1">
         {!currentUser ? (
@@ -2559,5 +2626,6 @@ export default function App() {
         </div>
       )}
     </div>
+    </>
   );
 }
