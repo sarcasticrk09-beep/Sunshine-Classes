@@ -564,7 +564,6 @@ export default function LandingPage({
                       <p className="text-xs text-slate-600 dark:text-slate-300 italic leading-relaxed mb-4">"{testi.content}"</p>
                     </div>
                     <div className="flex items-center gap-3 pt-4 border-t border-slate-50 dark:border-slate-800">
-                      <img src={testi.avatarUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=60"} alt={testi.name} className="h-9 w-9 rounded-full object-cover border border-slate-100" />
                       <div>
                         <h4 className="text-xs font-bold text-slate-800 dark:text-white">{testi.name}</h4>
                         <span className="text-[10px] font-extrabold uppercase text-brand-blue tracking-widest">{testi.role}</span>
@@ -659,8 +658,8 @@ export default function LandingPage({
                         {fm.photoUrl ? (
                           <img src={fm.photoUrl} alt={fm.name} className="h-16 w-16 shrink-0 rounded-2xl object-cover shadow-inner border border-slate-250 dark:border-slate-850" />
                         ) : (
-                          <div className="h-16 w-16 shrink-0 rounded-2xl bg-brand-blue/10 dark:bg-brand-blue/20 text-brand-blue dark:text-indigo-400 flex items-center justify-center font-display font-black text-2xl shadow-inner border border-brand-blue/20">
-                            {fm.avatarInitials}
+                          <div className="h-16 w-16 shrink-0 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center shadow-inner border border-slate-200 dark:border-slate-700">
+                            <Users size={28} />
                           </div>
                         )}
                         <div>

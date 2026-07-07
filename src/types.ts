@@ -401,4 +401,23 @@ export interface WhatsAppTemplatesConfig {
   scheduleTemplate: string;
 }
 
+export interface BatchBulletinReadReceipt {
+  studentId: string;
+  studentName: string;
+  timestamp: string;
+}
+
+export interface BatchBulletinPost {
+  id: string;
+  batchId: string;
+  batchName: string;
+  authorId: string;
+  authorName: string;
+  authorRole: 'TEACHER' | 'STUDENT' | 'ADMIN';
+  content: string;
+  timestamp: string; // ISO string
+  readBy?: BatchBulletinReadReceipt[];
+}
+
+
 

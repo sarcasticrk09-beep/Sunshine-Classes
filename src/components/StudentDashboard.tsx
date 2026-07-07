@@ -27,9 +27,11 @@ import {
   Inbox,
   Tv,
   Check,
-  Camera
+  Camera,
+  Trash2,
+  Send
 } from 'lucide-react';
-import { Student, Attendance, FeeStatus, FeeReceipt, Test, StudentMark, Homework, HomeworkSubmission, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, TimetableEntry, StudyMaterial } from '../types';
+import { Student, Attendance, FeeStatus, FeeReceipt, Test, StudentMark, Homework, HomeworkSubmission, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, TimetableEntry, StudyMaterial, BatchBulletinPost } from '../types';
 import SunshineLogo from './SunshineLogo';
 
 interface StudentDashboardProps {
@@ -53,6 +55,10 @@ interface StudentDashboardProps {
   timetableList: TimetableEntry[];
   studyMaterials: StudyMaterial[];
   onUpdateStudent?: (student: Student) => void;
+  batchBulletins: BatchBulletinPost[];
+  onAddBatchBulletinPost: (batchId: string, batchName: string, content: string) => void;
+  onDeleteBatchBulletinPost: (postId: string) => void;
+  onMarkBulletinAsRead: (postId: string, studentId: string, studentName: string) => void;
 }
 
 export default function StudentDashboard({
@@ -75,13 +81,18 @@ export default function StudentDashboard({
   onCollectFee,
   timetableList,
   studyMaterials,
-  onUpdateStudent
+  onUpdateStudent,
+  batchBulletins,
+  onAddBatchBulletinPost,
+  onDeleteBatchBulletinPost,
+  onMarkBulletinAsRead
 }: StudentDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'fees' | 'performance' | 'homework' | 'study-material' | 'timetable' | 'notifications' | 'profile'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'fees' | 'performance' | 'homework' | 'study-material' | 'timetable' | 'notifications' | 'profile' | 'bulletin'>('overview');
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<FeeReceipt | null>(null);
   const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null);
   const [hwAnswerText, setHwAnswerText] = useState('');
+  const [bulletinInputText, setBulletinInputText] = useState('');
   const [isSubmitHwOpen, setIsSubmitHwOpen] = useState(false);
   const [idCardOpen, setIdCardOpen] = useState(false);
 
@@ -99,6 +110,27 @@ export default function StudentDashboard({
     setProfilePhotoUrl(student.photoUrl || '');
     setProfileSuccessMsg('');
   }, [student.id, student.email, student.mobile, student.photoUrl]);
+
+  // Mark bulletin posts as read when student views the bulletin tab
+  React.useEffect(() => {
+    if (activeTab === 'bulletin') {
+      const mySubscription = subscriptions.find(s => s.studentId === student.id);
+      const studentBatchId = mySubscription?.batchId || 'b2';
+      const studentBatchName = student.preferredBatch || mySubscription?.batchName || 'Class 10 - Evening Stars';
+      
+      const filtered = batchBulletins.filter(
+        p => p.batchId === studentBatchId || 
+        p.batchName.toLowerCase() === studentBatchName.toLowerCase()
+      );
+
+      filtered.forEach(post => {
+        const alreadyRead = post.readBy?.some(r => r.studentId === student.id);
+        if (!alreadyRead) {
+          onMarkBulletinAsRead(post.id, student.id, student.name);
+        }
+      });
+    }
+  }, [activeTab, batchBulletins, student.id, student.name, student.preferredBatch, subscriptions, onMarkBulletinAsRead]);
 
   // Filter notifications based on target role, batch and class
   const filteredNotifications = notifications.filter(n => {
@@ -408,6 +440,15 @@ export default function StudentDashboard({
         {/* Left Hand Navigation Sidebar / Mobile Switcher */}
         <div className="lg:col-span-1">
           {(() => {
+            const mySub = subscriptions.find(s => s.studentId === student.id);
+            const studentBatchId = mySub?.batchId || 'b2';
+            const studentBatchName = student.preferredBatch || mySub?.batchName || 'Class 10 - Evening Stars';
+            
+            const unreadBulletinsCount = batchBulletins.filter(
+              p => (p.batchId === studentBatchId || p.batchName.toLowerCase() === studentBatchName.toLowerCase()) &&
+                   !p.readBy?.some(r => r.studentId === student.id)
+            ).length;
+
             const tabsList = [
               { id: 'overview', label: 'Dashboard Overview', icon: <FileText size={16} /> },
               { id: 'profile', label: 'My Student Profile', icon: <User size={16} /> },
@@ -416,6 +457,7 @@ export default function StudentDashboard({
               { id: 'performance', label: 'Tests & Report Card', icon: <TrendingUp size={16} /> },
               { id: 'homework', label: 'Homework Assignments', icon: <BookOpen size={16} /> },
               { id: 'study-material', label: 'Study Material Center', icon: <Download size={16} /> },
+              { id: 'bulletin', label: unreadBulletinsCount > 0 ? `Batch Bulletin Board (${unreadBulletinsCount} new)` : 'Batch Bulletin Board', icon: <MessageSquare size={16} /> },
               { id: 'notifications', label: 'Notification Center', icon: <Bell size={16} /> }
             ] as const;
 
@@ -1368,6 +1410,145 @@ export default function StudentDashboard({
               </div>
             </div>
           )}
+
+          {/* TAB: BATCH BULLETIN BOARD */}
+          {activeTab === 'bulletin' && (() => {
+            const mySubscription = subscriptions.find(s => s.studentId === student.id);
+            const studentBatchId = mySubscription?.batchId || 'b2';
+            const studentBatchName = student.preferredBatch || mySubscription?.batchName || 'Class 10 - Evening Stars';
+            
+            const filteredBulletins = batchBulletins.filter(
+              p => p.batchId === studentBatchId || 
+              p.batchName.toLowerCase() === studentBatchName.toLowerCase()
+            );
+
+            const handlePostSubmit = (e: React.FormEvent) => {
+              e.preventDefault();
+              if (!bulletinInputText.trim()) return;
+              onAddBatchBulletinPost(studentBatchId, studentBatchName, bulletinInputText.trim());
+              setBulletinInputText('');
+            };
+
+            return (
+              <div className="space-y-6 animate-fade-in" id="batch-bulletin-container">
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="bg-brand-blue/10 text-brand-blue text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider">
+                          Active Batch
+                        </span>
+                        <h3 className="font-display font-bold text-lg text-slate-800">{studentBatchName}</h3>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">Real-time announcement board and student-teacher discussion panel for your specific batch.</p>
+                    </div>
+                  </div>
+
+                  {/* Create Post Form */}
+                  <form onSubmit={handlePostSubmit} className="mb-8 border border-slate-100 rounded-2xl p-4 bg-slate-50/50">
+                    <label className="block text-xs font-bold text-slate-700 mb-2">Create a new post</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={bulletinInputText}
+                        onChange={(e) => setBulletinInputText(e.target.value)}
+                        placeholder="Ask a doubt or share an update with your classmates..."
+                        className="flex-1 text-xs border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-1 focus:ring-brand-blue focus:border-brand-blue bg-white font-medium text-slate-800"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!bulletinInputText.trim()}
+                        className="rounded-xl bg-brand-blue hover:bg-brand-blue-hover text-white px-5 py-3 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Send size={14} /> Post
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Bulletins List */}
+                  <div className="space-y-4">
+                    {filteredBulletins.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-slate-100 rounded-2xl text-center">
+                        <MessageSquare className="h-10 w-10 text-slate-300 mb-3" />
+                        <p className="text-sm text-slate-500 font-bold">No announcements yet!</p>
+                        <p className="text-xs text-slate-400 mt-1">Be the first to share an update or question in this batch bulletin.</p>
+                      </div>
+                    ) : (
+                      filteredBulletins.map((post) => {
+                        const isAuthor = post.authorId === student.id;
+                        const dateObj = new Date(post.timestamp);
+                        const formattedTime = isNaN(dateObj.getTime()) 
+                          ? post.timestamp 
+                          : dateObj.toLocaleDateString('en-IN', {
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            });
+
+                        const initials = post.authorName
+                          .split(' ')
+                          .map(n => n[0])
+                          .join('')
+                          .toUpperCase()
+                          .slice(0, 2);
+
+                        // Role styling
+                        let roleColor = 'bg-blue-50 text-blue-700 border-blue-200';
+                        if (post.authorRole === 'TEACHER') {
+                          roleColor = 'bg-amber-50 text-amber-800 border-amber-200 font-extrabold';
+                        } else if (post.authorRole === 'ADMIN') {
+                          roleColor = 'bg-red-50 text-red-700 border-red-200 font-extrabold';
+                        }
+
+                        return (
+                          <div 
+                            key={post.id} 
+                            className="rounded-xl border border-slate-100 p-4 bg-white hover:border-slate-200 transition-all flex gap-3.5 items-start relative group"
+                          >
+                            {/* Avatar */}
+                            <div className="h-9 w-9 rounded-full bg-slate-100 text-slate-600 font-display font-bold text-xs flex items-center justify-center border border-slate-200 flex-shrink-0">
+                              {initials}
+                            </div>
+
+                             {/* Content */}
+                             <div className="space-y-1.5 flex-1">
+                               <div className="flex items-center gap-2 flex-wrap">
+                                 <span className="text-xs font-bold text-slate-800">{post.authorName}</span>
+                                 <span className={`text-[9px] px-2 py-0.5 rounded border ${roleColor}`}>
+                                   {post.authorRole}
+                                 </span>
+                                 <div className="ml-auto flex items-center gap-2">
+                                   {post.readBy?.some(r => r.studentId === student.id) && (
+                                     <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                                       <Check size={11} className="stroke-[3]" /> Read
+                                     </span>
+                                   )}
+                                   <span className="text-[10px] text-slate-400 font-mono">{formattedTime}</span>
+                                 </div>
+                               </div>
+                               <p className="text-xs text-slate-700 leading-relaxed bg-slate-50/40 p-2.5 rounded-lg border border-slate-50/50 whitespace-pre-wrap">{post.content}</p>
+                             </div>
+
+                            {/* Delete button */}
+                            {isAuthor && (
+                              <button
+                                onClick={() => onDeleteBatchBulletinPost(post.id)}
+                                className="text-slate-350 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors ml-2 self-start cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                title="Delete post"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* TAB: MY STUDENT PROFILE */}
           {activeTab === 'profile' && (

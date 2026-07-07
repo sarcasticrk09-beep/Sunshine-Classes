@@ -3078,13 +3078,57 @@ ${data.log}`
     return matchesSearch && matchesBatch && matchesClass;
   });
 
+  const loggedInFounder = founders.find(f => {
+    if (currentUser?.username === 'admin') return f.id === 'fm-priyanshu';
+    if (currentUser?.username === 'rajeev') return f.id === 'fm-rajeev';
+    return false;
+  });
+
   return (
     <div id="admin-portal" className="mx-auto max-w-7xl px-4 py-8">
       {/* Admin Head Badge */}
       <div className="mb-8 flex flex-col justify-between gap-4 rounded-3xl bg-indigo-950 p-6 text-white md:flex-row md:items-center shadow-lg">
         <div className="flex items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-orange text-indigo-950 text-2xl font-black shadow">
-            <Shield size={32} />
+          <div className="relative group flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-brand-orange text-indigo-950 text-2xl font-black shadow overflow-hidden">
+            {loggedInFounder?.photoUrl ? (
+              <img src={loggedInFounder.photoUrl} alt={currentUser?.name} className="h-full w-full object-cover" />
+            ) : (
+              <Shield size={32} />
+            )}
+            
+            {/* Direct Change Photo Overlay */}
+            <label className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center cursor-pointer text-[9px] font-bold text-white leading-tight text-center">
+              <Upload size={14} className="mb-0.5 text-white" />
+              <span>Choose</span>
+              <span className="text-[7px] text-slate-300">Photo</span>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    const file = e.target.files[0];
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      const base64 = reader.result as string;
+                      onAddOrEditFounder({
+                        ...(loggedInFounder || {
+                          id: currentUser?.username === 'admin' ? 'fm-priyanshu' : 'fm-rajeev',
+                          name: currentUser?.name || 'Priyanshu Gupta',
+                          title: currentUser?.username === 'rajeev' ? 'Co-Founder & Director' : 'Founder & Lead Director',
+                          qualification: currentUser?.username === 'rajeev' ? 'B.Sc. Physics & Chemistry' : 'M.Sc. Mathematics',
+                          message: 'Welcome to Sunshine Classes!',
+                          tuitionFocus: currentUser?.username === 'rajeev' ? 'Science' : 'Mathematics',
+                          avatarInitials: currentUser?.username === 'rajeev' ? 'RV' : 'PG',
+                        }),
+                        photoUrl: base64
+                      });
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+              />
+            </label>
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -6838,8 +6882,8 @@ ${data.log}`
                         {fm.photoUrl ? (
                           <img src={fm.photoUrl} alt={fm.name} className="h-12 w-12 rounded-2xl object-cover shadow-sm shrink-0 border border-slate-200" />
                         ) : (
-                          <div className="h-12 w-12 rounded-2xl bg-indigo-900 text-white flex items-center justify-center font-display font-black text-lg shadow-sm shrink-0">
-                            {fm.avatarInitials || 'SS'}
+                          <div className="h-12 w-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center shadow-sm shrink-0 border border-slate-200">
+                            <Users size={20} />
                           </div>
                         )}
                         <div className="space-y-1">
@@ -8094,24 +8138,23 @@ ${data.log}`
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 self-start sm:self-center">
+                   <div className="flex items-center gap-2 self-start sm:self-center">
                     <button
                       id="btn-toggle-strict-mode"
                       type="button"
                       onClick={onToggleStrictMode}
-                      className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        strictMode ? 'bg-emerald-600 cursor-pointer' : 'bg-slate-300 cursor-pointer'
-                      }`}
+                      className="relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-emerald-600 cursor-not-allowed opacity-80"
+                      title="Production mode is permanently active to protect user privacy"
                     >
                       <span
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                          strictMode ? 'translate-x-5' : 'translate-x-0'
-                        }`}
+                        className="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out translate-x-5"
                       />
                     </button>
                     <div className="flex flex-col">
-                      <span className="text-xs font-bold text-slate-700">Strict Shield Mode</span>
-                      <span className="text-[9px] text-slate-400 font-extrabold tracking-wider uppercase">Testing & Production Mode Toggle</span>
+                      <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                        Strict Shield Mode <span className="text-emerald-600">🔒 LOCKED</span>
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-extrabold tracking-wider uppercase">Production Security Enforced</span>
                     </div>
                   </div>
                 </div>

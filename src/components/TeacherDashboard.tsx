@@ -22,9 +22,11 @@ import {
   Trash2,
   Settings,
   Download,
-  FileSpreadsheet
+  FileSpreadsheet,
+  MessageSquare,
+  Send
 } from 'lucide-react';
-import { Teacher, Student, Attendance, Homework, HomeworkSubmission, Test, StudentMark, TimetableEntry } from '../types';
+import { Teacher, Student, Attendance, Homework, HomeworkSubmission, Test, StudentMark, TimetableEntry, BatchBulletinPost } from '../types';
 
 interface TeacherDashboardProps {
   teacher: Teacher;
@@ -41,6 +43,9 @@ interface TeacherDashboardProps {
   onReviewSubmission: (submissionId: string, remarks: string, score: string) => void;
   timetableList: TimetableEntry[];
   onUpdateTimetable: (timetable: TimetableEntry[]) => void;
+  batchBulletins: BatchBulletinPost[];
+  onAddBatchBulletinPost: (batchId: string, batchName: string, content: string) => void;
+  onDeleteBatchBulletinPost: (postId: string) => void;
 }
 
 export default function TeacherDashboard({
@@ -57,9 +62,12 @@ export default function TeacherDashboard({
   onAddMarks,
   onReviewSubmission,
   timetableList,
-  onUpdateTimetable
+  onUpdateTimetable,
+  batchBulletins,
+  onAddBatchBulletinPost,
+  onDeleteBatchBulletinPost
 }: TeacherDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'homework-assign' | 'homework-review' | 'test-marks' | 'schedule'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'homework-assign' | 'homework-review' | 'test-marks' | 'schedule' | 'bulletin'>('overview');
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   
   // Selection States
@@ -73,6 +81,10 @@ export default function TeacherDashboard({
   const [hwSubject, setHwSubject] = useState('Mathematics');
   const [hwClass, setHwClass] = useState('Class 10');
   const [hwDueDate, setHwDueDate] = useState('');
+
+  // Batch Bulletin States
+  const [bulletinInputText, setBulletinInputText] = useState('');
+  const [bulletinSelectedBatch, setBulletinSelectedBatch] = useState<string>(teacher.batches[0] || 'Class 10 - Evening Stars');
 
   // Test Creation States
   const [testTitle, setTestTitle] = useState('');
@@ -369,7 +381,8 @@ export default function TeacherDashboard({
               { id: 'attendance', label: 'Daily Attendance Register', icon: <Users size={16} /> },
               { id: 'homework-assign', label: 'Upload Homework Assignments', icon: <BookOpen size={16} /> },
               { id: 'homework-review', label: `Review Homework submissions (${relevantSubmissions.filter(s => s.status === 'SUBMITTED').length})`, icon: <CheckCircle size={16} /> },
-              { id: 'test-marks', label: 'Test Creation & Grading Ledger', icon: <FileText size={16} /> }
+              { id: 'test-marks', label: 'Test Creation & Grading Ledger', icon: <FileText size={16} /> },
+              { id: 'bulletin', label: 'Batch Bulletin Board', icon: <MessageSquare size={16} /> }
             ] as const;
 
             const activeTabObj = tabsList.find(t => t.id === activeTab);
@@ -1360,6 +1373,181 @@ export default function TeacherDashboard({
               )}
             </div>
           )}
+
+          {/* TAB 7: BATCH BULLETIN BOARD */}
+          {activeTab === 'bulletin' && (() => {
+            const filteredBulletins = batchBulletins.filter(
+              p => p.batchName.toLowerCase() === bulletinSelectedBatch.toLowerCase()
+            );
+
+            const handlePostSubmit = (e: React.FormEvent) => {
+              e.preventDefault();
+              if (!bulletinInputText.trim()) return;
+              onAddBatchBulletinPost(
+                bulletinSelectedBatch === 'Class 10 - Morning Excellence' ? 'b1' : 
+                bulletinSelectedBatch === 'Class 10 - Evening Stars' ? 'b2' : 
+                bulletinSelectedBatch === 'Class 9 - Foundation Group' ? 'b3' : 
+                bulletinSelectedBatch === 'Class 8 - Apex Batch' ? 'b4' : 'b5',
+                bulletinSelectedBatch,
+                bulletinInputText.trim()
+              );
+              setBulletinInputText('');
+            };
+
+            return (
+              <div className="space-y-6 animate-fade-in" id="teacher-batch-bulletin-container">
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                    <div>
+                      <h3 className="font-display font-bold text-lg text-slate-800">Batch Bulletin Board</h3>
+                      <p className="text-xs text-slate-500">Post batch-specific announcements, homework alerts, exam routines, and coordinate discussions.</p>
+                    </div>
+
+                    {/* Batch Selector Dropdown */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-bold text-slate-600">Select Batch:</label>
+                      <select
+                        value={bulletinSelectedBatch}
+                        onChange={(e) => setBulletinSelectedBatch(e.target.value)}
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 focus:border-emerald-500 focus:outline-none"
+                      >
+                        {teacher.batches.map((b) => (
+                          <option key={b} value={b}>
+                            {b}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Create Announcement Form */}
+                  <form onSubmit={handlePostSubmit} className="mb-8 border border-emerald-100 rounded-2xl p-4 bg-emerald-50/20">
+                    <label className="block text-xs font-bold text-slate-700 mb-2">Compose Batch Announcement</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={bulletinInputText}
+                        onChange={(e) => setBulletinInputText(e.target.value)}
+                        placeholder={`Announce something to ${bulletinSelectedBatch}...`}
+                        className="flex-1 text-xs border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 bg-white font-medium text-slate-800"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!bulletinInputText.trim()}
+                        className="rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-3 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Send size={14} /> Send
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Bulletins List */}
+                  <div className="space-y-4">
+                    {filteredBulletins.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-slate-100 rounded-2xl text-center">
+                        <MessageSquare className="h-10 w-10 text-slate-300 mb-3 animate-pulse" />
+                        <p className="text-sm text-slate-500 font-bold">No posts in this bulletin yet!</p>
+                        <p className="text-xs text-slate-400 mt-1">Announce study updates, test schedules, or clear student doubts here.</p>
+                      </div>
+                    ) : (
+                      filteredBulletins.map((post) => {
+                        const dateObj = new Date(post.timestamp);
+                        const formattedTime = isNaN(dateObj.getTime()) 
+                          ? post.timestamp 
+                          : dateObj.toLocaleDateString('en-IN', {
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            });
+
+                        const initials = post.authorName
+                          .split(' ')
+                          .map(n => n[0])
+                          .join('')
+                          .toUpperCase()
+                          .slice(0, 2);
+
+                        // Role styling
+                        let roleColor = 'bg-blue-50 text-blue-700 border-blue-200';
+                        if (post.authorRole === 'TEACHER') {
+                          roleColor = 'bg-amber-50 text-amber-800 border-amber-200 font-extrabold';
+                        } else if (post.authorRole === 'ADMIN') {
+                          roleColor = 'bg-red-50 text-red-700 border-red-200 font-extrabold';
+                        }
+
+                        return (
+                          <div 
+                            key={post.id} 
+                            className="rounded-xl border border-slate-100 p-4 bg-white hover:border-slate-200 transition-all flex gap-3.5 items-start relative group"
+                          >
+                            {/* Avatar */}
+                            <div className="h-9 w-9 rounded-full bg-slate-100 text-slate-600 font-display font-bold text-xs flex items-center justify-center border border-slate-200 flex-shrink-0">
+                              {initials}
+                            </div>
+
+                            {/* Content */}
+                            <div className="space-y-1.5 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-slate-800">{post.authorName}</span>
+                                <span className={`text-[9px] px-2 py-0.5 rounded border ${roleColor}`}>
+                                  {post.authorRole}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-mono ml-auto">{formattedTime}</span>
+                              </div>
+                              <p className="text-xs text-slate-700 leading-relaxed bg-slate-50/40 p-2.5 rounded-lg border border-slate-50/50 whitespace-pre-wrap">{post.content}</p>
+                              
+                              {/* Read receipts list */}
+                              {post.readBy && post.readBy.length > 0 ? (
+                                <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+                                  <span className="font-bold text-emerald-600 flex items-center gap-0.5 mr-1">
+                                    <CheckCircle size={10} /> Read by ({post.readBy.length}):
+                                  </span>
+                                  {post.readBy.map((r, idx) => {
+                                    const readDate = new Date(r.timestamp);
+                                    const readTimeStr = isNaN(readDate.getTime()) 
+                                      ? r.timestamp 
+                                      : readDate.toLocaleDateString('en-IN', {
+                                          day: '2-digit',
+                                          month: 'short',
+                                          hour: '2-digit',
+                                          minute: '2-digit'
+                                        });
+                                    return (
+                                      <span 
+                                        key={idx} 
+                                        className="bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-full px-2 py-0.5 font-medium transition-colors hover:bg-emerald-100"
+                                        title={`Read at ${readTimeStr}`}
+                                      >
+                                        {r.studentName}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="mt-2.5 pt-2 border-t border-slate-100 text-[10px] text-slate-400 italic">
+                                  Not viewed by any students yet.
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Delete button (allow teachers to delete any post for moderation) */}
+                            <button
+                              onClick={() => onDeleteBatchBulletinPost(post.id)}
+                              className="text-slate-355 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors ml-2 self-start cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100"
+                              title="Delete or moderate post"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>

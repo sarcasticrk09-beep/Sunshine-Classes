@@ -33,7 +33,8 @@ import {
   SubscriptionConfig,
   TimetableEntry,
   EmailTemplatesConfig,
-  WhatsAppTemplatesConfig
+  WhatsAppTemplatesConfig,
+  BatchBulletinPost
 } from './types';
 
 export const getFeeForClass = (classStr: string): number => {
@@ -840,6 +841,40 @@ export const interpolateTemplate = (templateStr: string, variables: Record<strin
   }
   return result;
 };
+
+export const SEED_BATCH_BULLETINS: BatchBulletinPost[] = [
+  {
+    id: 'bb1',
+    batchId: 'b1',
+    batchName: 'Class 10 - Morning Excellence',
+    authorId: 'u2',
+    authorName: 'Priyanshu Gupta',
+    authorRole: 'TEACHER',
+    content: 'Good morning everyone! Please make sure to complete the trigonometry assignment before coming to class tomorrow.',
+    timestamp: '2026-07-05T08:30:00Z'
+  },
+  {
+    id: 'bb2',
+    batchId: 'b2',
+    batchName: 'Class 10 - Evening Stars',
+    authorId: 'u2',
+    authorName: 'Priyanshu Gupta',
+    authorRole: 'TEACHER',
+    content: 'Excellent work in yesterday’s mock quiz! Today we will begin our discussions on Electricity numericals. Keep your physics notebooks ready.',
+    timestamp: '2026-07-06T15:00:00Z'
+  },
+  {
+    id: 'bb3',
+    batchId: 'b2',
+    batchName: 'Class 10 - Evening Stars',
+    authorId: 'u4',
+    authorName: 'Rahul Verma',
+    authorRole: 'STUDENT',
+    content: 'Priyanshu Sir, will we be covering the circuit diagram problems today or in the next class? I had some doubts on parallel resistors.',
+    timestamp: '2026-07-06T15:25:00Z'
+  }
+];
+
 
 
 
