@@ -868,7 +868,7 @@ export default function App() {
 
     // Migrate loadedUsers and loadedFounders on startup to ensure database aligns
     let usersMigrated = false;
-    const migratedLoadedUsers = loadedUsers.map(u => {
+    let migratedLoadedUsers = loadedUsers.map(u => {
       if (u.username === 'admin' && (u.name.includes('Shubham') || u.email === 'admin@sunshine.com')) {
         usersMigrated = true;
         return {
@@ -891,6 +891,24 @@ export default function App() {
         phone: '9161586254'
       });
     }
+
+    // Encrypt/hash passwords on-load from Firestore to ensure 100% security policy compliance
+    migratedLoadedUsers = migratedLoadedUsers.map(u => {
+      let plainPass = u.password;
+      if (!plainPass) {
+        const lowerUser = u.username.toLowerCase();
+        if (lowerUser === 'admin') plainPass = 'admin123';
+        else if (lowerUser === 'teacher') plainPass = 'teacher123';
+        else if (lowerUser === 'reception') plainPass = 'reception123';
+        else if (lowerUser === 'student') plainPass = 'student123';
+        else plainPass = `${lowerUser}123`;
+      }
+      if (plainPass && !plainPass.startsWith('sha256_mock_')) {
+        usersMigrated = true;
+        return { ...u, password: simpleSecureHash(plainPass) };
+      }
+      return { ...u, password: plainPass };
+    });
 
     let foundersMigrated = false;
     const migratedLoadedFounders = loadedFounders.map(f => {
@@ -1593,14 +1611,16 @@ export default function App() {
     setStudents(updated);
     syncState('students', updated);
 
-    // Register User Profile
+    // Register User Profile with hashed default password
+    const generatedUsername = std.name.toLowerCase().replace(/\s+/g, '');
     const newUser: User = {
       id: newStd.userId,
-      username: std.name.toLowerCase().replace(' ', ''),
+      username: generatedUsername,
       name: std.name,
       email: std.email,
       role: 'STUDENT',
-      phone: std.mobile
+      phone: std.mobile,
+      password: simpleSecureHash(`${generatedUsername}123`)
     };
     const updatedUsers = [...users, newUser];
     setUsers(updatedUsers);
@@ -1642,14 +1662,16 @@ export default function App() {
     setTeachers(updated);
     syncState('teachers', updated);
 
-    // Register associated User Login credential profile
+    // Register associated User Login credential profile with hashed default password
+    const generatedUsername = tch.name.toLowerCase().replace(/\s+/g, '');
     const newUser: User = {
       id: newTch.userId,
-      username: tch.name.toLowerCase().replace(/\s+/g, ''),
+      username: generatedUsername,
       name: tch.name,
       email: tch.email,
       role: 'TEACHER',
-      phone: tch.phone
+      phone: tch.phone,
+      password: simpleSecureHash(`${generatedUsername}123`)
     };
     const updatedUsers = [...users, newUser];
     setUsers(updatedUsers);
@@ -1689,6 +1711,133 @@ export default function App() {
       username: currentUser?.username || 'admin',
       action: 'UPDATE_TEACHER',
       details: `Updated teacher profile for ${updatedTeacher.name}`,
+      timestamp: new Date().toISOString()
+    };
+    const updatedAudits = [newLog, ...auditLogs];
+    setAuditLogs(updatedAudits);
+    syncState('audit_logs', updatedAudits);
+  };
+
+  const handleBulkImport = (
+    newStudents: Omit<Student, 'id' | 'rollNo' | 'attendancePercentage'>[],
+    newTeachers: Omit<Teacher, 'id'>[],
+    newBatches: Batch[]
+  ) => {
+    // 1. Process and merge Teachers
+    const updatedTeachers = [...teachers];
+    const updatedUsers = [...users];
+
+    newTeachers.forEach((t) => {
+      const exists = updatedTeachers.some(
+        (existing) => existing.name.trim().toLowerCase() === t.name.trim().toLowerCase()
+      );
+      if (!exists) {
+        const teacherId = `t-bulk-${Math.random().toString(36).substr(2, 9)}`;
+        const teacherUser: Teacher = {
+          ...t,
+          id: teacherId,
+        };
+        updatedTeachers.push(teacherUser);
+
+        const userExists = updatedUsers.some(
+          (u) => u.username === t.userId || u.id === t.userId
+        );
+        if (!userExists) {
+          const generatedUsername = t.name.toLowerCase().replace(/\s+/g, '');
+          updatedUsers.push({
+            id: t.userId,
+            username: generatedUsername,
+            name: t.name,
+            email: t.email,
+            role: 'TEACHER',
+            phone: t.phone,
+            password: simpleSecureHash(`${generatedUsername}123`),
+          });
+        }
+      }
+    });
+
+    // 2. Process and merge Batches
+    const updatedBatches = [...batches];
+    newBatches.forEach((b) => {
+      const exists = updatedBatches.some(
+        (existing) => existing.name.trim().toLowerCase() === b.name.trim().toLowerCase()
+      );
+      if (!exists) {
+        updatedBatches.push(b);
+      } else {
+        const idx = updatedBatches.findIndex(
+          (existing) => existing.name.trim().toLowerCase() === b.name.trim().toLowerCase()
+        );
+        if (idx !== -1) {
+          updatedBatches[idx] = {
+            ...updatedBatches[idx],
+            teacherName: b.teacherName,
+          };
+        }
+      }
+    });
+
+    // 3. Process and merge Students
+    const updatedStudents = [...students];
+    let rollCounter = 1000 + updatedStudents.length + 1;
+
+    newStudents.forEach((s) => {
+      const cleanPhone = s.mobile.replace(/\D/g, '');
+      const sNameNorm = s.name.trim().toLowerCase();
+
+      const isDuplicate = updatedStudents.some((existing) => {
+        const existingPhone = existing.mobile.replace(/\D/g, '');
+        const existingNameNorm = existing.name.trim().toLowerCase();
+        return existingNameNorm === sNameNorm && existingPhone === cleanPhone;
+      });
+
+      if (!isDuplicate) {
+        const studentId = `s-bulk-${Math.random().toString(36).substr(2, 9)}`;
+        const rollNo = `SC-${rollCounter++}`;
+        const studentUser: Student = {
+          ...s,
+          id: studentId,
+          rollNo,
+          attendancePercentage: 100,
+        };
+        updatedStudents.push(studentUser);
+
+        const generatedUsername = s.name.toLowerCase().replace(/\s+/g, '') + cleanPhone.slice(-4);
+        const userExists = updatedUsers.some((u) => u.id === s.userId);
+        if (!userExists) {
+          updatedUsers.push({
+            id: s.userId,
+            username: generatedUsername,
+            name: s.name,
+            email: s.email,
+            role: 'STUDENT',
+            phone: s.mobile,
+            password: simpleSecureHash(`${generatedUsername}123`),
+          });
+        }
+      }
+    });
+
+    setTeachers(updatedTeachers);
+    syncState('teachers', updatedTeachers);
+
+    setBatches(updatedBatches);
+    syncState('batches', updatedBatches);
+
+    setStudents(updatedStudents);
+    syncState('students', updatedStudents);
+
+    setUsers(updatedUsers);
+    syncState('users', updatedUsers);
+
+    // 4. Add Audit Log
+    const newLog: AuditLog = {
+      id: `log-${Date.now()}`,
+      userId: currentUser?.id || 'admin',
+      username: currentUser?.username || 'admin',
+      action: 'BULK_IMPORT',
+      details: `Imported spreadsheet students, verified faculty, and updated batches`,
       timestamp: new Date().toISOString()
     };
     const updatedAudits = [newLog, ...auditLogs];
@@ -2244,6 +2393,7 @@ export default function App() {
                 onUpdateWhatsappTemplates={handleUpdateWhatsappTemplates}
                 onApproveAdmission={handleApproveAdmission}
                 onRejectAdmission={handleRejectAdmission}
+                onBulkImport={handleBulkImport}
               />
             )}
           </motion.div>

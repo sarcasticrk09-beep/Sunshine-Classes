@@ -61,6 +61,41 @@ console.error = function (...args) {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
+import { getAuth, GoogleAuthProvider, signInWithPopup, User } from "firebase/auth";
+export const auth = getAuth(app);
+
+// In-memory token cache as mandated by the security guidelines
+let cachedAccessToken: string | null = null;
+
+export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+  try {
+    const provider = new GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/drive');
+    provider.addScope('https://www.googleapis.com/auth/drive.file');
+    provider.addScope('https://www.googleapis.com/auth/spreadsheets');
+    
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) {
+      throw new Error('Failed to obtain Google OAuth access token from login');
+    }
+    
+    cachedAccessToken = credential.accessToken;
+    return { user: result.user, accessToken: cachedAccessToken };
+  } catch (error: any) {
+    console.error('Google OAuth sign-in failed:', error);
+    throw error;
+  }
+};
+
+export const getCachedAccessToken = (): string | null => {
+  return cachedAccessToken;
+};
+
+export const clearCachedAccessToken = () => {
+  cachedAccessToken = null;
+};
+
 /**
  * Generic helper to fetch all items in a Firestore collection.
  */

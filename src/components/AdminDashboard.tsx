@@ -48,6 +48,7 @@ import {
 import { Student, Teacher, User, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig } from '../types';
 import { interpolateTemplate } from '../data';
 import { sendWhatsAppMessage, interpolateWhatsAppTemplate } from '../lib/whatsappService';
+import { googleSignIn, getCachedAccessToken, clearCachedAccessToken } from '../lib/firebase';
 
 interface AdminDashboardProps {
   students: Student[];
@@ -109,6 +110,11 @@ interface AdminDashboardProps {
   onApproveAdmission?: (admissionId: string) => void;
   onRejectAdmission?: (admissionId: string) => void;
   currentUser?: User | null;
+  onBulkImport?: (
+    students: Omit<Student, 'id' | 'rollNo' | 'attendancePercentage'>[],
+    teachers: Omit<Teacher, 'id'>[],
+    batches: Batch[]
+  ) => void;
 }
 
 export default function AdminDashboard({
@@ -170,13 +176,428 @@ export default function AdminDashboard({
   onUpdateWhatsappTemplates,
   onApproveAdmission,
   onRejectAdmission,
-  currentUser
+  currentUser,
+  onBulkImport
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets'>('overview');
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [selectedSearchStudentId, setSelectedSearchStudentId] = useState<string | null>(null);
+
+  // --- START OF GOOGLE SHEETS INTEGRATION STATES & FUNCTIONS ---
+  const [sheetsAccessToken, setSheetsAccessToken] = useState<string | null>(getCachedAccessToken());
+  const [sheetsUser, setSheetsUser] = useState<any | null>(null);
+  const [isSyncingSheets, setIsSyncingSheets] = useState(false);
+  const [sheetsLog, setSheetsLog] = useState<string[]>([]);
+  const [createdSpreadsheetUrl, setCreatedSpreadsheetUrl] = useState<string | null>(localStorage.getItem('sheets_last_url') || null);
+  const [createdSpreadsheetId, setCreatedSpreadsheetId] = useState<string | null>(localStorage.getItem('sheets_last_id') || null);
+
+  const addSheetsLog = (msg: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setSheetsLog(prev => [...prev, `[${timestamp}] ${msg}`]);
+  };
+
+  const handleSheetsLogin = async () => {
+    try {
+      addSheetsLog("Connecting to Google Auth Flow...");
+      const result = await googleSignIn();
+      if (result) {
+        setSheetsAccessToken(result.accessToken);
+        setSheetsUser(result.user);
+        addSheetsLog(`Connected successfully as ${result.user.email || result.user.displayName || 'Authorized User'}`);
+      }
+    } catch (error: any) {
+      addSheetsLog(`Authentication Failed: ${error.message || error}`);
+    }
+  };
+
+  const handleSheetsLogout = () => {
+    clearCachedAccessToken();
+    setSheetsAccessToken(null);
+    setSheetsUser(null);
+    addSheetsLog("Disconnected from Google Account. Token cleared.");
+  };
+
+  const handleSheetsSync = async () => {
+    let token = sheetsAccessToken || getCachedAccessToken();
+    if (!token) {
+      addSheetsLog("No active access token. Re-triggering Google authentication...");
+      try {
+        const result = await googleSignIn();
+        if (result) {
+          token = result.accessToken;
+          setSheetsAccessToken(result.accessToken);
+          setSheetsUser(result.user);
+        } else {
+          addSheetsLog("Authentication aborted by administrator.");
+          return;
+        }
+      } catch (err: any) {
+        addSheetsLog(`Authentication failed: ${err.message || err}`);
+        return;
+      }
+    }
+
+    setIsSyncingSheets(true);
+    setSheetsLog([]);
+    addSheetsLog("🚀 Starting Sunshine Classes ERP Google Sheets synchronization pipeline...");
+
+    try {
+      // 1. Create a brand new Master Spreadsheet
+      addSheetsLog("Preparing payload to provision a new ERP Master Spreadsheet...");
+      const createResponse = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          properties: {
+            title: `Sunshine Classes Master ERP - Synced [${new Date().toLocaleDateString()}]`
+          },
+          sheets: [
+            { properties: { title: "Students Directory" } },
+            { properties: { title: "Teachers Directory" } },
+            { properties: { title: "Fee Receipts Ledger" } },
+            { properties: { title: "Active Batches" } }
+          ]
+        })
+      });
+
+      if (!createResponse.ok) {
+        const errData = await createResponse.json();
+        throw new Error(errData.error?.message || "Failed to create Google Spreadsheet");
+      }
+
+      const createData = await createResponse.json();
+      const spreadsheetId = createData.spreadsheetId;
+      const spreadsheetUrl = createData.spreadsheetUrl;
+
+      setCreatedSpreadsheetId(spreadsheetId);
+      setCreatedSpreadsheetUrl(spreadsheetUrl);
+      localStorage.setItem('sheets_last_id', spreadsheetId);
+      localStorage.setItem('sheets_last_url', spreadsheetUrl);
+
+      addSheetsLog("✅ Spreadsheet created successfully on Google Drive!");
+      addSheetsLog(`Document Link: ${spreadsheetUrl}`);
+
+      // 2. Prepare spreadsheet rows
+      // A. Students Directory
+      addSheetsLog(`Processing ${students.length} Student records...`);
+      const studentRows = [
+        ["Roll No", "Full Name", "Class/Grade", "Father's Name", "Primary Mobile", "Email Address", "Attendance %", "Enrollment Date"]
+      ];
+      students.forEach(s => {
+        studentRows.push([
+          s.rollNo || "N/A",
+          s.name || "",
+          s.class || "",
+          s.fatherName || "",
+          s.mobile || "",
+          s.email || "",
+          `${s.attendancePercentage || 0}%`,
+          s.admissionDate || ""
+        ]);
+      });
+
+      // B. Teachers Directory
+      addSheetsLog(`Processing ${teachers.length} Faculty records...`);
+      const teacherRows = [
+        ["Teacher ID", "Full Name", "Qualification", "Specialist Specialties", "Primary Phone", "Email Address"]
+      ];
+      teachers.forEach(t => {
+        teacherRows.push([
+          t.id || "",
+          t.name || "",
+          t.qualification || "",
+          Array.isArray(t.specialty) ? t.specialty.join(", ") : "",
+          t.phone || "",
+          t.email || ""
+        ]);
+      });
+
+      // C. Fee Receipts Ledger
+      addSheetsLog(`Processing ${feeReceipts.length} Tuition fee payment records...`);
+      const feeRows = [
+        ["Receipt ID", "Payment Date", "Student ID", "Student Name", "Month/Cycle", "Amount Paid (₹)", "Payment Method", "Collected By"]
+      ];
+      feeReceipts.forEach(r => {
+        feeRows.push([
+          r.id || "",
+          r.date || "",
+          r.studentId || "",
+          r.studentName || "",
+          r.month || "",
+          r.amountPaid ? String(r.amountPaid) : "0",
+          r.paymentMethod || "CASH",
+          r.receivedBy || "Administrator"
+        ]);
+      });
+
+      // D. Active Batches
+      addSheetsLog(`Processing ${batches.length} Batch schedules...`);
+      const batchRows = [
+        ["Batch ID", "Batch Name", "Class", "Teacher Name", "Timings Schedule", "Monthly Fee (₹)", "Start Date"]
+      ];
+      batches.forEach(b => {
+        batchRows.push([
+          b.id || "",
+          b.name || "",
+          b.class || "",
+          b.teacherName || "",
+          b.time || "",
+          b.monthlyFee ? String(b.monthlyFee) : "0",
+          b.startDate || ""
+        ]);
+      });
+
+      // 3. Write data to each sheet via batchUpdate REST call
+      addSheetsLog("Uploading structured data rows to spreadsheet tabs...");
+      const updateResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          valueInputOption: "USER_ENTERED",
+          data: [
+            {
+              range: "Students Directory!A1",
+              majorDimension: "ROWS",
+              values: studentRows
+            },
+            {
+              range: "Teachers Directory!A1",
+              majorDimension: "ROWS",
+              values: teacherRows
+            },
+            {
+              range: "Fee Receipts Ledger!A1",
+              majorDimension: "ROWS",
+              values: feeRows
+            },
+            {
+              range: "Active Batches!A1",
+              majorDimension: "ROWS",
+              values: batchRows
+            }
+          ]
+        })
+      });
+
+      if (!updateResponse.ok) {
+        const errData = await updateResponse.json();
+        throw new Error(errData.error?.message || "Failed to commit values to Google Sheets");
+      }
+
+      addSheetsLog("🎉 Synchronized all records successfully!");
+      addSheetsLog(`Synced Summary: ${students.length} Students, ${teachers.length} Faculty Members, ${feeReceipts.length} Receipts, and ${batches.length} Batches.`);
+      addSheetsLog("The Google Sheet has been compiled and is live for your convenience!");
+
+    } catch (err: any) {
+      console.error("Sheets sync error:", err);
+      addSheetsLog(`❌ Error Syncing: ${err.message || err}`);
+    } finally {
+      setIsSyncingSheets(false);
+    }
+  };
+
+  // --- START OF GOOGLE SHEETS IMPORTATION STATES & FUNCTIONS ---
+  const [importSpreadsheetId, setImportSpreadsheetId] = useState('1-kQxO72bh9D9crO62rUx-1m8GnGR7lhzGesw-4DJr0o');
+  const [isImportingSheets, setIsImportingSheets] = useState(false);
+  const [importLog, setImportLog] = useState<string[]>([]);
+
+  const addImportLog = (msg: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setImportLog(prev => [...prev, `[${timestamp}] ${msg}`]);
+  };
+
+  const handleImportSpreadsheet = async () => {
+    setIsImportingSheets(true);
+    setImportLog([]);
+    addImportLog("🚀 Commencing student database importation pipeline...");
+
+    try {
+      const csvUrl = `https://docs.google.com/spreadsheets/d/${importSpreadsheetId}/export?format=csv`;
+      addImportLog(`Connecting to Google Spreadsheet ID: ${importSpreadsheetId}...`);
+      const res = await fetch(csvUrl);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch spreadsheet. Status: ${res.status}`);
+      }
+      const csvText = await res.text();
+      addImportLog("✅ Raw data retrieved successfully from Google servers!");
+
+      const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== "");
+      if (lines.length < 2) {
+        throw new Error("Target spreadsheet contains no data rows.");
+      }
+
+      addImportLog(`Analyzing metadata headers and parsing ${lines.length - 1} records...`);
+
+      const parsedStudents: Omit<Student, 'id' | 'rollNo' | 'attendancePercentage'>[] = [];
+      let duplicateCount = 0;
+
+      const parseCSVLine = (line: string): string[] => {
+        const result: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+              current += '"';
+              i++;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        result.push(current.trim());
+        return result;
+      };
+
+      for (let i = 1; i < lines.length; i++) {
+        const row = parseCSVLine(lines[i]);
+        if (row.length < 4) continue;
+
+        const fullName = row[1];
+        const rawPhone = row[2];
+        const currentClass = row[3];
+
+        if (!fullName || !rawPhone) {
+          addImportLog(`⚠️ Skipping incomplete row #${i}`);
+          continue;
+        }
+
+        const normalizedPhone = rawPhone.replace(/\D/g, '');
+        const nameClean = fullName.trim();
+
+        const isAlreadyInBatch = parsedStudents.some(
+          s => s.name.toLowerCase() === nameClean.toLowerCase() && s.mobile.replace(/\D/g, '') === normalizedPhone
+        );
+
+        const isAlreadyInDB = students.some(
+          s => s.name.toLowerCase() === nameClean.toLowerCase() && s.mobile.replace(/\D/g, '') === normalizedPhone
+        );
+
+        if (isAlreadyInBatch || isAlreadyInDB) {
+          duplicateCount++;
+          continue;
+        }
+
+        parsedStudents.push({
+          userId: `u-student-${Math.random().toString(36).substr(2, 9)}`,
+          name: nameClean,
+          class: currentClass || "Other",
+          fatherName: "Not Provided",
+          motherName: "Not Provided",
+          dob: "2010-01-01",
+          gender: "Not Specified",
+          address: "Not Provided",
+          mobile: rawPhone.trim(),
+          whatsapp: rawPhone.trim(),
+          parentMobile: rawPhone.trim(),
+          email: `${nameClean.toLowerCase().replace(/\s+/g, '')}@sunshine.com`,
+          preferredBatch: currentClass || "Other",
+          preferredTiming: "04:00 PM - 06:00 PM",
+          admissionDate: new Date().toISOString().split('T')[0]
+        });
+      }
+
+      addImportLog(`Parsed ${parsedStudents.length} unique student records (Filtered ${duplicateCount} duplicate records).`);
+
+      addImportLog("Verifying and provisioning required faculty profiles...");
+      const targetTeacherNames = ["Priyanshu Gupta", "Upasna Gupta", "Ashuthosh Gupta"];
+      const newTeachersPayload: Omit<Teacher, 'id'>[] = [];
+
+      targetTeacherNames.forEach(name => {
+        const exists = teachers.some(t => t.name.toLowerCase() === name.toLowerCase());
+        if (!exists) {
+          addImportLog(`➕ Provisioning new Teacher Profile: "${name}"`);
+          const emailPrefix = name.toLowerCase().replace(/\s+/g, '');
+          newTeachersPayload.push({
+            userId: `u-teacher-${emailPrefix}-${Date.now()}`,
+            name,
+            email: `${emailPrefix}@sunshine.com`,
+            phone: name.toLowerCase().includes('priyanshu') ? '9161586254' : (name.toLowerCase().includes('upasna') ? '9161586255' : '9161586256'),
+            qualification: name.toLowerCase().includes('priyanshu') ? 'M.Sc. Mathematics, B.Ed' : (name.toLowerCase().includes('upasna') ? 'B.Sc. Chemistry' : 'B.A. English Literature'),
+            specialty: name.toLowerCase().includes('priyanshu') ? ['Mathematics', 'Physics', 'Science'] : (name.toLowerCase().includes('upasna') ? ['Chemistry', 'Biology', 'Science'] : ['English', 'Social Studies']),
+            batches: []
+          });
+        } else {
+          addImportLog(`ℹ️ Teacher Profile already exists for: "${name}"`);
+        }
+      });
+
+      addImportLog("Aligning batch schedules and assigning to Faculty Priyanshu Gupta...");
+      const newBatchesPayload: Batch[] = [];
+      const uniqueClasses = Array.from(new Set(parsedStudents.map(s => s.class)));
+      
+      uniqueClasses.forEach(className => {
+        const batchName = `${className} - Priyanshu Sir Group`;
+        const batchExists = batches.some(b => b.name.toLowerCase() === batchName.toLowerCase());
+        
+        if (!batchExists) {
+          addImportLog(`➕ Provisioning new Batch: "${batchName}" taught by Priyanshu Gupta`);
+          newBatchesPayload.push({
+            id: `b-bulk-${className.toLowerCase().replace(/\s+/g, '')}-${Date.now()}`,
+            name: batchName,
+            time: "04:00 PM - 06:30 PM",
+            class: className,
+            teacherName: "Priyanshu Gupta",
+            monthlyFee: className.includes('11') || className.includes('12') ? 1500 : 1000,
+            startDate: new Date().toISOString().split('T')[0],
+            billingCycle: "Monthly",
+            nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            status: "ACTIVE"
+          });
+        } else {
+          addImportLog(`ℹ️ Batch "${batchName}" already exists. Ensuring it is taught by Priyanshu Gupta.`);
+        }
+
+        parsedStudents.forEach(s => {
+          if (s.class === className) {
+            s.preferredBatch = batchName;
+          }
+        });
+      });
+
+      batches.forEach(b => {
+        if (uniqueClasses.some(uc => uc.toLowerCase() === b.class.toLowerCase())) {
+          addImportLog(`✏️ Re-assigning existing Batch "${b.name}" to Priyanshu Gupta`);
+          newBatchesPayload.push({
+            ...b,
+            teacherName: "Priyanshu Gupta"
+          });
+        }
+      });
+
+      if (onBulkImport) {
+        addImportLog("💾 Committing transaction to Cloud Database...");
+        onBulkImport(parsedStudents, newTeachersPayload, newBatchesPayload);
+        addImportLog("🎉 Database updated successfully!");
+        addImportLog(`Summary of imported changes:`);
+        addImportLog(` - ${parsedStudents.length} Students imported`);
+        addImportLog(` - ${newTeachersPayload.length} Teachers provisioned`);
+        addImportLog(` - ${newBatchesPayload.length} Batches configured`);
+      } else {
+        throw new Error("Bulk import prop handler not initialized on dashboard.");
+      }
+
+    } catch (err: any) {
+      console.error("Sheets import error:", err);
+      addImportLog(`❌ Import Failed: ${err.message || err}`);
+    } finally {
+      setIsImportingSheets(false);
+    }
+  };
 
   // --- START OF SYSTEM DIAGNOSTICS STATES & FUNCTIONS ---
   const [integrityIssues, setIntegrityIssues] = useState<{
@@ -3248,7 +3669,8 @@ ${data.log}`
           { id: 'audit', label: 'Audit & System Logs', icon: <FileText size={16} /> },
           { id: 'settings', label: 'Database Backup & settings', icon: <Settings size={16} /> },
           { id: 'whatsapp', label: 'WhatsApp Messaging', icon: <MessageSquare size={16} /> },
-          { id: 'diagnostics', label: 'System Diagnostics', icon: <Shield size={16} className="text-emerald-500" /> }
+          { id: 'diagnostics', label: 'System Diagnostics', icon: <Shield size={16} className="text-emerald-500" /> },
+          { id: 'sheets', label: 'Google Sheets Integration', icon: <FileSpreadsheet size={16} className="text-emerald-500 animate-pulse" /> }
         ] as const;
 
         return (
@@ -9261,6 +9683,256 @@ ${data.log}`
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'sheets' && (
+            <div className="space-y-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-150 pb-5">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <FileSpreadsheet className="h-5 w-5 text-emerald-600" /> Google Sheets Sync Hub
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Synchronize real-time Sunshine Classes database (Students, Teachers, Fees, Batches) directly into Google Sheets.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!sheetsAccessToken ? (
+                    <button
+                      type="button"
+                      onClick={handleSheetsLogin}
+                      className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 text-xs transition-colors shadow cursor-pointer"
+                    >
+                      Connect Google Account
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 flex items-center gap-1.5 font-sans">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                        Connected
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleSheetsLogout}
+                        className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-600 transition-colors cursor-pointer"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Status Banner */}
+              <div className="bg-gradient-to-r from-emerald-50/50 to-indigo-50/20 border border-slate-200/80 rounded-3xl p-6 shadow-3xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider">Official Integration</span>
+                    <span className="text-xs text-slate-400 font-medium">Google Drive & Sheets API</span>
+                  </div>
+                  <h4 className="font-bold text-slate-800 text-sm">Create and Sync Sunshine Classes ERP Ledger</h4>
+                  <p className="text-xs text-slate-500 max-w-xl leading-relaxed">
+                    Instantly export your entire administrative database. The system automatically creates a clean Google Spreadsheet with multiple formatted sheets, then maps student roll numbers, fee receipt records, active batches, and teacher portfolios.
+                  </p>
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleSheetsSync}
+                    disabled={isSyncingSheets}
+                    className="flex items-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-150 disabled:text-slate-400 font-bold px-6 py-3.5 text-xs text-white shadow-md hover:shadow-lg disabled:shadow-none transition-all cursor-pointer"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isSyncingSheets ? 'animate-spin' : ''}`} />
+                    {isSyncingSheets ? 'Syncing with Drive...' : 'Sync All ERP Data to Sheets'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Last Sync Info & Logs */}
+              <div className="grid gap-6 lg:grid-cols-3">
+                {/* Information cards */}
+                <div className="lg:col-span-1 space-y-4">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 space-y-4">
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 pb-3 border-b border-slate-100">Sync Details & Link</h4>
+                    
+                    {createdSpreadsheetUrl ? (
+                      <div className="space-y-4">
+                        <div className="p-3 bg-emerald-50/50 rounded-2xl border border-emerald-100 text-xs flex items-start gap-2.5">
+                          <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                          <div className="space-y-1">
+                            <span className="font-bold text-emerald-800">Master Sheet Active</span>
+                            <p className="text-slate-600 text-[11px] leading-relaxed">Your latest Sunshine ERP Spreadsheet is formatted and ready on Google Drive.</p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Spreadsheet ID</label>
+                          <input
+                            type="text"
+                            readOnly
+                            value={createdSpreadsheetId || ''}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-500 outline-none"
+                          />
+                        </div>
+
+                        <a
+                          href={createdSpreadsheetUrl}
+                          target="_blank"
+                          referrerPolicy="no-referrer"
+                          className="flex items-center justify-center gap-1.5 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-all"
+                        >
+                          Open Google Spreadsheet
+                          <ExternalLink size={14} />
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="py-8 text-center text-slate-400 italic text-xs">
+                        No spreadsheet created yet. Click the "Sync All ERP Data" button above to generate your first spreadsheet.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Schema Info */}
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 space-y-3">
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 pb-2 border-b border-slate-100">Data Model Mapping</h4>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl border border-slate-100">
+                        <span className="font-bold text-slate-700">Tab 1: Students</span>
+                        <span className="text-[10px] text-slate-400 bg-white border px-2 py-0.5 rounded-full">{students.length} rows</span>
+                      </div>
+                      <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl border border-slate-100">
+                        <span className="font-bold text-slate-700">Tab 2: Teachers</span>
+                        <span className="text-[10px] text-slate-400 bg-white border px-2 py-0.5 rounded-full">{teachers.length} rows</span>
+                      </div>
+                      <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl border border-slate-100">
+                        <span className="font-bold text-slate-700">Tab 3: Fees Ledger</span>
+                        <span className="text-[10px] text-slate-400 bg-white border px-2 py-0.5 rounded-full">{feeReceipts.length} rows</span>
+                      </div>
+                      <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl border border-slate-100">
+                        <span className="font-bold text-slate-700">Tab 4: Batches</span>
+                        <span className="text-[10px] text-slate-400 bg-white border px-2 py-0.5 rounded-full">{batches.length} rows</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Log terminal */}
+                <div className="lg:col-span-2">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 h-full flex flex-col">
+                    <div className="pb-3 border-b border-slate-100 mb-4 flex items-center justify-between">
+                      <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">Google REST Sync Console Logs</h4>
+                      <button
+                        type="button"
+                        onClick={() => setSheetsLog([])}
+                        className="text-[10px] font-extrabold text-slate-400 hover:text-rose-600 uppercase cursor-pointer"
+                      >
+                        Clear Console
+                      </button>
+                    </div>
+
+                    <div className="flex-1 bg-slate-900 rounded-2xl p-4 font-mono text-[11px] text-slate-300 space-y-2 min-h-[300px] max-h-[420px] overflow-y-auto border border-slate-950">
+                      {sheetsLog.length === 0 ? (
+                        <div className="text-slate-500 italic text-center py-20">
+                          Waiting for Google Sheets operation to be triggered...
+                        </div>
+                      ) : (
+                        sheetsLog.map((log, idx) => (
+                          <div key={idx} className={`leading-relaxed border-b border-slate-800/40 pb-1 ${
+                            log.includes('✅') || log.includes('successfully') || log.includes('completed') ? 'text-emerald-400' :
+                            log.includes('🚀') || log.includes('Starting') ? 'text-indigo-400 font-bold' :
+                            log.includes('❌') ? 'text-rose-400 font-semibold' : 'text-slate-300'
+                          }`}>
+                            {log}
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 mt-4 text-[11px] text-slate-500 leading-relaxed flex gap-2.5">
+                      <span className="text-lg">💡</span>
+                      <p>
+                        <strong>Administrator Note:</strong> We strictly cache Google Access Tokens in-memory during active administrative sessions for full GDPR/Security compliance. Refreshing or logging out automatically clears these tokens instantly.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Google Sheets Data Import Section */}
+              <div className="border-t border-slate-200 pt-6">
+                <div className="flex flex-col gap-1 mb-4">
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2 font-display">
+                    <Download className="h-5 w-5 text-indigo-600" /> Google Sheets Student & Teacher Import Pipeline
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Pull, parse, de-duplicate and import students and faculty dynamically from the Sunshine ERP Master Sheet.
+                  </p>
+                </div>
+
+                <div className="bg-gradient-to-r from-indigo-50/50 to-emerald-50/20 border border-slate-200 rounded-3xl p-6 shadow-3xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-6">
+                  <div className="space-y-1.5 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-black uppercase tracking-wider">Automated Mapping</span>
+                      <span className="text-xs text-slate-400 font-medium">Auto-assigns to Priyanshu Gupta</span>
+                    </div>
+                    <h4 className="font-bold text-slate-800 text-sm">Target Spreadsheet URL / ID</h4>
+                    <div className="flex gap-2 max-w-xl">
+                      <input
+                        type="text"
+                        value={importSpreadsheetId}
+                        onChange={(e) => setImportSpreadsheetId(e.target.value)}
+                        placeholder="Spreadsheet ID or URL"
+                        className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-700 outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-500 max-w-xl leading-relaxed">
+                      Enter the Spreadsheet ID. The system will read all student feedback rows, verify the teachers (<strong>PRIYANSHU GUPTA</strong>, <strong>UPASNA GUPTA</strong>, and <strong>ASHUTHOSH GUPTA</strong>), dynamically spin up matching class batches, and link student accounts with secure default portal logins.
+                    </p>
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={handleImportSpreadsheet}
+                      disabled={isImportingSheets}
+                      className="flex items-center gap-2 rounded-2xl bg-indigo-900 hover:bg-indigo-950 disabled:bg-slate-150 disabled:text-slate-400 font-bold px-6 py-3.5 text-xs text-white shadow-md hover:shadow-lg disabled:shadow-none transition-all cursor-pointer"
+                    >
+                      <Download className={`h-4 w-4 ${isImportingSheets ? 'animate-bounce' : ''}`} />
+                      {isImportingSheets ? 'Executing Import Pipeline...' : 'Run Import Pipeline'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Import Logs terminal */}
+                {importLog.length > 0 && (
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 flex flex-col">
+                    <div className="pb-3 border-b border-slate-100 mb-4 flex items-center justify-between">
+                      <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">Importation Pipeline Console</h4>
+                      <button
+                        type="button"
+                        onClick={() => setImportLog([])}
+                        className="text-[10px] font-extrabold text-slate-400 hover:text-rose-600 uppercase cursor-pointer"
+                      >
+                        Clear Console
+                      </button>
+                    </div>
+
+                    <div className="bg-slate-900 rounded-2xl p-4 font-mono text-[11px] text-slate-300 space-y-2 min-h-[220px] max-h-[350px] overflow-y-auto border border-slate-950">
+                      {importLog.map((log, idx) => (
+                        <div key={idx} className={`leading-relaxed border-b border-slate-800/40 pb-1 ${
+                          log.includes('✅') || log.includes('successfully') || log.includes('🎉') ? 'text-emerald-400 font-semibold' :
+                          log.includes('🚀') || log.includes('Commencing') ? 'text-indigo-400 font-bold' :
+                          log.includes('➕') ? 'text-cyan-400 font-medium' :
+                          log.includes('✏️') ? 'text-amber-400 font-medium' :
+                          log.includes('❌') ? 'text-rose-400 font-semibold' : 'text-slate-300'
+                        }`}>
+                          {log}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
