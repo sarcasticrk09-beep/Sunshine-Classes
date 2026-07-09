@@ -330,7 +330,7 @@ export const SEED_SUBSCRIPTION_CONFIG: SubscriptionConfig = {
   whatsappSenderNumber: '',
   enableOnlinePayments: true,
   paymentGatewayProvider: 'UPI_QR',
-  upiId: '9161586254@upi',
+  upiId: 'sunshineclasses@upi',
   upiMerchantName: 'Sunshine Classes Ltd',
   bankAccountHolder: 'Sunshine Classes ERP Solutions',
   bankAccountNumber: '33888542347',
@@ -410,7 +410,7 @@ export const SEED_EMAIL_TEMPLATES: EmailTemplatesConfig = {
   <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.5;">
     <p style="margin: 0;">Thank you for your valuable support toward excellence in education.</p>
     <p style="margin: 5px 0 0 0; font-weight: bold; color: #475569;">Sunshine Classes, Pihani, Hardoi, UP, India</p>
-    <p style="margin: 2px 0 0 0;">WhatsApp: +91 9161586254 | Call: +91 8707738284</p>
+    <p style="margin: 2px 0 0 0;">WhatsApp: +91 9999900001 | Call: +91 9999900002</p>
   </div>
 </div>`,
   reminderSubject: "⚠️ Sunshine Classes - Tuition Fee Pending Reminder ({{month}})",
@@ -462,7 +462,7 @@ export const SEED_EMAIL_TEMPLATES: EmailTemplatesConfig = {
   <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.5;">
     <p style="margin: 0;">If you have already paid, please ignore this email or present your previous receipt.</p>
     <p style="margin: 5px 0 0 0; font-weight: bold; color: #475569;">Sunshine Classes, Pihani, Hardoi, UP, India</p>
-    <p style="margin: 2px 0 0 0;">WhatsApp: +91 9161586254 | Call: +91 8707738284</p>
+    <p style="margin: 2px 0 0 0;">WhatsApp: +91 9999900001 | Call: +91 9999900002</p>
   </div>
 </div>`
 };
@@ -472,8 +472,8 @@ export const SEED_TEACHERS: Teacher[] = [
     id: 't1',
     userId: 'u2',
     name: 'Priyanshu Gupta',
-    email: 'priyanshu@sunshine.com',
-    phone: '9876543210',
+    email: 'priyanshu@example.com',
+    phone: '9999900000',
     qualification: 'M.Sc. Mathematics, B.Ed',
     specialty: ['Mathematics', 'Physics'],
     batches: ['Class 10 - Morning Excellence', 'Class 10 - Evening Stars']
@@ -482,8 +482,8 @@ export const SEED_TEACHERS: Teacher[] = [
     id: 't2',
     userId: 'u5',
     name: 'Anil Pandey',
-    email: 'anil@sunshine.com',
-    phone: '8765432109',
+    email: 'anil@example.com',
+    phone: '9999900005',
     qualification: 'M.Sc. Chemistry, Ph.D. Scholar',
     specialty: ['Chemistry', 'Biology'],
     batches: ['Class 9 - Foundation Group']
@@ -492,8 +492,8 @@ export const SEED_TEACHERS: Teacher[] = [
     id: 't3',
     userId: 'u6',
     name: 'Ritu Singh',
-    email: 'ritu@sunshine.com',
-    phone: '7654321098',
+    email: 'ritu@example.com',
+    phone: '9999900006',
     qualification: 'M.A. English Literature, B.Ed',
     specialty: ['English Literature', 'Social Studies'],
     batches: ['Class 8 - Apex Batch']
@@ -511,11 +511,11 @@ export const SEED_STUDENTS: Student[] = [
     motherName: 'Shanti Devi',
     dob: '2011-05-15',
     gender: 'Male',
-    address: 'Chungi Road, Pihani, Hardoi, UP',
-    mobile: '9161586254',
-    whatsapp: '9161586254',
-    parentMobile: '8707738284',
-    email: 'rahul.verma@gmail.com',
+    address: '123 Education Lane, Pihani, Hardoi, UP',
+    mobile: '9999900001',
+    whatsapp: '9999900001',
+    parentMobile: '9999900002',
+    email: 'student.rahul@example.com',
     preferredBatch: 'Class 10 - Evening Stars',
     preferredTiming: '04:00 PM - 06:30 PM',
     admissionDate: '2025-04-10',
@@ -531,11 +531,11 @@ export const SEED_STUDENTS: Student[] = [
     motherName: 'Suman Mishra',
     dob: '2011-08-22',
     gender: 'Female',
-    address: 'Near Subhash Park, Pihani, Hardoi',
-    mobile: '9450000001',
-    whatsapp: '9450000001',
-    parentMobile: '9450000002',
-    email: 'priya.mishra@gmail.com',
+    address: '456 Park Road, Pihani, Hardoi',
+    mobile: '9999900003',
+    whatsapp: '9999900003',
+    parentMobile: '9999900004',
+    email: 'student.priya@example.com',
     preferredBatch: 'Class 10 - Evening Stars',
     preferredTiming: '04:00 PM - 06:30 PM',
     admissionDate: '2025-04-12',
@@ -551,11 +551,11 @@ export const SEED_STUDENTS: Student[] = [
     motherName: 'Meena Gupta',
     dob: '2012-03-10',
     gender: 'Male',
-    address: 'Mohalla Mishrana, Pihani',
-    mobile: '9889900112',
-    whatsapp: '9889900112',
-    parentMobile: '9889900113',
-    email: 'aditya.gupta@gmail.com',
+    address: '789 Temple Street, Pihani, Hardoi',
+    mobile: '9999900005',
+    whatsapp: '9999900005',
+    parentMobile: '9999900006',
+    email: 'student.aditya@example.com',
     preferredBatch: 'Class 9 - Foundation Group',
     preferredTiming: '03:00 PM - 05:00 PM',
     admissionDate: '2025-04-15',
@@ -571,11 +571,11 @@ export const SEED_STUDENTS: Student[] = [
     motherName: 'Reena Tiwari',
     dob: '2011-11-02',
     gender: 'Female',
-    address: 'Opposite Subhash Park, Pihani',
-    mobile: '9123456780',
-    whatsapp: '9123456780',
-    parentMobile: '9123456781',
-    email: 'shreya.tiwari@gmail.com',
+    address: '101 Green Avenue, Pihani, Hardoi',
+    mobile: '9999900007',
+    whatsapp: '9999900007',
+    parentMobile: '9999900008',
+    email: 'student.shreya@example.com',
     preferredBatch: 'Class 10 - Morning Excellence',
     preferredTiming: '07:00 AM - 09:30 AM',
     admissionDate: '2025-04-16',
@@ -584,14 +584,14 @@ export const SEED_STUDENTS: Student[] = [
 ];
 
 export const SEED_USERS: User[] = [
-  { id: 'u1', username: 'admin', name: 'Priyanshu Gupta (Founder)', email: 'sunshineclassespihani@gmail.com', role: 'ADMIN', phone: '9876543210' },
-  { id: 'u2', username: 'teacher', name: 'Priyanshu Gupta', email: 'sunshineclassespihani@gmail.com', role: 'TEACHER', phone: '9876543210' },
-  { id: 'u3', username: 'reception', name: 'Neha Sharma', email: 'reception@sunshine.com', role: 'RECEPTIONIST', phone: '8707738284' },
-  { id: 'u4', username: 'student', name: 'Rahul Verma', email: 'rahul@gmail.com', role: 'STUDENT', phone: '9161586254' },
-  { id: 'u5', username: 'anil', name: 'Anil Pandey', email: 'anil@sunshine.com', role: 'TEACHER', phone: '8765432109' },
-  { id: 'u6', username: 'ritu', name: 'Ritu Singh', email: 'ritu@sunshine.com', role: 'TEACHER', phone: '7654321098' },
-  { id: 'u7', username: 'priya', name: 'Priya Mishra', email: 'priya@gmail.com', role: 'STUDENT', phone: '9450000001' },
-  { id: 'u8', username: 'rajeev', name: 'Rajeev Kr. Verma (Co-Founder)', email: 'kumarvermarajeev79@gmail.com', role: 'ADMIN', phone: '9161586254' }
+  { id: 'u1', username: 'admin', name: 'Priyanshu Gupta (Founder)', email: 'sunshineclasses@example.com', role: 'ADMIN', phone: '9999900000' },
+  { id: 'u2', username: 'teacher', name: 'Priyanshu Gupta', email: 'sunshineclasses@example.com', role: 'TEACHER', phone: '9999900000' },
+  { id: 'u3', username: 'reception', name: 'Neha Sharma', email: 'reception@example.com', role: 'RECEPTIONIST', phone: '9999900002' },
+  { id: 'u4', username: 'student', name: 'Rahul Verma', email: 'rahul@example.com', role: 'STUDENT', phone: '9999900001' },
+  { id: 'u5', username: 'anil', name: 'Anil Pandey', email: 'anil@example.com', role: 'TEACHER', phone: '9999900005' },
+  { id: 'u6', username: 'ritu', name: 'Ritu Singh', email: 'ritu@example.com', role: 'TEACHER', phone: '9999900006' },
+  { id: 'u7', username: 'priya', name: 'Priya Mishra', email: 'priya@example.com', role: 'STUDENT', phone: '9999900003' },
+  { id: 'u8', username: 'rajeev', name: 'Rajeev Kr. Verma (Co-Founder)', email: 'rajeev@example.com', role: 'ADMIN', phone: '9999900001' }
 ];
 
 export const SEED_ADMISSIONS: Admission[] = [

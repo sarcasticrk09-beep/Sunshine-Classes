@@ -12,6 +12,7 @@ export interface User {
   email: string;
   role: UserRole;
   password?: string;
+  plainPassword?: string;
   avatarUrl?: string;
   phone?: string;
 }

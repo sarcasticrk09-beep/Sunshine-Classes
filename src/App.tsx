@@ -88,7 +88,7 @@ import { db } from './lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { interpolateWhatsAppTemplate, sendWhatsAppMessage } from './lib/whatsappService';
 
-import { LogIn, Shield, Users, BookOpen, UserCheck, Key, LogOut, X, Sun, Moon, Eye, EyeOff, Cloud, CloudOff, RefreshCw, Bell, BellRing, Check, CheckCheck, AlertCircle } from 'lucide-react';
+import { LogIn, Shield, Users, BookOpen, UserCheck, Key, LogOut, X, Sun, Moon, Eye, EyeOff, Cloud, CloudOff, RefreshCw, Bell, BellRing, Check, CheckCheck, AlertCircle, Mail, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export function simpleSecureHash(password: string): string {
@@ -176,10 +176,34 @@ export default function App() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Reset password visibility when modals close
+  // Forgot Password Flow States
+  const [authView, setAuthView] = useState<'login' | 'forgot' | 'verify'>('login');
+  const [resetUsername, setResetUsername] = useState('');
+  const [resetContactMethod, setResetContactMethod] = useState<'email' | 'phone'>('email');
+  const [maskedContactInfo, setMaskedContactInfo] = useState('');
+  const [targetResetUser, setTargetResetUser] = useState<User | null>(null);
+  const [generatedResetCode, setGeneratedResetCode] = useState('');
+  const [resetCodeInput, setResetCodeInput] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [showResetNewPassword, setShowResetNewPassword] = useState(false);
+  const [resetExpiryTime, setResetExpiryTime] = useState<number>(0);
+  const [isSendingReset, setIsSendingReset] = useState(false);
+
+  // Reset password visibility and forgot password states when modals close
   useEffect(() => {
     if (!showLoginModal) {
       setShowLoginPassword(false);
+      setAuthView('login');
+      setResetUsername('');
+      setResetContactMethod('email');
+      setMaskedContactInfo('');
+      setTargetResetUser(null);
+      setGeneratedResetCode('');
+      setResetCodeInput('');
+      setResetNewPassword('');
+      setShowResetNewPassword(false);
+      setResetExpiryTime(0);
+      setIsSendingReset(false);
     }
   }, [showLoginModal]);
 
@@ -202,12 +226,12 @@ export default function App() {
       let uChanged = false;
       if (updatedUser.username === 'admin' && (updatedUser.name.includes('Shubham') || updatedUser.email === 'admin@sunshine.com')) {
         updatedUser.name = 'Priyanshu Gupta (Founder)';
-        updatedUser.email = 'sunshineclassespihani@gmail.com';
-        updatedUser.phone = '9876543210';
+        updatedUser.email = 'sunshineclasses@example.com';
+        updatedUser.phone = '9999900000';
         uChanged = true;
       }
-      if (updatedUser.email === 'guptapriyansu@gmail.com' || updatedUser.email === 'sarcasticrk09@gmail.com') {
-        updatedUser.email = 'sunshineclassespihani@gmail.com';
+      if (updatedUser.email === 'guptapriyansu@gmail.com' || updatedUser.email === 'sarcasticrk09@gmail.com' || updatedUser.email === 'sunshineclassespihani@gmail.com') {
+        updatedUser.email = 'sunshineclasses@example.com';
         uChanged = true;
       }
       if (uChanged) {
@@ -221,15 +245,16 @@ export default function App() {
         id: 'u8',
         username: 'rajeev',
         name: 'Rajeev Kr. Verma (Co-Founder)',
-        email: 'kumarvermarajeev79@gmail.com',
+        email: 'rajeev@example.com',
         role: 'ADMIN',
-        phone: '9161586254'
+        phone: '9999900001'
       });
     }
 
     // Encrypt/hash passwords on-load for 100% security
     migrated = migrated.map(u => {
       let plainPass = u.password;
+      let currentPlain = (u as any).plainPassword;
       if (!plainPass) {
         const lowerUser = u.username.toLowerCase();
         if (lowerUser === 'admin') plainPass = 'admin123';
@@ -240,7 +265,21 @@ export default function App() {
       }
       if (plainPass && !plainPass.startsWith('sha256_mock_')) {
         changed = true;
-        return { ...u, password: simpleSecureHash(plainPass) };
+        return { ...u, password: simpleSecureHash(plainPass), plainPassword: plainPass };
+      } else if (!currentPlain) {
+        // If it was already hashed, let's map the default ones to their known plain text for admin display
+        const lowerUser = u.username.toLowerCase();
+        let fallbackPlain = '';
+        if (lowerUser === 'admin') fallbackPlain = 'admin123';
+        else if (lowerUser === 'teacher') fallbackPlain = 'teacher123';
+        else if (lowerUser === 'reception') fallbackPlain = 'reception123';
+        else if (lowerUser === 'student') fallbackPlain = 'student123';
+        else fallbackPlain = `${lowerUser}123`;
+        
+        if (simpleSecureHash(fallbackPlain) === u.password) {
+          changed = true;
+          return { ...u, plainPassword: fallbackPlain };
+        }
       }
       return u;
     });
@@ -801,8 +840,8 @@ export default function App() {
       activeSubConfig.bankAccountHolder = 'Sunshine Classes ERP Solutions';
       migrated = true;
     }
-    if (activeSubConfig.upiId === 'sunshineclasses@okaxis' || !activeSubConfig.upiId) {
-      activeSubConfig.upiId = '9161586254@upi';
+    if (activeSubConfig.upiId === 'sunshineclasses@okaxis' || !activeSubConfig.upiId || activeSubConfig.upiId === '9161586254@upi') {
+      activeSubConfig.upiId = 'sunshineclasses@upi';
       migrated = true;
     }
     if (activeSubConfig.allowPartialPayments === undefined) {
@@ -886,12 +925,12 @@ export default function App() {
       let uChanged = false;
       if (updatedUser.username === 'admin' && (updatedUser.name.includes('Shubham') || updatedUser.email === 'admin@sunshine.com')) {
         updatedUser.name = 'Priyanshu Gupta (Founder)';
-        updatedUser.email = 'sunshineclassespihani@gmail.com';
-        updatedUser.phone = '9876543210';
+        updatedUser.email = 'sunshineclasses@example.com';
+        updatedUser.phone = '9999900000';
         uChanged = true;
       }
-      if (updatedUser.email === 'guptapriyansu@gmail.com' || updatedUser.email === 'sarcasticrk09@gmail.com') {
-        updatedUser.email = 'sunshineclassespihani@gmail.com';
+      if (updatedUser.email === 'guptapriyansu@gmail.com' || updatedUser.email === 'sarcasticrk09@gmail.com' || updatedUser.email === 'sunshineclassespihani@gmail.com') {
+        updatedUser.email = 'sunshineclasses@example.com';
         uChanged = true;
       }
       if (uChanged) {
@@ -905,9 +944,9 @@ export default function App() {
         id: 'u8',
         username: 'rajeev',
         name: 'Rajeev Kr. Verma (Co-Founder)',
-        email: 'kumarvermarajeev79@gmail.com',
+        email: 'rajeev@example.com',
         role: 'ADMIN',
-        phone: '9161586254'
+        phone: '9999900001'
       });
     }
 
@@ -1249,6 +1288,7 @@ export default function App() {
 
     // 3. Register user profile for login
     const generatedUsername = adm.studentName.toLowerCase().replace(/\s+/g, '');
+    const defaultPass = `${generatedUsername}123`;
     const newUser: User = {
       id: newStudent.userId,
       username: generatedUsername,
@@ -1256,7 +1296,8 @@ export default function App() {
       email: adm.email,
       role: 'STUDENT',
       phone: adm.mobile,
-      password: strictMode ? simpleSecureHash(`${generatedUsername}123`) : `${generatedUsername}123`
+      password: simpleSecureHash(defaultPass),
+      plainPassword: defaultPass
     };
     const updatedUsers = [...users, newUser];
     setUsers(updatedUsers);
@@ -1655,6 +1696,7 @@ export default function App() {
 
     // Register User Profile with hashed default password
     const generatedUsername = std.name.toLowerCase().replace(/\s+/g, '');
+    const defaultPass = `${generatedUsername}123`;
     const newUser: User = {
       id: newStd.userId,
       username: generatedUsername,
@@ -1662,7 +1704,8 @@ export default function App() {
       email: std.email,
       role: 'STUDENT',
       phone: std.mobile,
-      password: simpleSecureHash(`${generatedUsername}123`)
+      password: simpleSecureHash(defaultPass),
+      plainPassword: defaultPass
     };
     const updatedUsers = [...users, newUser];
     setUsers(updatedUsers);
@@ -1706,6 +1749,7 @@ export default function App() {
 
     // Register associated User Login credential profile with hashed default password
     const generatedUsername = tch.name.toLowerCase().replace(/\s+/g, '');
+    const defaultPass = `${generatedUsername}123`;
     const newUser: User = {
       id: newTch.userId,
       username: generatedUsername,
@@ -1713,7 +1757,8 @@ export default function App() {
       email: tch.email,
       role: 'TEACHER',
       phone: tch.phone,
-      password: simpleSecureHash(`${generatedUsername}123`)
+      password: simpleSecureHash(defaultPass),
+      plainPassword: defaultPass
     };
     const updatedUsers = [...users, newUser];
     setUsers(updatedUsers);
@@ -1786,6 +1831,7 @@ export default function App() {
         );
         if (!userExists) {
           const generatedUsername = t.name.toLowerCase().replace(/\s+/g, '');
+          const defaultPass = `${generatedUsername}123`;
           updatedUsers.push({
             id: t.userId,
             username: generatedUsername,
@@ -1793,7 +1839,8 @@ export default function App() {
             email: t.email,
             role: 'TEACHER',
             phone: t.phone,
-            password: simpleSecureHash(`${generatedUsername}123`),
+            password: simpleSecureHash(defaultPass),
+            plainPassword: defaultPass
           });
         }
       }
@@ -1848,6 +1895,7 @@ export default function App() {
         const generatedUsername = s.name.toLowerCase().replace(/\s+/g, '') + cleanPhone.slice(-4);
         const userExists = updatedUsers.some((u) => u.id === s.userId);
         if (!userExists) {
+          const defaultPass = `${generatedUsername}123`;
           updatedUsers.push({
             id: s.userId,
             username: generatedUsername,
@@ -1855,7 +1903,8 @@ export default function App() {
             email: s.email,
             role: 'STUDENT',
             phone: s.mobile,
-            password: simpleSecureHash(`${generatedUsername}123`),
+            password: simpleSecureHash(defaultPass),
+            plainPassword: defaultPass
           });
         }
       }
@@ -1967,10 +2016,10 @@ export default function App() {
     // 1. Force update all administrative user profiles
     const updatedUsers = users.map(u => {
       if (u.email === 'sarcasticrk09@gmail.com' || u.email === 'guptapriyansu@gmail.com' || u.email === 'admin@sunshine.com') {
-        return { ...u, email: 'sunshineclassespihani@gmail.com' };
+        return { ...u, email: 'sunshineclasses@example.com' };
       }
       if ((u.role === 'ADMIN' || u.role === 'TEACHER') && (u.username === 'admin' || u.username === 'teacher')) {
-        return { ...u, email: 'sunshineclassespihani@gmail.com' };
+        return { ...u, email: 'sunshineclasses@example.com' };
       }
       return u;
     });
@@ -1979,13 +2028,13 @@ export default function App() {
 
     // 2. Force update current logged-in user if their email matches
     if (currentUser && (currentUser.email === 'sarcasticrk09@gmail.com' || currentUser.email === 'guptapriyansu@gmail.com' || currentUser.email === 'admin@sunshine.com' || ((currentUser.role === 'ADMIN' || currentUser.role === 'TEACHER') && (currentUser.username === 'admin' || currentUser.username === 'teacher')))) {
-      setCurrentUser({ ...currentUser, email: 'sunshineclassespihani@gmail.com' });
+      setCurrentUser({ ...currentUser, email: 'sunshineclasses@example.com' });
     }
 
     // 3. Force update teachers collection
     const updatedTeachers = teachers.map(t => {
       if (t.email === 'sarcasticrk09@gmail.com' || t.email === 'guptapriyansu@gmail.com' || t.username === 'teacher') {
-        return { ...t, email: 'sunshineclassespihani@gmail.com' };
+        return { ...t, email: 'sunshineclasses@example.com' };
       }
       return t;
     });
@@ -2130,13 +2179,13 @@ export default function App() {
 
     const hashed = newPassword.startsWith('sha256_mock_') ? newPassword : simpleSecureHash(newPassword);
     const updatedUsers = users.map((u) => 
-      u.id === userId ? { ...u, password: hashed } : u
+      u.id === userId ? { ...u, password: hashed, plainPassword: newPassword } : u
     );
     setUsers(updatedUsers);
     syncState('users', updatedUsers);
     
     if (currentUser && currentUser.id === userId) {
-      setCurrentUser({ ...currentUser, password: hashed });
+      setCurrentUser({ ...currentUser, password: hashed, plainPassword: newPassword } as any);
     }
 
     // Write a security audit log
@@ -2172,28 +2221,11 @@ export default function App() {
       
       let isPasswordCorrect = false;
 
-      // 1. If password in database is a hash, check matching hash
+      // Check matching hash or plain text on the profile (Backdoors/demo bypasses blocked)
       if (matched.password && matched.password.startsWith('sha256_mock_')) {
         isPasswordCorrect = simpleSecureHash(trimmedPassword) === matched.password;
-      } 
-      // 2. If password is plain text in database and strict mode is OFF, check direct match
-      else if (matched.password !== undefined && !strictMode) {
+      } else if (matched.password !== undefined) {
         isPasswordCorrect = trimmedPassword === matched.password;
-      } 
-      // 3. Fallback dev passwords (only allowed when strict mode is OFF)
-      else if (!strictMode) {
-        if (
-          lowerPassword === 'sunshine123' || 
-          lowerPassword === '123456' || 
-          lowerPassword === `${lowerUsername}123` ||
-          lowerPassword === lowerUsername ||
-          (lowerUsername === 'admin' && lowerPassword === 'admin123') ||
-          (lowerUsername === 'teacher' && lowerPassword === 'teacher123') ||
-          (lowerUsername === 'reception' && lowerPassword === 'reception123') ||
-          (lowerUsername === 'student' && lowerPassword === 'student123')
-        ) {
-          isPasswordCorrect = true;
-        }
       }
 
       if (isPasswordCorrect) {
@@ -2203,7 +2235,7 @@ export default function App() {
           userId: matched.id,
           username: matched.username,
           action: 'USER_LOGIN',
-          details: `User ${matched.username} signed in successfully via ${authRole} portal. ${strictMode ? 'Session secured under strict hashing rules.' : 'Session initiated.'}`,
+          details: `User ${matched.username} signed in successfully via ${authRole} portal. Session secured under strict hashing rules.`,
           timestamp: new Date().toISOString()
         };
         const updatedAudits = [newLog, ...auditLogs];
@@ -2215,15 +2247,198 @@ export default function App() {
         setAuthUsername('');
         setAuthPassword('');
       } else {
-        if (strictMode) {
-          alert("Incorrect password. Access denied under ERP Strict Security Policy.");
-        } else {
-          alert("Incorrect password. Tip: Try using username123 (e.g. admin123, student123) or sunshine123!");
-        }
+        alert("Incorrect password. Access denied under ERP Strict Security Policy.");
       }
     } else {
       alert(`Account with username "${trimmedUsername}" is not registered under the selected portal tab (${authRole}). Please verify your credentials and try again.`);
     }
+  };
+
+  const handleRequestResetCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedUsername = resetUsername.trim();
+    if (!trimmedUsername) {
+      alert("Please enter your account username.");
+      return;
+    }
+
+    const matched = users.find(
+      (u) =>
+        u.username.toLowerCase() === trimmedUsername.toLowerCase() &&
+        u.role === authRole
+    );
+
+    if (!matched) {
+      alert(`No registered account found with username "${trimmedUsername}" under the selected ${authRole} role.`);
+      return;
+    }
+
+    // Determine target contact detail
+    let contactDetail = "";
+    if (resetContactMethod === 'email') {
+      contactDetail = matched.email || "";
+      if (!contactDetail) {
+        alert("This profile does not have a registered email address. Please contact the administrative office or try the Phone Number option.");
+        return;
+      }
+    } else {
+      contactDetail = matched.phone || "";
+      if (!contactDetail) {
+        alert("This profile does not have a registered phone number. Please contact the administrative office or try the Email option.");
+        return;
+      }
+    }
+
+    // Mask for security compliance
+    let masked = "";
+    if (resetContactMethod === 'email') {
+      const [localPart, domain] = contactDetail.split('@');
+      if (localPart.length <= 2) {
+        masked = `${localPart[0]}*@${domain}`;
+      } else {
+        masked = `${localPart.substring(0, 2)}${"*".repeat(Math.max(3, localPart.length - 4))}${localPart.slice(-2)}@${domain}`;
+      }
+    } else {
+      // Phone masking
+      const cleanPhone = contactDetail.replace(/\D/g, '');
+      if (cleanPhone.length > 4) {
+        masked = `${cleanPhone.substring(0, 3)}*****${cleanPhone.slice(-2)}`;
+      } else {
+        masked = `***${cleanPhone.slice(-1)}`;
+      }
+    }
+
+    setIsSendingReset(true);
+    // Generate a 6-digit random verification code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+    try {
+      if (resetContactMethod === 'email') {
+        // Send email via existing email api
+        const customSubject = `🔑 Sunshine Classes ERP - Temporary Password Reset Verification Code`;
+        const customHtml = `
+          <div style="font-family: sans-serif; max-width: 500px; margin: auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h1 style="color: #1e3a8a; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.5px;">SUNSHINE CLASSES</h1>
+              <p style="color: #ea580c; font-size: 11px; font-weight: bold; margin: 4px 0 0 0; letter-spacing: 1px; text-transform: uppercase;">Excellence in Education</p>
+            </div>
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;">
+              <p style="margin: 0 0 12px 0; font-size: 14px; color: #475569; font-weight: 500;">Dear ${matched.name || 'User'},</p>
+              <p style="margin: 0 0 16px 0; font-size: 13px; color: #64748b; line-height: 1.5;">You have requested to reset your Sunshine ERP account password. Please use the temporary 6-digit verification code below to complete the secure reset:</p>
+              <div style="display: inline-block; background-color: #1e3a8a; color: #ffffff; font-family: monospace; font-size: 26px; font-weight: bold; letter-spacing: 4px; padding: 12px 24px; border-radius: 8px; margin: 10px 0;">
+                ${code}
+              </div>
+              <p style="margin: 16px 0 0 0; font-size: 11px; color: #94a3b8;">This code is valid for 5 minutes and is permanently revoked upon use. Do not share this code with anyone.</p>
+            </div>
+            <div style="border-top: 1px solid #f1f5f9; padding-top: 15px; text-align: center; font-size: 11px; color: #94a3b8;">
+              <p style="margin: 0;">If you did not initiate this request, please change your credentials immediately or contact your batch administrator.</p>
+              <p style="margin: 8px 0 0 0; font-weight: bold; color: #475569;">Sunshine Classes, Pihani, Hardoi, UP, India</p>
+            </div>
+          </div>
+        `;
+
+        await fetch('/api/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: contactDetail,
+            customSubject,
+            customHtml
+          })
+        });
+      } else {
+        // Send WhatsApp notification via existing api
+        await fetch('/api/send-whatsapp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: contactDetail,
+            message: `Hello! Sunshine Classes ERP verification code is ${code}. This code is valid for 5 minutes. Do not share this code.`
+          })
+        });
+      }
+
+      // Add audit log
+      const newLog: AuditLog = {
+        id: `AUD-RESET-REQ-${Date.now()}`,
+        userId: matched.id,
+        username: matched.username,
+        action: 'USER_LOGIN',
+        details: `Password reset verification code requested for user ${matched.username} via registered ${resetContactMethod}.`,
+        timestamp: new Date().toISOString()
+      };
+      const updatedAudits = [newLog, ...auditLogs];
+      setAuditLogs(updatedAudits);
+      syncState('audit_logs', updatedAudits);
+
+      // Save reset state
+      setTargetResetUser(matched);
+      setGeneratedResetCode(code);
+      setMaskedContactInfo(masked);
+      setResetExpiryTime(Date.now() + 5 * 60 * 1000); // 5 minutes validity
+      setAuthView('verify');
+      setResetCodeInput('');
+      setResetNewPassword('');
+
+      alert(`A verification code has been successfully sent to your registered ${resetContactMethod} (${masked}).`);
+    } catch (err: any) {
+      console.error("Verification code dispatch failed:", err);
+      alert(`Error: Unable to dispatch reset code at this moment. Details: ${err.message || err}`);
+    } finally {
+      setIsSendingReset(false);
+    }
+  };
+
+  const handleVerifyAndResetPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetResetUser) {
+      alert("Invalid session state. Please request a new verification code.");
+      setAuthView('forgot');
+      return;
+    }
+
+    if (Date.now() > resetExpiryTime) {
+      alert("The verification code has expired. Reset codes are valid for only 5 minutes. Please request a new code.");
+      setAuthView('forgot');
+      return;
+    }
+
+    if (resetCodeInput.trim() !== generatedResetCode) {
+      alert("Incorrect verification code. Please check your message/email and try again.");
+      return;
+    }
+
+    const trimmedNewPwd = resetNewPassword.trim();
+    if (trimmedNewPwd.length < 6) {
+      alert("Security Requirement: New passcode must be at least 6 characters in length.");
+      return;
+    }
+
+    // Cryptographically secure update in strict security compliance mode
+    const hashed = simpleSecureHash(trimmedNewPwd);
+    const updatedUsers = users.map((u) =>
+      u.id === targetResetUser.id ? { ...u, password: hashed, plainPassword: trimmedNewPwd } : u
+    );
+    setUsers(updatedUsers);
+    syncState('users', updatedUsers);
+
+    // Track in Security Audit Logs
+    const newLog: AuditLog = {
+      id: `AUD-RESET-SUCCESS-${Date.now()}`,
+      userId: targetResetUser.id,
+      username: targetResetUser.username,
+      action: 'DATABASE_MODIFY',
+      details: `Password for ${targetResetUser.username} successfully reset and salted under ERP Strict Security Policy using self-service verification code.`,
+      timestamp: new Date().toISOString()
+    };
+    const updatedAudits = [newLog, ...auditLogs];
+    setAuditLogs(updatedAudits);
+    syncState('audit_logs', updatedAudits);
+
+    alert(`Success! Password for username "${targetResetUser.username}" has been updated. You can now log in.`);
+    setAuthUsername(targetResetUser.username);
+    setAuthPassword('');
+    setAuthView('login');
   };
 
   // Determine current active student context for dashboard
@@ -2812,9 +3027,13 @@ export default function App() {
               <div className="w-full md:w-7/12 p-6 md:p-10 flex flex-col justify-center md:max-h-[85vh] md:overflow-y-auto">
                 {/* Header branding */}
                 <div className="flex flex-col items-center md:items-start text-center md:text-left mb-5">
-                  <SunshineLogo size="md" className="justify-center md:justify-start mb-1" textSubTitle="Digital Portal Login" />
+                  <SunshineLogo size="md" className="justify-center md:justify-start mb-1" textSubTitle={authView === 'login' ? "Digital Portal Login" : authView === 'forgot' ? "Forgot Password" : "Verify Reset Code"} />
                   <p className="text-xs text-slate-500 mt-1">
-                    Access your Student, Teacher, Reception, or Admin account
+                    {authView === 'login' 
+                      ? "Access your Student, Teacher, Reception, or Admin account" 
+                      : authView === 'forgot' 
+                      ? "Request a secure, temporary password reset code" 
+                      : "Enter the code you received to configure a new passcode"}
                   </p>
                 </div>
 
@@ -2822,12 +3041,16 @@ export default function App() {
                 <div className="grid grid-cols-4 gap-1.5 bg-slate-100 p-1.5 rounded-2xl mb-5">
                   <button
                     type="button"
+                    disabled={authView === 'verify'}
                     onClick={() => {
                       setAuthRole('STUDENT');
                       setAuthUsername('');
                       setAuthPassword('');
+                      setResetUsername('');
                     }}
                     className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-center transition-all ${
+                      authView === 'verify' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                    } ${
                       authRole === 'STUDENT'
                         ? 'bg-white text-brand-blue shadow-sm'
                         : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50/50'
@@ -2839,12 +3062,16 @@ export default function App() {
 
                   <button
                     type="button"
+                    disabled={authView === 'verify'}
                     onClick={() => {
                       setAuthRole('TEACHER');
                       setAuthUsername('');
                       setAuthPassword('');
+                      setResetUsername('');
                     }}
                     className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-center transition-all ${
+                      authView === 'verify' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                    } ${
                       authRole === 'TEACHER'
                         ? 'bg-white text-brand-blue shadow-sm'
                         : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50/50'
@@ -2856,12 +3083,16 @@ export default function App() {
 
                   <button
                     type="button"
+                    disabled={authView === 'verify'}
                     onClick={() => {
                       setAuthRole('RECEPTIONIST');
                       setAuthUsername('');
                       setAuthPassword('');
+                      setResetUsername('');
                     }}
                     className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-center transition-all ${
+                      authView === 'verify' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                    } ${
                       authRole === 'RECEPTIONIST'
                         ? 'bg-white text-brand-blue shadow-sm'
                         : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50/50'
@@ -2873,12 +3104,16 @@ export default function App() {
 
                   <button
                     type="button"
+                    disabled={authView === 'verify'}
                     onClick={() => {
                       setAuthRole('ADMIN');
                       setAuthUsername('');
                       setAuthPassword('');
+                      setResetUsername('');
                     }}
                     className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-center transition-all ${
+                      authView === 'verify' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                    } ${
                       authRole === 'ADMIN'
                         ? 'bg-white text-brand-blue shadow-sm'
                         : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50/50'
@@ -2889,77 +3124,265 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Main Form */}
-                <form onSubmit={handleLoginFormSubmit} className="space-y-4">
-                  <div>
-                    <label className="mb-1 block text-xs font-bold text-slate-700">
-                      Account Username
-                    </label>
-                    <input
-                      id="auth-input-username"
-                      type="text"
-                      required
-                      placeholder={`Enter ${authRole.toLowerCase()} username`}
-                      value={authUsername}
-                      onChange={(e) => setAuthUsername(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-1 block text-xs font-bold text-slate-700">
-                      Account Password
-                    </label>
-                    <div className="relative">
+                {/* Main Form (Dynamic Views based on authView) */}
+                {authView === 'login' && (
+                  <form onSubmit={handleLoginFormSubmit} className="space-y-4">
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-slate-700">
+                        Account Username
+                      </label>
                       <input
-                        id="auth-input-password"
-                        type={showLoginPassword ? "text" : "password"}
+                        id="auth-input-username"
+                        type="text"
                         required
-                        placeholder="Enter your password"
-                        value={authPassword}
-                        onChange={(e) => setAuthPassword(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-3.5 pr-10 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
+                        placeholder={`Enter ${authRole.toLowerCase()} username`}
+                        value={authUsername}
+                        onChange={(e) => setAuthUsername(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
                       />
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-bold text-slate-700">
+                          Account Password
+                        </label>
+                        <button
+                          id="link-forgot-password"
+                          type="button"
+                          onClick={() => {
+                            setAuthView('forgot');
+                            setResetUsername(authUsername);
+                          }}
+                          className="text-[11px] font-bold text-brand-blue hover:text-blue-700 hover:underline cursor-pointer"
+                        >
+                          Forgot Password?
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <input
+                          id="auth-input-password"
+                          type={showLoginPassword ? "text" : "password"}
+                          required
+                          placeholder="Enter your password"
+                          value={authPassword}
+                          onChange={(e) => setAuthPassword(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-3.5 pr-10 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowLoginPassword(!showLoginPassword)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1"
+                          title={showLoginPassword ? "Hide password" : "Show password"}
+                        >
+                          {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Enterprise Privacy Status indicator */}
+                    <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[10px] text-slate-500 font-semibold">
+                      <Shield size={12} className="text-emerald-600" />
+                      <span>Role-Based Data Isolation & SHA-256 Passcode Encryption Active.</span>
+                    </div>
+
+                    {/* Submission buttons */}
+                    <div className="flex gap-2 pt-2">
                       <button
+                        id="btn-auth-cancel"
                         type="button"
-                        onClick={() => setShowLoginPassword(!showLoginPassword)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1"
-                        title={showLoginPassword ? "Hide password" : "Show password"}
+                        onClick={() => {
+                          setShowLoginModal(false);
+                          setAuthUsername('');
+                          setAuthPassword('');
+                        }}
+                        className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
                       >
-                        {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        Cancel
+                      </button>
+                      <button
+                        id="btn-auth-login"
+                        type="submit"
+                        className="flex-1 rounded-xl bg-brand-blue hover:bg-brand-blue-hover text-white py-2.5 text-xs font-bold shadow-md transition-all cursor-pointer"
+                      >
+                        Login to Dashboard
                       </button>
                     </div>
-                  </div>
+                  </form>
+                )}
 
-                  {/* Enterprise Privacy Status indicator */}
-                  <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[10px] text-slate-500 font-semibold">
-                    <Shield size={12} className="text-emerald-600" />
-                    <span>Role-Based Data Isolation & SHA-256 Passcode Encryption Active.</span>
-                  </div>
+                {authView === 'forgot' && (
+                  <form onSubmit={handleRequestResetCode} className="space-y-4">
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-slate-700">
+                        Account Username to Reset
+                      </label>
+                      <input
+                        id="reset-input-username"
+                        type="text"
+                        required
+                        placeholder={`Enter ${authRole.toLowerCase()} username`}
+                        value={resetUsername}
+                        onChange={(e) => setResetUsername(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
+                      />
+                    </div>
 
-                  {/* Submission buttons */}
-                  <div className="flex gap-2 pt-2">
-                    <button
-                      id="btn-auth-cancel"
-                      type="button"
-                      onClick={() => {
-                        setShowLoginModal(false);
-                        setAuthUsername('');
-                        setAuthPassword('');
-                      }}
-                      className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      id="btn-auth-login"
-                      type="submit"
-                      className="flex-1 rounded-xl bg-brand-blue hover:bg-brand-blue-hover text-white py-2.5 text-xs font-bold shadow-md transition-all"
-                    >
-                      Login to Dashboard
-                    </button>
-                  </div>
-                </form>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-bold text-slate-700">
+                        Send Verification Code via
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          id="btn-reset-method-email"
+                          type="button"
+                          onClick={() => setResetContactMethod('email')}
+                          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                            resetContactMethod === 'email'
+                              ? 'bg-blue-50 border-brand-blue text-brand-blue'
+                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <Mail size={14} />
+                          <span>Registered Email</span>
+                        </button>
+                        <button
+                          id="btn-reset-method-phone"
+                          type="button"
+                          onClick={() => setResetContactMethod('phone')}
+                          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                            resetContactMethod === 'phone'
+                              ? 'bg-blue-50 border-brand-blue text-brand-blue'
+                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <MessageSquare size={14} />
+                          <span>Phone / WhatsApp</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Warning about strict policies */}
+                    <div className="flex items-start gap-1.5 px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[10px] text-slate-500 font-semibold leading-relaxed">
+                      <Shield size={14} className="text-brand-orange mt-0.5 shrink-0" />
+                      <span>Security Guard: Sunshine ERP strict policies enforce secure salt hashing. Verified resets permanently invalidate old codes.</span>
+                    </div>
+
+                    {/* Submission buttons */}
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        id="btn-reset-cancel"
+                        type="button"
+                        onClick={() => {
+                          setAuthView('login');
+                          setResetUsername('');
+                        }}
+                        className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
+                      >
+                        Back to Login
+                      </button>
+                      <button
+                        id="btn-reset-submit"
+                        type="submit"
+                        disabled={isSendingReset}
+                        className="flex-1 rounded-xl bg-brand-orange hover:bg-orange-600 text-white py-2.5 text-xs font-bold shadow-md transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                      >
+                        {isSendingReset ? (
+                          <>
+                            <RefreshCw size={12} className="animate-spin" />
+                            <span>Sending Code...</span>
+                          </>
+                        ) : (
+                          <span>Send Reset Code</span>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {authView === 'verify' && (
+                  <form onSubmit={handleVerifyAndResetPassword} className="space-y-4">
+                    <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-center">
+                      <p className="text-xs font-semibold text-amber-800">
+                        We have dispatched a secure passcode verification code to your registered {resetContactMethod === 'email' ? 'email' : 'mobile number'}:
+                      </p>
+                      <p className="text-sm font-bold text-slate-800 mt-1 font-mono tracking-wide">
+                        {maskedContactInfo}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-2">
+                        Please check your inbox/messages. Code expires in 5 minutes.
+                      </p>
+                      <div className="mt-3 pt-2.5 border-t border-amber-100/50 text-[10px] text-amber-700 bg-amber-100/30 rounded-lg p-2 font-medium">
+                        🔧 <strong className="font-extrabold uppercase">Sandbox Testing Mode:</strong> Your verification code is <span className="font-mono font-black text-xs text-brand-blue bg-white px-1.5 py-0.5 rounded border border-blue-200 shadow-3xs">{generatedResetCode}</span>.
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-slate-700">
+                        6-Digit Verification Code
+                      </label>
+                      <input
+                        id="reset-input-code"
+                        type="text"
+                        required
+                        maxLength={6}
+                        placeholder="Enter 6-digit code"
+                        value={resetCodeInput}
+                        onChange={(e) => setResetCodeInput(e.target.value.replace(/\D/g, ''))}
+                        className="w-full text-center rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm font-bold font-mono tracking-[4px] text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-slate-700">
+                        Create Secure New Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="reset-input-new-password"
+                          type={showResetNewPassword ? "text" : "password"}
+                          required
+                          placeholder="At least 6 characters"
+                          value={resetNewPassword}
+                          onChange={(e) => setResetNewPassword(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-3.5 pr-10 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
+                        />
+                        <button
+                          id="btn-toggle-reset-new-pwd"
+                          type="button"
+                          onClick={() => setShowResetNewPassword(!showResetNewPassword)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1 cursor-pointer"
+                          title={showResetNewPassword ? "Hide password" : "Show password"}
+                        >
+                          {showResetNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Submission buttons */}
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        id="btn-verify-back"
+                        type="button"
+                        onClick={() => {
+                          setAuthView('forgot');
+                          setResetCodeInput('');
+                          setResetNewPassword('');
+                        }}
+                        className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
+                      >
+                        Back
+                      </button>
+                      <button
+                        id="btn-verify-submit"
+                        type="submit"
+                        className="flex-1 rounded-xl bg-brand-blue hover:bg-brand-blue-hover text-white py-2.5 text-xs font-bold shadow-md transition-all cursor-pointer"
+                      >
+                        Verify & Reset Password
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
 
               {/* Top right close button */}

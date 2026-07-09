@@ -45,6 +45,7 @@ import {
   ChevronUp,
   CreditCard,
   Eye,
+  EyeOff,
   ExternalLink,
   Camera,
   Video
@@ -231,6 +232,11 @@ export default function AdminDashboard({
   };
 
   // --- START OF GOOGLE SHEETS INTEGRATION STATES & FUNCTIONS ---
+  const [isInIframe, setIsInIframe] = useState<boolean>(false);
+  useEffect(() => {
+    setIsInIframe(window.self !== window.top);
+  }, []);
+
   const [sheetsAccessToken, setSheetsAccessToken] = useState<string | null>(getCachedAccessToken());
   const [sheetsUser, setSheetsUser] = useState<any | null>(null);
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
@@ -1735,6 +1741,11 @@ export default function AdminDashboard({
   // State for Admin resetting another user's password
   const [resettingUser, setResettingUser] = useState<{ userId: string; username: string; name: string } | null>(null);
   const [newPasswordForUser, setNewPasswordForUser] = useState('');
+
+  // Password Control Center State variables
+  const [pwdSearchQuery, setPwdSearchQuery] = useState('');
+  const [pwdRoleFilter, setPwdRoleFilter] = useState<'ALL' | 'ADMIN' | 'TEACHER' | 'RECEPTIONIST' | 'STUDENT'>('ALL');
+  const [pwdVisibleUsers, setPwdVisibleUsers] = useState<string[]>([]);
 
   // Quick Fee Collect State Variables
   const [quickCollectStudent, setQuickCollectStudent] = useState<Student | null>(null);
@@ -10472,6 +10483,56 @@ ${data.log}`
                       </div>
                     </div>
 
+                    {isInIframe && !sheetsAccessToken && (
+                      <div id="google-iframe-auth-warning" className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 space-y-2">
+                        <div className="flex items-center gap-2 font-bold">
+                          <AlertCircle size={16} className="text-amber-600 shrink-0" />
+                          <span>Iframe Authorization Challenge Detected!</span>
+                        </div>
+                        <p className="leading-relaxed text-[11px] text-amber-700">
+                          Because you are currently viewing Sunshine Classes ERP inside the sandboxed AI Studio preview pane iframe, Google Auth popups may get blocked or flash and close immediately due to browser security restrictions.
+                        </p>
+                        <div className="pt-1 flex flex-col sm:flex-row gap-2">
+                          <span className="font-semibold text-[11px] text-amber-900">
+                            💡 <strong>To connect successfully:</strong> Click the <strong>"Open in new tab"</strong> button in the upper right corner of the live preview frame. Sign-ins will authorize flawlessly in a direct browser tab!
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {sheetsLog.some(log => log.includes('unauthorized-domain')) && (
+                      <div id="google-unauthorized-domain-warning" className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 space-y-3 shadow-3xs">
+                        <div className="flex items-center gap-2 font-bold">
+                          <AlertCircle size={16} className="text-rose-600 shrink-0" />
+                          <span>Firebase Auth "Unauthorized Domain" Error!</span>
+                        </div>
+                        <p className="leading-relaxed text-[11px] text-rose-700">
+                          Your Firebase project security rules restrict authentication to whitelisted domains. Since your app is deployed to a dynamic Cloud Run container URL, you must authorize this server domain in your Firebase Console.
+                        </p>
+                        <div className="bg-white p-3 rounded-lg border border-rose-150 space-y-2 text-slate-700">
+                          <span className="font-bold text-[11.5px] text-slate-800 block">🔧 Whitelist Instructions:</span>
+                          <ol className="list-decimal pl-4 space-y-1 text-[11px] text-slate-600 leading-normal">
+                            <li>Open your <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-600 font-bold hover:underline">Firebase Console</a></li>
+                            <li>Go to <strong>Authentication</strong> &rarr; <strong>Settings</strong> &rarr; <strong>Authorized domains</strong></li>
+                            <li>Click <strong>Add domain</strong> and paste your active domain:</li>
+                          </ol>
+                          <div className="mt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 bg-slate-50 p-2 rounded-md border">
+                            <code className="text-[11px] font-mono font-bold text-slate-800 bg-white border px-2 py-0.5 rounded select-all">{window.location.hostname}</code>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(window.location.hostname);
+                                alert("📋 Current domain copied to clipboard!");
+                              }}
+                              className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] cursor-pointer transition-colors"
+                            >
+                              Copy Domain
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Connection details & email configuration */}
                     <div className="grid gap-4 sm:grid-cols-2">
                       {/* Google Drive Card */}
@@ -10636,6 +10697,161 @@ ${data.log}`
                         ⚡ Force-Update Emails
                       </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 🔑 ERP System Credentials & Passwords Control Center */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-6" id="panel-erp-credentials-manager">
+                <div>
+                  <h3 className="font-display font-bold text-base text-slate-800 mb-1 flex items-center gap-2">
+                    <Key size={18} className="text-indigo-900" /> ERP Credentials & Password Management Center
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Search, view, and directly modify login passcodes for all administrative staff, teachers, receptionists, and students.
+                  </p>
+                </div>
+
+                {/* Filter Controls */}
+                <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-150">
+                  <div className="relative w-full sm:w-72">
+                    <input
+                      id="input-pwd-search"
+                      type="text"
+                      placeholder="Search name or username..."
+                      value={pwdSearchQuery}
+                      onChange={(e) => setPwdSearchQuery(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 outline-none focus:border-indigo-900 font-medium"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    <span className="text-xs font-semibold text-slate-500">Portal Role:</span>
+                    <select
+                      id="select-pwd-role-filter"
+                      value={pwdRoleFilter}
+                      onChange={(e) => setPwdRoleFilter(e.target.value as any)}
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-indigo-900 font-medium"
+                    >
+                      <option value="ALL">All Roles</option>
+                      <option value="ADMIN">Administrators</option>
+                      <option value="TEACHER">Faculty Teachers</option>
+                      <option value="RECEPTIONIST">Receptionists</option>
+                      <option value="STUDENT">Students</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Users Table */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-3xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse" id="tbl-erp-credentials">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-400">
+                          <th className="p-3">User Profile</th>
+                          <th className="p-3">Portal Username</th>
+                          <th className="p-3">Portal Role</th>
+                          <th className="p-3">Configured Passcode</th>
+                          <th className="p-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                        {(() => {
+                          const filteredUsers = users.filter(u => {
+                            const matchesSearch = 
+                              u.name.toLowerCase().includes(pwdSearchQuery.toLowerCase()) || 
+                              u.username.toLowerCase().includes(pwdSearchQuery.toLowerCase());
+                            const matchesRole = 
+                              pwdRoleFilter === 'ALL' || 
+                              u.role === pwdRoleFilter;
+                            return matchesSearch && matchesRole;
+                          });
+
+                          if (filteredUsers.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={5} className="p-6 text-center text-slate-400 italic">
+                                  No registered profiles found matching filters.
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return filteredUsers.map((user) => {
+                            const isRevealed = pwdVisibleUsers.includes(user.id);
+                            const displayedPassword = (user as any).plainPassword || "admin123";
+                            
+                            return (
+                              <tr key={user.id} className="hover:bg-slate-50/50">
+                                <td className="p-3">
+                                  <div className="font-semibold text-slate-800">{user.name}</div>
+                                  <div className="text-[10px] text-slate-400">{user.email || 'No email registered'}</div>
+                                </td>
+                                <td className="p-3 font-mono font-bold text-slate-700">
+                                  {user.username}
+                                </td>
+                                <td className="p-3">
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide border ${
+                                    user.role === 'ADMIN'
+                                      ? 'bg-rose-50 text-rose-700 border-rose-150'
+                                      : user.role === 'TEACHER'
+                                      ? 'bg-indigo-50 text-indigo-700 border-indigo-150'
+                                      : user.role === 'RECEPTIONIST'
+                                      ? 'bg-amber-50 text-amber-700 border-amber-150'
+                                      : 'bg-emerald-50 text-emerald-700 border-emerald-150'
+                                  }`}>
+                                    {user.role}
+                                  </span>
+                                </td>
+                                <td className="p-3 font-mono">
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type={isRevealed ? "text" : "password"}
+                                      readOnly
+                                      value={displayedPassword}
+                                      className="bg-transparent border-none outline-none font-bold text-xs w-28 text-slate-800"
+                                    />
+                                    <button
+                                      id={`btn-reveal-pwd-${user.id}`}
+                                      type="button"
+                                      onClick={() => {
+                                        if (isRevealed) {
+                                          setPwdVisibleUsers(pwdVisibleUsers.filter(id => id !== user.id));
+                                        } else {
+                                          setPwdVisibleUsers([...pwdVisibleUsers, user.id]);
+                                        }
+                                      }}
+                                      className="text-slate-400 hover:text-slate-600 rounded p-1 cursor-pointer"
+                                      title={isRevealed ? "Hide Passcode" : "Reveal Passcode"}
+                                    >
+                                      {isRevealed ? <EyeOff size={13} /> : <Eye size={13} />}
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="p-3 text-right">
+                                  <button
+                                    id={`btn-change-pwd-admin-${user.id}`}
+                                    type="button"
+                                    onClick={() => {
+                                      setResettingUser({
+                                        userId: user.id,
+                                        username: user.username,
+                                        name: user.name
+                                      });
+                                      setNewPasswordForUser('');
+                                    }}
+                                    className="rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 px-2 py-1 text-[10px] font-bold border border-indigo-150/50 cursor-pointer"
+                                    title="Edit Passcode"
+                                  >
+                                    Change Password
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
@@ -11727,6 +11943,22 @@ ${data.log}`
                     Synchronize real-time Sunshine Classes database (Students, Teachers, Fees, Batches) directly into Google Sheets.
                   </p>
                 </div>
+
+                {isInIframe && !sheetsAccessToken && (
+                  <div id="sheets-iframe-auth-warning" className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 space-y-1.5 shadow-3xs max-w-xl">
+                    <div className="flex items-center gap-2 font-bold">
+                      <AlertCircle size={16} className="text-amber-600 shrink-0" />
+                      <span>Google Authorization Iframe Restriction</span>
+                    </div>
+                    <p className="leading-relaxed text-[11px] text-amber-700">
+                      You are currently using the Sunshine ERP dashboard inside a nested interactive iframe. Modern browsers block popup login windows inside cross-origin iframes.
+                    </p>
+                    <p className="font-semibold text-[11px] text-amber-900">
+                      💡 <strong>Quick Fix:</strong> Click <strong>"Open in new tab"</strong> in the top-right corner of this preview pane, then connect Google Drive & Sheets seamlessly from there!
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-2">
                   {!sheetsAccessToken ? (
                     <button
@@ -11753,6 +11985,43 @@ ${data.log}`
                   )}
                 </div>
               </div>
+
+              {sheetsLog.some(log => log.includes('unauthorized-domain')) && (
+                <div id="sheets-unauthorized-domain-warning" className="p-5 rounded-3xl bg-rose-50 border border-rose-200 text-xs text-rose-800 space-y-3 shadow-3xs">
+                  <div className="flex items-center gap-2 font-bold">
+                    <AlertCircle size={18} className="text-rose-600 shrink-0" />
+                    <span className="text-sm font-display font-bold">Firebase Authentication "Unauthorized Domain" Detected!</span>
+                  </div>
+                  <p className="leading-relaxed text-[11.5px] text-rose-700">
+                    Firebase blocks OAuth popups from domains that aren't whitelisted in your Firebase Console project settings. Because this application runs on a dynamic cloud hosting environment, you need to add your current active domain name to the authorization whitelist.
+                  </p>
+                  <div className="bg-white p-4 rounded-2xl border border-rose-150 space-y-2 text-slate-700">
+                    <span className="font-bold text-[11.5px] text-slate-800 block">🔧 How to Whitelist in 60 Seconds:</span>
+                    <ol className="list-decimal pl-4 space-y-1.5 text-[11px] text-slate-600 leading-normal">
+                      <li>Go to the <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-600 font-bold hover:underline">Firebase Console</a>.</li>
+                      <li>Select your project, click <strong>Authentication</strong> on the left panel, and select the <strong>Settings</strong> tab.</li>
+                      <li>Under the <strong>Authorized domains</strong> list, click <strong>Add domain</strong>.</li>
+                      <li>Paste the active domain copy-able below and save!</li>
+                    </ol>
+                    <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Your Current Active Domain:</span>
+                        <code className="text-xs font-mono font-bold text-slate-800 bg-white border px-2 py-0.5 rounded shadow-3xs select-all">{window.location.hostname}</code>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(window.location.hostname);
+                          alert("📋 Copied domain to clipboard!");
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] cursor-pointer transition-colors shadow-3xs shrink-0"
+                      >
+                        Copy Domain Link
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Status Banner */}
               <div className="bg-gradient-to-r from-emerald-50/50 to-indigo-50/20 border border-slate-200/80 rounded-3xl p-6 shadow-3xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -12247,7 +12516,7 @@ ${data.log}`
                 <input
                   type="text"
                   required
-                  placeholder="Enter new password (e.g. sunshine123)"
+                  placeholder="Enter secure new password"
                   value={newPasswordForUser}
                   onChange={(e) => setNewPasswordForUser(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-semibold"
