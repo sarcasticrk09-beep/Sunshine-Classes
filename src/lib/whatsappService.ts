@@ -48,6 +48,9 @@ export async function sendWhatsAppMessage(params: {
   accountSid?: string;
   authToken?: string;
   senderNumber?: string;
+  templateName?: string;
+  templateLanguageCode?: string;
+  templateParameters?: Array<{ type: 'text'; text: string }>;
 }): Promise<{ success: boolean; provider: string; log: string; error?: string }> {
   try {
     const response = await fetch('/api/send-whatsapp', {

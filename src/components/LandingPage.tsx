@@ -426,7 +426,26 @@ export default function LandingPage({
                   </div>
                 </div>
 
-                <div className="md:col-span-5 relative">
+                <div className="md:col-span-5 relative space-y-4">
+                  {/* Modern Classroom Header Image Card */}
+                  <div className="relative h-48 md:h-56 rounded-3xl overflow-hidden shadow-2xl border border-white/10 group">
+                    <img
+                      src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=800&auto=format&fit=crop&q=80"
+                      alt="Sunshine Classes Modern Collaborative Classroom"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-900/20 to-transparent flex items-end p-4">
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-black uppercase text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded backdrop-blur-md border border-amber-400/20">
+                          Active Collaborative Learning
+                        </span>
+                        <p className="text-xs font-bold text-white tracking-wide">
+                          Modern classrooms designed for conceptual focus and high board performance
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Decorative Glass card of stats */}
                   <div className="glass-panel-dark rounded-3xl p-6 shadow-2xl relative z-10 space-y-6 border border-white/10">
                     <h3 className="font-display font-bold text-base text-amber-300 tracking-wide text-center uppercase">
@@ -627,7 +646,7 @@ export default function LandingPage({
                     <span className="text-[10px] text-slate-400 block uppercase font-bold">First Division Boards</span>
                   </div>
                   <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                    <span className="block text-xl font-extrabold text-amber-300">1:25 Max</span>
+                    <span className="block text-xl font-extrabold text-amber-300">25:1 Max</span>
                     <span className="text-[10px] text-slate-400 block uppercase font-bold">Student-Teacher Ratio</span>
                   </div>
                   <div className="p-3 bg-white/5 rounded-xl border border-white/10">

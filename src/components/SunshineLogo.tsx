@@ -49,6 +49,116 @@ export default function SunshineLogo({
   const lineColor = isDark ? 'bg-[#0B2545]/30' : 'bg-white/30';
   const accentLineColor = 'bg-brand-orange';
 
+  // Render sub-title blocks with line-breaks if they contain bullet points
+  const renderSubTitleText = (layoutType: 'vertical' | 'horizontal') => {
+    const defaultSub = 'EXCELLENCE IN EDUCATION • PIHANI, HARDOI';
+    const rawSub = textSubTitle || defaultSub;
+    
+    if (rawSub.includes('•')) {
+      const parts = rawSub.split('•').map(p => p.trim());
+      
+      if (layoutType === 'vertical') {
+        return (
+          <div className="flex flex-col items-center mt-2.5 space-y-1.5">
+            <div className="flex items-center justify-center gap-3 w-full">
+              <div className={`h-[1px] w-8 ${lineColor}`}></div>
+              <span
+                className={`font-sans font-bold tracking-[0.2em] mr-[-0.2em] uppercase leading-none text-center ${
+                  isDark ? 'text-slate-600' : 'text-slate-200'
+                } ${
+                  typeof size === 'number'
+                    ? size >= 120 ? 'text-sm' : size >= 80 ? 'text-[11px]' : size >= 48 ? 'text-[9px]' : 'text-[8px]'
+                    : size === 'xl' ? 'text-sm' : size === 'lg' ? 'text-[11px]' : size === 'md' ? 'text-[9px]' : 'text-[8px]'
+                }`}
+              >
+                {parts[0]}
+              </span>
+              <div className={`h-[1px] w-8 ${lineColor}`}></div>
+            </div>
+            <span
+              className={`font-sans font-extrabold tracking-[0.15em] uppercase leading-none text-brand-orange text-center ${
+                typeof size === 'number'
+                  ? size >= 120 ? 'text-xs' : size >= 80 ? 'text-[9.5px]' : size >= 48 ? 'text-[8px]' : 'text-[7px]'
+                  : size === 'xl' ? 'text-xs' : size === 'lg' ? 'text-[9.5px]' : size === 'md' ? 'text-[8px]' : 'text-[7px]'
+              }`}
+            >
+              {parts[1]}
+            </span>
+          </div>
+        );
+      } else {
+        // Horizontal Layout
+        return (
+          <div className="flex flex-col items-start mt-1.5 space-y-1">
+            <div className="flex items-center gap-2">
+              <div className={`h-[0.5px] w-4 ${lineColor}`}></div>
+              <span
+                className={`font-sans font-bold tracking-[0.15em] mr-[-0.15em] uppercase leading-none ${
+                  isDark ? 'text-slate-600' : 'text-slate-200'
+                } ${
+                  typeof size === 'number'
+                    ? size >= 120 ? 'text-[10px]' : size >= 80 ? 'text-[8.5px]' : size >= 48 ? 'text-[7.5px]' : 'text-[7px]'
+                    : size === 'xl' ? 'text-[10px]' : size === 'lg' ? 'text-[8.5px]' : size === 'md' ? 'text-[7.5px]' : 'text-[7px]'
+                }`}
+              >
+                {parts[0]}
+              </span>
+              <div className={`h-[0.5px] w-4 ${lineColor}`}></div>
+            </div>
+            <span
+              className={`font-sans font-extrabold tracking-[0.12em] uppercase leading-none text-brand-orange pl-5 ${
+                typeof size === 'number'
+                  ? size >= 120 ? 'text-[9px]' : size >= 80 ? 'text-[7.5px]' : size >= 48 ? 'text-[6.5px]' : 'text-[6px]'
+                  : size === 'xl' ? 'text-[9px]' : size === 'lg' ? 'text-[7.5px]' : size === 'md' ? 'text-[6.5px]' : 'text-[6px]'
+              }`}
+            >
+              {parts[1]}
+            </span>
+          </div>
+        );
+      }
+    } else {
+      // Normal single-line behavior (no bullet separator)
+      if (layoutType === 'vertical') {
+        return (
+          <div className="flex items-center justify-center gap-3 w-full mt-2">
+            <div className={`h-[1px] w-8 ${lineColor}`}></div>
+            <span
+              className={`font-sans font-bold tracking-[0.2em] mr-[-0.2em] uppercase leading-none ${
+                isDark ? 'text-slate-500' : 'text-slate-300'
+              } ${
+                typeof size === 'number'
+                  ? size >= 120 ? 'text-sm' : size >= 80 ? 'text-[10px]' : size >= 48 ? 'text-[8px]' : 'text-[7px]'
+                  : size === 'xl' ? 'text-sm' : size === 'lg' ? 'text-[10px]' : size === 'md' ? 'text-[8px]' : 'text-[7px]'
+              }`}
+            >
+              {rawSub}
+            </span>
+            <div className={`h-[1px] w-8 ${lineColor}`}></div>
+          </div>
+        );
+      } else {
+        return (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <div className={`h-[0.5px] w-3 ${lineColor}`}></div>
+            <span
+              className={`font-sans font-bold tracking-[0.15em] mr-[-0.15em] uppercase leading-none ${
+                isDark ? 'text-slate-500' : 'text-slate-300'
+              } ${
+                typeof size === 'number'
+                  ? size >= 120 ? 'text-[10px]' : size >= 80 ? 'text-[8px]' : size >= 48 ? 'text-[7px]' : 'text-[6.5px]'
+                  : size === 'xl' ? 'text-[10px]' : size === 'lg' ? 'text-[8px]' : size === 'md' ? 'text-[7px]' : 'text-[6.5px]'
+              }`}
+            >
+              {rawSub}
+            </span>
+            <div className={`h-[0.5px] w-3 ${lineColor}`}></div>
+          </div>
+        );
+      }
+    }
+  };
+
   // SVG Icon representing Sun, Human, and Open Book
   const renderIcon = () => (
     <svg
@@ -174,7 +284,7 @@ export default function SunshineLogo({
             <span
               className={`font-serif-brand font-black tracking-[0.25em] mr-[-0.25em] leading-none uppercase ${primaryColor} ${
                 typeof size === 'number'
-                  ? size > 80 ? 'text-4xl' : size > 40 ? 'text-2xl' : 'text-lg'
+                  ? size >= 120 ? 'text-5xl' : size >= 80 ? 'text-3xl' : size >= 48 ? 'text-xl' : 'text-lg'
                   : size === 'xl' ? 'text-5xl' : size === 'lg' ? 'text-3xl' : size === 'md' ? 'text-xl' : 'text-lg'
               }`}
             >
@@ -187,8 +297,8 @@ export default function SunshineLogo({
               <span
                 className={`font-sans font-black tracking-[0.3em] mr-[-0.3em] leading-none uppercase ${secondaryColor} ${
                   typeof size === 'number'
-                    ? size > 80 ? 'text-base' : 'text-xs'
-                    : size === 'xl' ? 'text-xl' : size === 'lg' ? 'text-sm' : 'text-xs'
+                    ? size >= 120 ? 'text-xl' : size >= 80 ? 'text-sm' : size >= 48 ? 'text-xs' : 'text-[10px]'
+                    : size === 'xl' ? 'text-xl' : size === 'lg' ? 'text-sm' : size === 'md' ? 'text-xs' : 'text-[10px]'
                 }`}
               >
                 CLASSES
@@ -197,21 +307,7 @@ export default function SunshineLogo({
             </div>
 
             {/* — EXCELLENCE IN EDUCATION — */}
-            <div className="flex items-center justify-center gap-3 w-full mt-1">
-              <div className={`h-[1px] w-8 ${lineColor}`}></div>
-              <span
-                className={`font-sans font-bold tracking-[0.2em] mr-[-0.2em] uppercase leading-none ${
-                  isDark ? 'text-slate-500' : 'text-slate-300'
-                } ${
-                  typeof size === 'number'
-                    ? size > 80 ? 'text-xs' : 'text-[8px]'
-                    : size === 'xl' ? 'text-sm' : size === 'lg' ? 'text-[10px]' : 'text-[8px]'
-                }`}
-              >
-                {textSubTitle || 'EXCELLENCE IN EDUCATION'}
-              </span>
-              <div className={`h-[1px] w-8 ${lineColor}`}></div>
-            </div>
+            {renderSubTitleText('vertical')}
 
             {/* Diamond Flourish Ornament */}
             <div className="flex items-center justify-center gap-1.5 mt-3">
@@ -243,7 +339,7 @@ export default function SunshineLogo({
           <span
             className={`font-serif-brand font-black tracking-[0.18em] mr-[-0.18em] leading-none uppercase ${primaryColor} ${
               typeof size === 'number'
-                ? size > 80 ? 'text-2xl' : size > 40 ? 'text-sm' : 'text-xs'
+                ? size >= 120 ? 'text-3xl' : size >= 80 ? 'text-xl' : size >= 48 ? 'text-base' : 'text-xs'
                 : size === 'xl' ? 'text-3xl' : size === 'lg' ? 'text-xl' : size === 'md' ? 'text-base' : 'text-xs'
             }`}
           >
@@ -256,8 +352,8 @@ export default function SunshineLogo({
             <span
               className={`font-sans font-black tracking-[0.2em] mr-[-0.2em] leading-none uppercase ${secondaryColor} ${
                 typeof size === 'number'
-                  ? size > 80 ? 'text-xs' : 'text-[9px]'
-                  : size === 'xl' ? 'text-sm' : size === 'lg' ? 'text-xs' : 'text-[9px]'
+                  ? size >= 120 ? 'text-sm' : size >= 80 ? 'text-xs' : size >= 48 ? 'text-[10px]' : 'text-[9px]'
+                  : size === 'xl' ? 'text-sm' : size === 'lg' ? 'text-xs' : size === 'md' ? 'text-[10px]' : 'text-[9px]'
               }`}
             >
               CLASSES
@@ -266,21 +362,7 @@ export default function SunshineLogo({
           </div>
 
           {/* — EXCELLENCE IN EDUCATION — */}
-          <div className="flex items-center gap-1.5 mt-1">
-            <div className={`h-[0.5px] w-3 ${lineColor}`}></div>
-            <span
-              className={`font-sans font-bold tracking-[0.15em] mr-[-0.15em] uppercase leading-none ${
-                isDark ? 'text-slate-500' : 'text-slate-300'
-              } ${
-                typeof size === 'number'
-                  ? size > 80 ? 'text-[8px]' : 'text-[6px]'
-                  : size === 'xl' ? 'text-[10px]' : size === 'lg' ? 'text-[8px]' : 'text-[6.5px]'
-              }`}
-            >
-              {textSubTitle || 'EXCELLENCE IN EDUCATION'}
-            </span>
-            <div className={`h-[0.5px] w-3 ${lineColor}`}></div>
-          </div>
+          {renderSubTitleText('horizontal')}
         </div>
       )}
     </div>

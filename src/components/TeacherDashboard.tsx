@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Calendar,
   BookOpen,
@@ -71,7 +72,7 @@ export default function TeacherDashboard({
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   
   // Selection States
-  const [selectedClass, setSelectedClass] = useState<string>('Class 10');
+  const [selectedClass, setSelectedClass] = useState<string>('Class 10 Board Specialists');
   const [attendanceDate, setAttendanceDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [attendanceRecords, setAttendanceRecords] = useState<{ [studentId: string]: 'PRESENT' | 'ABSENT' | 'LATE' | 'LEAVE' }>({});
 
@@ -79,7 +80,7 @@ export default function TeacherDashboard({
   const [hwTitle, setHwTitle] = useState('');
   const [hwDesc, setHwDesc] = useState('');
   const [hwSubject, setHwSubject] = useState('Mathematics');
-  const [hwClass, setHwClass] = useState('Class 10');
+  const [hwClass, setHwClass] = useState('Class 10 Board Specialists');
   const [hwDueDate, setHwDueDate] = useState('');
 
   // Batch Bulletin States
@@ -88,7 +89,7 @@ export default function TeacherDashboard({
 
   // Test Creation States
   const [testTitle, setTestTitle] = useState('');
-  const [testClass, setTestClass] = useState('Class 10');
+  const [testClass, setTestClass] = useState('Class 10 Board Specialists');
   const [testSubject, setTestSubject] = useState('Mathematics');
   const [testChapter, setTestChapter] = useState('');
   const [testTotalMarks, setTestTotalMarks] = useState(30);
@@ -106,7 +107,7 @@ export default function TeacherDashboard({
   // Schedule Management States
   const [isAddSlotOpen, setIsAddSlotOpen] = useState(false);
   const [slotDay, setSlotDay] = useState<'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday'>('Monday');
-  const [slotClass, setSlotClass] = useState('Class 10');
+  const [slotClass, setSlotClass] = useState('Class 10 Board Specialists');
   const [slotSubject, setSlotSubject] = useState('Mathematics');
   const [slotRoom, setSlotRoom] = useState('Room A');
   const [slotStartTime, setSlotStartTime] = useState('10:00 AM');
@@ -341,7 +342,7 @@ export default function TeacherDashboard({
   };
 
   // Filter submissions assigned to this teacher's subject / classes
-  const classesTaught = ['Class 10', 'Class 9', 'Class 8'];
+  const classesTaught = ['Class 10 Board Specialists', 'Class 9 Foundation Course', 'Classes 5 to 8 Apex Learning', 'Classes 1 to 4 Junior Sunshine'];
   const relevantSubmissions = submissions.filter((sub) => classesTaught.includes(sub.class));
 
   return (
@@ -496,6 +497,12 @@ export default function TeacherDashboard({
 
         {/* Dynamic content screen */}
         <div className="lg:col-span-3">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+          >
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
@@ -592,9 +599,10 @@ export default function TeacherDashboard({
                         onChange={(e) => handleClassSelection(e.target.value)}
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
                       >
-                        <option value="Class 10">Class 10 (Board Specialists)</option>
-                        <option value="Class 9">Class 9 (Foundation Group)</option>
-                        <option value="Class 8">Class 8 (Apex Batch)</option>
+                        <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
+                        <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
+                        <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
+                        <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
                       </select>
                     </div>
 
@@ -777,9 +785,10 @@ export default function TeacherDashboard({
                       onChange={(e) => setHwClass(e.target.value)}
                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
                     >
-                      <option value="Class 10">Class 10 (Board Specialists)</option>
-                      <option value="Class 9">Class 9 (Foundation Group)</option>
-                      <option value="Class 8">Class 8 (Apex Batch)</option>
+                      <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
+                      <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
+                      <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
+                      <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
                     </select>
                   </div>
 
@@ -966,9 +975,10 @@ export default function TeacherDashboard({
                         onChange={(e) => setTestClass(e.target.value)}
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
                       >
-                        <option value="Class 10">Class 10 (Board Specialists)</option>
-                        <option value="Class 9">Class 9 (Foundation Group)</option>
-                        <option value="Class 8">Class 8 (Apex Batch)</option>
+                        <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
+                        <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
+                        <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
+                        <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
                       </select>
                     </div>
 
@@ -1257,7 +1267,7 @@ export default function TeacherDashboard({
                             onChange={(e) => setSlotClass(e.target.value)}
                             className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
                           >
-                            {['Class 10', 'Class 9', 'Class 8'].map(c => (
+                            {['Class 10 Board Specialists', 'Class 9 Foundation Course', 'Classes 5 to 8 Apex Learning', 'Classes 1 to 4 Junior Sunshine'].map(c => (
                               <option key={c} value={c}>{c}</option>
                             ))}
                           </select>
@@ -1548,6 +1558,7 @@ export default function TeacherDashboard({
               </div>
             );
           })()}
+          </motion.div>
         </div>
       </div>
     </div>

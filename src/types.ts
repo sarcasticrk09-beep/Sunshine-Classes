@@ -37,6 +37,22 @@ export interface Student {
   photoUrl?: string;
   documentUrl?: string;
   attendancePercentage: number;
+  status?: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface DepartedStudent {
+  id: string;
+  studentId: string;
+  name: string;
+  rollNo: string;
+  class: string;
+  fatherName: string;
+  mobile: string;
+  admissionDate: string;
+  departureDate: string;
+  daysEnrolled: number;
+  reason: 'PASSED_10TH' | 'LEFT_COACHING';
+  notes: string;
 }
 
 export interface Teacher {

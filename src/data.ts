@@ -69,7 +69,7 @@ export const SEED_COURSES: Course[] = [
   },
   {
     id: 'c3',
-    name: 'Class 5 to 8 Comprehensive Learning',
+    name: 'Classes 5 to 8 Apex Learning',
     subjects: ['Mathematics', 'Science', 'English', 'Sanskrit/Hindi'],
     duration: '1 Year',
     features: ['Interactive modules', 'Doubt clinics', 'Regular assessment reports'],
@@ -86,11 +86,11 @@ export const SEED_COURSES: Course[] = [
 ];
 
 export const SEED_BATCHES: Batch[] = [
-  { id: 'b1', name: 'Class 10 - Morning Excellence', time: '07:00 AM - 09:30 AM', class: 'Class 10', teacherName: 'Priyanshu Gupta', monthlyFee: 1200, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' },
-  { id: 'b2', name: 'Class 10 - Evening Stars', time: '04:00 PM - 06:30 PM', class: 'Class 10', teacherName: 'Priyanshu Gupta', monthlyFee: 1200, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' },
-  { id: 'b3', name: 'Class 9 - Foundation Group', time: '03:00 PM - 05:00 PM', class: 'Class 9', teacherName: 'Anil Pandey', monthlyFee: 1000, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' },
-  { id: 'b4', name: 'Class 8 - Apex Batch', time: '02:00 PM - 04:00 PM', class: 'Class 8', teacherName: 'Ritu Singh', monthlyFee: 700, startDate: '2026-05-15', billingCycle: 'Monthly', nextDueDate: '2026-06-15', status: 'DUE' },
-  { id: 'b5', name: 'Primary - Junior Sunshine', time: '01:00 PM - 03:00 PM', class: 'Class 5', teacherName: 'Neha Sharma', monthlyFee: 700, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' }
+  { id: 'b1', name: 'Class 10 - Morning Excellence', time: '07:00 AM - 09:30 AM', class: 'Class 10 Board Specialists', teacherName: 'Priyanshu Gupta', monthlyFee: 1200, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' },
+  { id: 'b2', name: 'Class 10 - Evening Stars', time: '04:00 PM - 06:30 PM', class: 'Class 10 Board Specialists', teacherName: 'Priyanshu Gupta', monthlyFee: 1200, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' },
+  { id: 'b3', name: 'Class 9 - Foundation Group', time: '03:00 PM - 05:00 PM', class: 'Class 9 Foundation Course', teacherName: 'Anil Pandey', monthlyFee: 1000, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' },
+  { id: 'b4', name: 'Classes 5 to 8 - Apex Learning', time: '02:00 PM - 04:00 PM', class: 'Classes 5 to 8 Apex Learning', teacherName: 'Ritu Singh', monthlyFee: 700, startDate: '2026-05-15', billingCycle: 'Monthly', nextDueDate: '2026-06-15', status: 'DUE' },
+  { id: 'b5', name: 'Classes 1 to 4 - Junior Sunshine', time: '01:00 PM - 03:00 PM', class: 'Classes 1 to 4 Junior Sunshine', teacherName: 'Neha Sharma', monthlyFee: 500, startDate: '2026-06-01', billingCycle: 'Monthly', nextDueDate: '2026-07-01', status: 'ACTIVE' }
 ];
 
 export const SEED_STUDENT_SUBSCRIPTIONS: StudentSubscription[] = [
@@ -506,7 +506,7 @@ export const SEED_STUDENTS: Student[] = [
     userId: 'u4',
     rollNo: 'SC-1001',
     name: 'Rahul Verma',
-    class: 'Class 10',
+    class: 'Class 10 Board Specialists',
     fatherName: 'Ram Pal Verma',
     motherName: 'Shanti Devi',
     dob: '2011-05-15',
@@ -526,7 +526,7 @@ export const SEED_STUDENTS: Student[] = [
     userId: 'u7',
     rollNo: 'SC-1002',
     name: 'Priya Mishra',
-    class: 'Class 10',
+    class: 'Class 10 Board Specialists',
     fatherName: 'Kamlesh Mishra',
     motherName: 'Suman Mishra',
     dob: '2011-08-22',
@@ -546,7 +546,7 @@ export const SEED_STUDENTS: Student[] = [
     userId: 'u8',
     rollNo: 'SC-1003',
     name: 'Aditya Gupta',
-    class: 'Class 9',
+    class: 'Class 9 Foundation Course',
     fatherName: 'Manoj Gupta',
     motherName: 'Meena Gupta',
     dob: '2012-03-10',
@@ -566,7 +566,7 @@ export const SEED_STUDENTS: Student[] = [
     userId: 'u9',
     rollNo: 'SC-1004',
     name: 'Shreya Tiwari',
-    class: 'Class 10',
+    class: 'Class 10 Board Specialists',
     fatherName: 'Vinod Tiwari',
     motherName: 'Reena Tiwari',
     dob: '2011-11-02',
@@ -584,8 +584,8 @@ export const SEED_STUDENTS: Student[] = [
 ];
 
 export const SEED_USERS: User[] = [
-  { id: 'u1', username: 'admin', name: 'Priyanshu Gupta (Founder)', email: 'guptapriyansu@gmail.com', role: 'ADMIN', phone: '9876543210' },
-  { id: 'u2', username: 'teacher', name: 'Priyanshu Gupta', email: 'guptapriyansu@gmail.com', role: 'TEACHER', phone: '9876543210' },
+  { id: 'u1', username: 'admin', name: 'Priyanshu Gupta (Founder)', email: 'sunshineclassespihani@gmail.com', role: 'ADMIN', phone: '9876543210' },
+  { id: 'u2', username: 'teacher', name: 'Priyanshu Gupta', email: 'sunshineclassespihani@gmail.com', role: 'TEACHER', phone: '9876543210' },
   { id: 'u3', username: 'reception', name: 'Neha Sharma', email: 'reception@sunshine.com', role: 'RECEPTIONIST', phone: '8707738284' },
   { id: 'u4', username: 'student', name: 'Rahul Verma', email: 'rahul@gmail.com', role: 'STUDENT', phone: '9161586254' },
   { id: 'u5', username: 'anil', name: 'Anil Pandey', email: 'anil@sunshine.com', role: 'TEACHER', phone: '8765432109' },
@@ -602,7 +602,7 @@ export const SEED_ADMISSIONS: Admission[] = [
     motherName: 'Anju Dixit',
     dob: '2012-04-18',
     gender: 'Male',
-    className: 'Class 9',
+    className: 'Class 9 Foundation Course',
     previousSchool: 'Pihani Inter College',
     mobile: '9870001122',
     whatsapp: '9870001122',
@@ -621,14 +621,14 @@ export const SEED_ADMISSIONS: Admission[] = [
     motherName: 'Kamla Rathore',
     dob: '2013-09-05',
     gender: 'Female',
-    className: 'Class 8',
+    className: 'Classes 5 to 8 Apex Learning',
     previousSchool: 'St. James School, Hardoi',
     mobile: '9161223344',
     whatsapp: '9161223344',
     parentMobile: '9161223345',
     email: 'kajal.rathore@gmail.com',
     address: 'Mishrana, Opposite Subhash Park, Pihani',
-    preferredBatch: 'Class 8 - Apex Batch',
+    preferredBatch: 'Classes 5 to 8 - Apex Learning',
     preferredTiming: '02:00 PM - 04:00 PM',
     status: 'APPROVED',
     date: '2026-06-20'

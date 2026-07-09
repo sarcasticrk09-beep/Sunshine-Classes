@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Users,
   CreditCard,
@@ -599,7 +600,7 @@ export default function ReceptionDashboard({
   const [inqName, setInqName] = useState('');
   const [inqMobile, setInqMobile] = useState('');
   const [inqWhatsapp, setInqWhatsapp] = useState('');
-  const [inqClass, setInqClass] = useState('Class 10');
+  const [inqClass, setInqClass] = useState('Class 10 Board Specialists');
   const [inqNotes, setInqNotes] = useState('');
 
   // Fee Collection States
@@ -647,7 +648,7 @@ export default function ReceptionDashboard({
     onCollectFee({
       studentId: selectedStudentId,
       studentName: students.find(s => s.id === selectedStudentId)?.name || 'Student',
-      class: students.find(s => s.id === selectedStudentId)?.class || 'Class 10',
+      class: students.find(s => s.id === selectedStudentId)?.class || 'Class 10 Board Specialists',
       month: feeMonth,
       amountPaid: Number(feeAmount),
       paymentMethod,
@@ -834,6 +835,12 @@ export default function ReceptionDashboard({
 
         {/* Dynamic content screen */}
         <div className="lg:col-span-3">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+          >
           {/* TAB 1: ADMISSIONS REQUESTS */}
           {activeTab === 'admissions' && (
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -933,10 +940,10 @@ export default function ReceptionDashboard({
                         onChange={(e) => setInqClass(e.target.value)}
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-amber-600 focus:bg-white"
                       >
-                        <option value="Class 10">Class 10 (Board Specialists)</option>
-                        <option value="Class 9">Class 9 (Foundation)</option>
-                        <option value="Class 8">Class 8 (Apex Batch)</option>
-                        <option value="Class 5">Class 5 (Junior Sunshine)</option>
+                        <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
+                        <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
+                        <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
+                        <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
                       </select>
                     </div>
 
@@ -1103,7 +1110,7 @@ export default function ReceptionDashboard({
                         value={selectedStudentId}
                         onChange={(e) => {
                           setSelectedStudentId(e.target.value);
-                          const cls = students.find(s => s.id === e.target.value)?.class || 'Class 10';
+                          const cls = students.find(s => s.id === e.target.value)?.class || 'Class 10 Board Specialists';
                           setFeeAmount(getFeeForClass(cls));
                         }}
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-amber-600 focus:bg-white"
@@ -1394,6 +1401,7 @@ export default function ReceptionDashboard({
               </div>
             </div>
           )}
+          </motion.div>
         </div>
       </div>
 

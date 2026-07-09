@@ -431,7 +431,20 @@ How can I help you towards your academic success today? Feel free to ask!`;
 
   // 1.7 Real outbound WhatsApp dispatch API
   app.post("/api/send-whatsapp", async (req, res) => {
-    const { to, message, studentName, provider, apiKey, phoneNumber, accountSid, authToken, senderNumber } = req.body;
+    const { 
+      to, 
+      message, 
+      studentName, 
+      provider, 
+      apiKey, 
+      phoneNumber, 
+      accountSid, 
+      authToken, 
+      senderNumber,
+      templateName,
+      templateLanguageCode,
+      templateParameters 
+    } = req.body;
 
     if (!to || !message) {
       return res.status(400).json({ error: "Recipient phone number ('to') and 'message' are required." });
@@ -469,13 +482,32 @@ How can I help you towards your academic success today? Feel free to ask!`;
         const url = `https://graph.facebook.com/v19.0/${activePhoneId}/messages`;
         const formattedTo = to.replace(/\D/g, "");
 
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${activeApiKey}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
+        // Build the payload: template-based or standard text
+        let payload: any;
+        if (templateName) {
+          payload = {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: formattedTo,
+            type: "template",
+            template: {
+              name: templateName,
+              language: {
+                code: templateLanguageCode || "en_US"
+              },
+              components: [
+                {
+                  type: "body",
+                  parameters: templateParameters || [
+                    { type: "text", text: studentName || "Student" },
+                    { type: "text", text: message }
+                  ]
+                }
+              ]
+            }
+          };
+        } else {
+          payload = {
             messaging_product: "whatsapp",
             recipient_type: "individual",
             to: formattedTo,
@@ -484,7 +516,16 @@ How can I help you towards your academic success today? Feel free to ask!`;
               preview_url: false,
               body: message
             }
-          })
+          };
+        }
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${activeApiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
         });
 
         const resData = await response.json();

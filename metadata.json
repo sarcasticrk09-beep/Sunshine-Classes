@@ -1,6 +1,6 @@
 {
   "name": "Sunshine Classes",
   "description": "Premium Coaching Institute Management Website & ERP Portal for Sunshine Classes, featuring comprehensive student, teacher, reception, and admin dashboards with automated progress tracking, fee collection, and digital admissions.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

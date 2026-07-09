@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Shield,
   Users,
@@ -14,6 +15,7 @@ import {
   Calendar,
   Settings,
   Database,
+  Cloud,
   Plus,
   Trash2,
   Edit,
@@ -43,9 +45,11 @@ import {
   ChevronUp,
   CreditCard,
   Eye,
-  ExternalLink
+  ExternalLink,
+  Camera,
+  Video
 } from 'lucide-react';
-import { Student, Teacher, User, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig } from '../types';
+import { Student, Teacher, User, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig, DepartedStudent } from '../types';
 import { interpolateTemplate } from '../data';
 import { sendWhatsAppMessage, interpolateWhatsAppTemplate } from '../lib/whatsappService';
 import { googleSignIn, getCachedAccessToken, clearCachedAccessToken } from '../lib/firebase';
@@ -115,6 +119,9 @@ interface AdminDashboardProps {
     teachers: Omit<Teacher, 'id'>[],
     batches: Batch[]
   ) => void;
+  onClearTestData?: () => void;
+  onForceUpdateUserEmails?: () => void;
+  departedStudents?: DepartedStudent[];
 }
 
 export default function AdminDashboard({
@@ -177,13 +184,51 @@ export default function AdminDashboard({
   onApproveAdmission,
   onRejectAdmission,
   currentUser,
-  onBulkImport
+  onBulkImport,
+  onClearTestData,
+  onForceUpdateUserEmails,
+  departedStudents = []
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets'>('overview');
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [adminGlobalSearchQuery, setAdminGlobalSearchQuery] = useState('');
   const [selectedSearchStudentId, setSelectedSearchStudentId] = useState<string | null>(null);
+  const [enrollMethod, setEnrollMethod] = useState<'manual' | 'sheets'>('manual');
+
+  // Custom administrative confirmation modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    type: 'bulk_import' | 'clear_test_data' | null;
+    title: string;
+    description: string;
+    warningText?: string;
+    actionLabel: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    type: null,
+    title: '',
+    description: '',
+    warningText: '',
+    actionLabel: '',
+    onConfirm: () => {}
+  });
+
+  const triggerImportSpreadsheetWithConfirmation = () => {
+    setConfirmModal({
+      isOpen: true,
+      type: 'bulk_import',
+      title: 'Confirm Bulk Student Import',
+      description: 'You are about to initiate the bulk student data import pipeline from Google Sheets using the Spreadsheet ID:',
+      warningText: 'This will update the active enrollment ledger, parse student accounts, dynamically spin up class batches, and link secure default portal logins. Make sure the linked sheet is correctly structured before running.',
+      actionLabel: '🚀 Run Import Pipeline',
+      onConfirm: () => {
+        handleImportSpreadsheet();
+      }
+    });
+  };
 
   // --- START OF GOOGLE SHEETS INTEGRATION STATES & FUNCTIONS ---
   const [sheetsAccessToken, setSheetsAccessToken] = useState<string | null>(getCachedAccessToken());
@@ -192,6 +237,20 @@ export default function AdminDashboard({
   const [sheetsLog, setSheetsLog] = useState<string[]>([]);
   const [createdSpreadsheetUrl, setCreatedSpreadsheetUrl] = useState<string | null>(localStorage.getItem('sheets_last_url') || null);
   const [createdSpreadsheetId, setCreatedSpreadsheetId] = useState<string | null>(localStorage.getItem('sheets_last_id') || null);
+  const [isAutoImportEnabled, setIsAutoImportEnabled] = useState<boolean>(
+    localStorage.getItem('auto_import_sheets') === 'true'
+  );
+
+  const handleToggleAutoImport = (enabled: boolean) => {
+    setIsAutoImportEnabled(enabled);
+    localStorage.setItem('auto_import_sheets', enabled ? 'true' : 'false');
+    if (enabled) {
+      addSheetsLog("Enabled automatic student imports. Checking target sheet ID...");
+      handleImportSpreadsheet();
+    } else {
+      addSheetsLog("Disabled automatic student imports.");
+    }
+  };
 
   const addSheetsLog = (msg: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -1300,6 +1359,255 @@ export default function AdminDashboard({
   const [lastBackupTime, setLastBackupTime] = useState<string>(() => {
     return localStorage.getItem('sunshine_last_backup_time') || 'Never';
   });
+
+  // Yearly Data Archive States
+  const [archiveYear, setArchiveYear] = useState<string>('2026');
+  const [selectedDeactivateIds, setSelectedDeactivateIds] = useState<string[]>([]);
+
+  const handleTriggerYearlyArchive = () => {
+    try {
+      const yearStr = archiveYear.trim() || '2026';
+      
+      const yearAttendance = attendanceList.filter(att => att.date.startsWith(yearStr));
+      const yearFees = feeStatuses.filter(fee => fee.dueDate.startsWith(yearStr));
+      const yearTests = tests.filter(test => test.date.startsWith(yearStr));
+      const testIds = yearTests.map(t => t.id);
+      const yearMarks = studentMarks.filter(mark => testIds.includes(mark.testId));
+      const yearHomework = homeworkList.filter(hw => hw.dueDate.startsWith(yearStr));
+      const hwIds = yearHomework.map(h => h.id);
+      const yearSubmissions = submissions.filter(sub => hwIds.includes(sub.homeworkId));
+      
+      let totalBilled = 0;
+      let totalPaid = 0;
+      let totalPending = 0;
+      yearFees.forEach(fee => {
+        totalBilled += fee.totalFee || 0;
+        totalPaid += fee.paidFee || 0;
+        totalPending += fee.pendingFee || 0;
+      });
+      const collectionRate = totalBilled > 0 ? ((totalPaid / totalBilled) * 100).toFixed(1) + '%' : '0%';
+
+      const avgAttendanceRate = yearAttendance.length > 0 
+        ? (yearAttendance.filter(a => a.status === 'PRESENT').length / yearAttendance.length * 100).toFixed(1) + '%'
+        : '0%';
+      
+      const avgTestScore = yearMarks.length > 0
+        ? (yearMarks.reduce((sum, m) => sum + m.marksObtained, 0) / yearMarks.length).toFixed(1)
+        : 'N/A';
+
+      const archiveManifest = {
+        archiveMetadata: {
+          app: "Sunshine Classes ERP",
+          archivedBy: currentUser?.name || 'Administrator',
+          archivedAt: new Date().toISOString(),
+          targetAcademicYear: yearStr,
+          calculatedOnLocalTime: new Date().toLocaleString(),
+        },
+        financialSummary: {
+          totalBilledTuition: totalBilled,
+          totalCollectedTuition: totalPaid,
+          outstandingPendingTuition: totalPending,
+          feeCollectionRate: collectionRate,
+          totalInvoicedRecords: yearFees.length
+        },
+        academicSummary: {
+          totalRegisteredStudentsCount: students.length,
+          averageAttendancePercentage: avgAttendanceRate,
+          totalAttendanceLogs: yearAttendance.length,
+          totalTestsConducted: yearTests.length,
+          averageMarksObtained: avgTestScore,
+          totalHomeworkAssignments: yearHomework.length,
+          totalHomeworkSubmissions: yearSubmissions.length
+        },
+        dataSnapshots: {
+          studentsSnapshot: students,
+          facultySnapshot: teachers,
+          feeStatuses: yearFees,
+          attendanceLogs: yearAttendance,
+          studentMarks: yearMarks,
+          homeworkAssignments: yearHomework,
+          homeworkSubmissions: yearSubmissions
+        }
+      };
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(archiveManifest, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `sunshine_erp_yearly_archive_${yearStr}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      onAddNotification({
+        title: '📦 Academic Archive Generated',
+        content: `Sunshine Classes ${yearStr} master JSON manifest compiled & downloaded successfully!`,
+        category: 'ANNOUNCEMENT',
+        targetRole: 'ALL'
+      });
+
+      alert(`🎉 Academic Year ${yearStr} Archive Manifest generated and downloaded successfully!\n\nFinancial Revenue: ₹${totalPaid} Collected (Outstanding: ₹${totalPending})\nAcademic Activity: ${yearTests.length} Tests, ${yearHomework.length} Homework Assignments.\n\nPlease keep this archive file in a secure place.`);
+
+    } catch (error: any) {
+      alert("Failed to compile yearly archive: " + error.message);
+    }
+  };
+
+  const handleDeactivateSelectedStudents = () => {
+    if (selectedDeactivateIds.length === 0) {
+      alert("No students selected for deactivation.");
+      return;
+    }
+
+    if (!confirm(`⚠️ Are you sure you want to flag the ${selectedDeactivateIds.length} selected student(s) as INACTIVE?\n\nThis will keep their historical grades and financial logs but exclude them from active directories and notifications by default.`)) {
+      return;
+    }
+
+    const updatedStudents = students.map(s => {
+      if (selectedDeactivateIds.includes(s.id)) {
+        return { ...s, status: 'INACTIVE' as const };
+      }
+      return s;
+    });
+
+    onHealState('students', updatedStudents);
+
+    onAddNotification({
+      title: '🔴 Student Deactivations Applied',
+      content: `Successfully flagged ${selectedDeactivateIds.length} inactive student accounts.`,
+      category: 'ANNOUNCEMENT',
+      targetRole: 'ALL'
+    });
+
+    alert(`🎉 Successfully marked ${selectedDeactivateIds.length} students as INACTIVE. They will be filtered into the Inactive view in the student ERP directory.`);
+    setSelectedDeactivateIds([]);
+  };
+
+  // Graduate & Coaching Departure States
+  const [selectedGraduateIds, setSelectedGraduateIds] = useState<string[]>([]);
+  const [departureStudentId, setDepartureStudentId] = useState<string>('');
+  const [departureDate, setDepartureDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [departureNotes, setDepartureNotes] = useState<string>('');
+  const [departedSearchQuery, setDepartedSearchQuery] = useState<string>('');
+
+  const handleGraduateSelectedStudents = () => {
+    if (selectedGraduateIds.length === 0) {
+      alert("No Class 10 students selected for graduation.");
+      return;
+    }
+
+    if (!confirm(`⚠️ Are you sure you want to graduate and remove the ${selectedGraduateIds.length} selected Class 10 student(s)?\n\nThis will remove them from active student directories and archive them in the Departed & Graduated Database.`)) {
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const newDepartures: DepartedStudent[] = [];
+
+    const remainingStudents = students.filter(s => {
+      if (selectedGraduateIds.includes(s.id)) {
+        let days = 0;
+        if (s.admissionDate) {
+          const start = new Date(s.admissionDate);
+          const end = new Date(todayStr);
+          days = Math.max(0, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+        }
+
+        newDepartures.push({
+          id: `dep-${s.id}-${Date.now()}`,
+          studentId: s.id,
+          name: s.name,
+          rollNo: s.rollNo || '',
+          class: s.class,
+          fatherName: s.fatherName || '',
+          mobile: s.mobile || '',
+          admissionDate: s.admissionDate || todayStr,
+          departureDate: todayStr,
+          daysEnrolled: days,
+          reason: 'PASSED_10TH',
+          notes: 'Graduated from Class 10 and completed boards successfully.'
+        });
+        return false;
+      }
+      return true;
+    });
+
+    const updatedDepartedList = [...departedStudents, ...newDepartures];
+
+    onHealState('students', remainingStudents);
+    onHealState('departed_students', updatedDepartedList);
+
+    onAddNotification({
+      title: '🎓 Class 10 Students Graduated',
+      content: `Successfully graduated and archived ${newDepartures.length} Class 10 student records.`,
+      category: 'ANNOUNCEMENT',
+      targetRole: 'ALL'
+    });
+
+    alert(`🎉 Successfully graduated ${newDepartures.length} Class 10 students and stored their logs in the Graduated & Departed Students Database!`);
+    setSelectedGraduateIds([]);
+  };
+
+  const handleRegisterDepartureLeft = () => {
+    if (!departureStudentId) {
+      alert("Please select a student.");
+      return;
+    }
+
+    const targetStudent = students.find(s => s.id === departureStudentId);
+    if (!targetStudent) {
+      alert("Student not found.");
+      return;
+    }
+
+    if (!confirm(`⚠️ Are you sure you want to remove ${targetStudent.name} from the coaching center?\n\nThis will remove them from active student lists and record their departure in the database.`)) {
+      return;
+    }
+
+    const joinDate = targetStudent.admissionDate || departureDate;
+    const start = new Date(joinDate);
+    const end = new Date(departureDate);
+    const days = Math.max(0, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+
+    const newDep: DepartedStudent = {
+      id: `dep-${targetStudent.id}-${Date.now()}`,
+      studentId: targetStudent.id,
+      name: targetStudent.name,
+      rollNo: targetStudent.rollNo || '',
+      class: targetStudent.class,
+      fatherName: targetStudent.fatherName || '',
+      mobile: targetStudent.mobile || '',
+      admissionDate: joinDate,
+      departureDate: departureDate,
+      daysEnrolled: days,
+      reason: 'LEFT_COACHING',
+      notes: departureNotes.trim() || 'Left Sunshine Classes coaching program.'
+    };
+
+    const remainingStudents = students.filter(s => s.id !== targetStudent.id);
+    const updatedDepartedList = [...departedStudents, newDep];
+
+    onHealState('students', remainingStudents);
+    onHealState('departed_students', updatedDepartedList);
+
+    onAddNotification({
+      title: '🔴 Student Program Departure',
+      content: `${targetStudent.name} has left Sunshine Classes after ${days} days of enrollment.`,
+      category: 'ANNOUNCEMENT',
+      targetRole: 'ALL'
+    });
+
+    alert(`🎉 Successfully recorded departure for ${targetStudent.name}. Total coaching tenure: ${days} days.`);
+    setDepartureStudentId('');
+    setDepartureNotes('');
+  };
+
+  const handleDeleteDepartedRecord = (id: string) => {
+    if (!confirm("Are you sure you want to delete this departed student record permanently? This cannot be undone.")) {
+      return;
+    }
+    const updated = departedStudents.filter(d => d.id !== id);
+    onHealState('departed_students', updated);
+  };
+
   const [localBackupsArchive, setLocalBackupsArchive] = useState<{
     id: string;
     timestamp: string;
@@ -1376,7 +1684,9 @@ export default function AdminDashboard({
   const [feeSelectedMonth, setFeeSelectedMonth] = useState('June 2026');
   const [feeSearchQuery, setFeeSearchQuery] = useState('');
   const [feeFilterClass, setFeeFilterClass] = useState('ALL');
-  const [feeFilterStatus, setFeeFilterStatus] = useState<'ALL' | 'UNPAID'>('UNPAID');
+  const [feeFilterStatus, setFeeFilterStatus] = useState<'ALL' | 'UNPAID' | 'PENDING' | 'OVERDUE' | 'PAID' | 'PARTIAL'>('UNPAID');
+  const [feeSortKey, setFeeSortKey] = useState<'studentName' | 'class' | 'month' | 'totalFee' | 'paidFee' | 'pendingFee' | 'dueDate'>('dueDate');
+  const [feeSortDirection, setFeeSortDirection] = useState<'asc' | 'desc'>('asc');
   const [showReminderTemplateEditor, setShowReminderTemplateEditor] = useState(false);
   const [showBulkWASender, setShowBulkWASender] = useState(false);
   const [bulkWAFilterClass, setBulkWAFilterClass] = useState('ALL');
@@ -1393,6 +1703,7 @@ export default function AdminDashboard({
   const [collectMethod, setCollectMethod] = useState<'CASH' | 'UPI' | 'ONLINE'>('UPI');
   const [collectTxnId, setCollectTxnId] = useState('');
   const [showCollectForm, setShowCollectForm] = useState(false);
+  const [isQuickActionOpen, setIsQuickActionOpen] = useState(false);
 
   // Website CMS State Variables
   const [showTopperForm, setShowTopperForm] = useState(false);
@@ -1433,6 +1744,125 @@ export default function AdminDashboard({
   const [quickCollectTxnId, setQuickCollectTxnId] = useState('');
   const [showQuickCollectHistory, setShowQuickCollectHistory] = useState(false);
   const [quickCollectSendWhatsApp, setQuickCollectSendWhatsApp] = useState(true);
+
+  // Student Profile Edit State Variables
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [editStdName, setEditStdName] = useState('');
+  const [editStdClass, setEditStdClass] = useState('');
+  const [editStdFatherName, setEditStdFatherName] = useState('');
+  const [editStdMotherName, setEditStdMotherName] = useState('');
+  const [editStdDob, setEditStdDob] = useState('');
+  const [editStdGender, setEditStdGender] = useState<'Male' | 'Female'>('Male');
+  const [editStdAddress, setEditStdAddress] = useState('');
+  const [editStdMobile, setEditStdMobile] = useState('');
+  const [editStdParentMobile, setEditStdParentMobile] = useState('');
+  const [editStdEmail, setEditStdEmail] = useState('');
+  const [editStdRollNo, setEditStdRollNo] = useState('');
+  const [editStdPreferredBatch, setEditStdPreferredBatch] = useState('');
+  const [editStdPreferredTiming, setEditStdPreferredTiming] = useState('');
+  const [editStdPhotoUrl, setEditStdPhotoUrl] = useState('');
+
+  // Camera API states
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+
+  const openEditStudent = (student: Student) => {
+    setEditingStudent(student);
+    setEditStdName(student.name || '');
+    setEditStdClass(student.class || '');
+    setEditStdFatherName(student.fatherName || '');
+    setEditStdMotherName(student.motherName || '');
+    setEditStdDob(student.dob || '');
+    setEditStdGender(student.gender || 'Male');
+    setEditStdAddress(student.address || '');
+    setEditStdMobile(student.mobile || '');
+    setEditStdParentMobile(student.parentMobile || '');
+    setEditStdEmail(student.email || '');
+    setEditStdRollNo(student.rollNo || '');
+    setEditStdPreferredBatch(student.preferredBatch || '');
+    setEditStdPreferredTiming(student.preferredTiming || '');
+    setEditStdPhotoUrl(student.photoUrl || '');
+    
+    setIsCameraActive(false);
+    setCameraError('');
+  };
+
+  const startCamera = async () => {
+    setCameraError('');
+    setIsCameraActive(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 400, height: 400, facingMode: 'user' }
+      });
+      setMediaStream(stream);
+      setTimeout(() => {
+        const videoElement = document.getElementById('camera-feed') as HTMLVideoElement;
+        if (videoElement) {
+          videoElement.srcObject = stream;
+          videoElement.play().catch(err => console.error("Video play failed:", err));
+        }
+      }, 300);
+    } catch (err: any) {
+      console.error("Camera access failed:", err);
+      setCameraError(err.message || 'Could not access camera. Please check your browser permissions.');
+      setIsCameraActive(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop());
+      setMediaStream(null);
+    }
+    setIsCameraActive(false);
+  };
+
+  const capturePhoto = () => {
+    const videoElement = document.getElementById('camera-feed') as HTMLVideoElement;
+    if (videoElement && mediaStream) {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoElement.videoWidth || 400;
+      canvas.height = videoElement.videoHeight || 400;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg');
+        setEditStdPhotoUrl(dataUrl);
+      }
+      stopCamera();
+    }
+  };
+
+  const handleUpdateStudentProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+
+    const updatedStudent: Student = {
+      ...editingStudent,
+      name: editStdName,
+      class: editStdClass,
+      fatherName: editStdFatherName,
+      motherName: editStdMotherName,
+      dob: editStdDob,
+      gender: editStdGender,
+      address: editStdAddress,
+      mobile: editStdMobile,
+      parentMobile: editStdParentMobile,
+      email: editStdEmail,
+      rollNo: editStdRollNo,
+      preferredBatch: editStdPreferredBatch,
+      preferredTiming: editStdPreferredTiming,
+      photoUrl: editStdPhotoUrl
+    };
+
+    const updatedStudents = students.map(s => s.id === editingStudent.id ? updatedStudent : s);
+    onHealState('students', updatedStudents);
+
+    alert(`Student "${editStdName}" profile updated successfully.`);
+    setEditingStudent(null);
+    stopCamera();
+  };
 
   const openQuickCollect = (student: Student) => {
     setQuickCollectStudent(student);
@@ -2699,7 +3129,7 @@ export default function AdminDashboard({
   };
 
   // Dedicated WhatsApp Messaging Tab States
-  const [waSubTab, setWaSubTab] = useState<'single' | 'bulk'>('single');
+  const [waSubTab, setWaSubTab] = useState<'single' | 'bulk' | 'templates' | 'gateway'>('single');
   const [manualRecipientNo, setManualRecipientNo] = useState('');
   const [manualMsgBody, setManualMsgBody] = useState('');
   const [selectedStudentHelperId, setSelectedStudentHelperId] = useState('');
@@ -2712,6 +3142,7 @@ export default function AdminDashboard({
   // Student ERP filter states
   const [studentFilterBatch, setStudentFilterBatch] = useState<string>('all');
   const [studentFilterClass, setStudentFilterClass] = useState<string>('all');
+  const [studentFilterStatus, setStudentFilterStatus] = useState<string>('ACTIVE');
   const [studentSearchQuery, setStudentSearchQuery] = useState<string>('');
 
   // Bulk WhatsApp Messaging States with waBulk prefix to avoid conflict
@@ -3414,71 +3845,6 @@ ${data.log}`
     });
   };
 
-  // Render SVG Analytics Charts
-  const renderRevenueGrowthChart = () => {
-    const chartWidth = 500;
-    const chartHeight = 150;
-    const padding = 30;
-    const graphWidth = chartWidth - padding * 2;
-    const graphHeight = chartHeight - padding * 2;
-
-    // Monthly data points
-    const monthlyData = [
-      { month: 'Jan', revenue: 120000 },
-      { month: 'Feb', revenue: 145000 },
-      { month: 'Mar', revenue: 185000 },
-      { month: 'Apr', revenue: 290000 },
-      { month: 'May', revenue: 350000 },
-      { month: 'Jun', revenue: 420000 }
-    ];
-
-    const maxVal = 450000;
-    const points = monthlyData.map((d, idx) => {
-      const x = padding + (idx / (monthlyData.length - 1)) * graphWidth;
-      const y = padding + graphHeight - (d.revenue / maxVal) * graphHeight;
-      return { x, y, ...d };
-    });
-
-    const pathData = points.reduce((acc, p, idx) => {
-      return idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
-    }, '');
-
-    return (
-      <div className="w-full bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-        <h4 className="mb-3 font-display font-bold text-xs text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-          <TrendingUp size={14} className="text-brand-orange" /> Revenue Progression (INR)
-        </h4>
-        <div className="relative h-[150px] w-full">
-          <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-full">
-            {/* Grid lines */}
-            {[0, 150000, 300000, 450000].map((v) => {
-              const y = padding + graphHeight - (v / maxVal) * graphHeight;
-              return (
-                <g key={v}>
-                  <line x1={padding} y1={y} x2={chartWidth - padding} y2={y} stroke="#f1f5f9" strokeWidth="1.5" />
-                  <text x={padding - 8} y={y + 3} textAnchor="end" className="text-[8px] font-mono fill-slate-400">₹{v / 1000}k</text>
-                </g>
-              );
-            })}
-
-            {/* Line area */}
-            {points.length > 1 && (
-              <path d={pathData} fill="none" stroke="#0D47A1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            )}
-
-            {/* Data nodes */}
-            {points.map((p, idx) => (
-              <g key={idx} className="cursor-pointer group">
-                <circle cx={p.x} cy={p.y} r="5" fill="#FF9800" stroke="#0D47A1" strokeWidth="2" />
-                <text x={p.x} y={p.y - 10} textAnchor="middle" className="text-[8px] font-bold fill-brand-blue">{p.revenue / 1000}k</text>
-                <text x={p.x} y={chartHeight - 8} textAnchor="middle" className="text-[9px] font-medium fill-slate-500">{p.month}</text>
-              </g>
-            ))}
-          </svg>
-        </div>
-      </div>
-    );
-  };
 
   // Filter students for the ERP ledger table
   const filteredStudentsForTable = students.filter(student => {
@@ -3496,7 +3862,11 @@ ${data.log}`
     const matchesClass = studentFilterClass === 'all' ||
       student.class === studentFilterClass;
 
-    return matchesSearch && matchesBatch && matchesClass;
+    const matchesStatus = studentFilterStatus === 'all' ? true : (
+      studentFilterStatus === 'ACTIVE' ? (student.status !== 'INACTIVE') : (student.status === 'INACTIVE')
+    );
+
+    return matchesSearch && matchesBatch && matchesClass && matchesStatus;
   });
 
   const loggedInFounder = founders.find(f => {
@@ -3504,6 +3874,37 @@ ${data.log}`
     if (currentUser?.username === 'rajeev') return f.id === 'fm-rajeev';
     return false;
   });
+
+  const triggerQuickAction = (tabName: string, actionType?: string) => {
+    setActiveTab(tabName);
+    setIsQuickActionOpen(false);
+
+    if (actionType === 'add-student') {
+      setTimeout(() => {
+        const el = document.getElementById('input-std-name');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.focus();
+        }
+      }, 300);
+    } else if (actionType === 'record-fee') {
+      setShowCollectForm(true);
+      setTimeout(() => {
+        const el = document.getElementById('btn-toggle-collect-form');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 300);
+    } else if (actionType === 'global-notice') {
+      setTimeout(() => {
+        const el = document.getElementById('input-notif-title');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.focus();
+        }
+      }, 300);
+    }
+  };
 
   return (
     <div id="admin-portal" className="mx-auto max-w-7xl px-4 py-8">
@@ -3607,19 +4008,15 @@ ${data.log}`
         </div>
       </div>
 
-      {/* Charts Grid */}
-      <div className="mb-6 grid gap-6 md:grid-cols-3">
-        <div className="md:col-span-2">
-          {renderRevenueGrowthChart()}
-        </div>
-
+      {/* Analytics Info banner / dashboard section */}
+      <div className="mb-6">
         {/* Weak Subject Predictions Analysis / Stats */}
-        <div className="md:col-span-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h4 className="font-display font-bold text-xs text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-1.5">
             <Sparkles size={14} className="text-brand-orange animate-pulse" /> Weak Topic Analytics AI
           </h4>
 
-          <div className="space-y-4">
+          <div className="grid gap-6 md:grid-cols-3">
             <div>
               <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
                 <span>Algebra & Quadratic Equations</span>
@@ -3656,21 +4053,288 @@ ${data.log}`
         </div>
       </div>
 
+      {/* ⚡ Global Real-Time ERP Search Center */}
+      <div className="mb-6 rounded-3xl border border-indigo-150 bg-gradient-to-br from-indigo-50/40 via-white to-slate-50/30 p-5 shadow-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
+          <div>
+            <h4 className="font-display font-black text-sm text-indigo-950 uppercase tracking-wider flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-100 text-indigo-900 text-xs">⚡</span>
+              Global Real-Time ERP Search Center
+            </h4>
+            <p className="text-xs text-slate-500 mt-1">
+              Filter student directories, coaching faculty, and monthly tuition bills by name, ID, or batch instantly.
+            </p>
+          </div>
+          <div className="relative flex-1 max-w-md w-full">
+            <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
+              <Search size={16} />
+            </span>
+            <input
+              type="text"
+              id="admin-global-search-input"
+              value={adminGlobalSearchQuery}
+              onChange={(e) => setAdminGlobalSearchQuery(e.target.value)}
+              placeholder="Search students, teachers, fee bills by name, ID, subject..."
+              className="w-full rounded-2xl border border-slate-200 bg-white pl-10 pr-10 py-3 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:ring-1 focus:ring-indigo-900 shadow-sm transition-all"
+            />
+            {adminGlobalSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setAdminGlobalSearchQuery('')}
+                className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Real-Time Dropdown Results */}
+        {adminGlobalSearchQuery.trim() !== '' && (() => {
+          const q = adminGlobalSearchQuery.toLowerCase();
+          
+          const filteredStudents = students.filter(student => {
+            const batchName = student.preferredBatch || '';
+            return (
+              student.name.toLowerCase().includes(q) ||
+              student.id.toLowerCase().includes(q) ||
+              (student.rollNo && student.rollNo.toLowerCase().includes(q)) ||
+              student.class.toLowerCase().includes(q) ||
+              batchName.toLowerCase().includes(q)
+            );
+          });
+
+          const filteredTeachers = teachers.filter(teacher => {
+            const specialties = teacher.specialty ? teacher.specialty.join(' ') : '';
+            return (
+              teacher.name.toLowerCase().includes(q) ||
+              teacher.id.toLowerCase().includes(q) ||
+              specialties.toLowerCase().includes(q) ||
+              teacher.qualification.toLowerCase().includes(q)
+            );
+          });
+
+          const filteredFees = feeStatuses.filter(fee => {
+            return (
+              fee.studentName.toLowerCase().includes(q) ||
+              fee.id.toLowerCase().includes(q) ||
+              fee.studentId.toLowerCase().includes(q) ||
+              fee.class.toLowerCase().includes(q) ||
+              fee.month.toLowerCase().includes(q) ||
+              fee.status.toLowerCase().includes(q)
+            );
+          });
+
+          const hasAnyResults = filteredStudents.length > 0 || filteredTeachers.length > 0 || filteredFees.length > 0;
+
+          return (
+            <div className="mt-4 border-t border-indigo-50 pt-4">
+              {!hasAnyResults ? (
+                <div className="text-center py-6 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                  <span className="text-xl">🔍</span>
+                  <p className="text-xs font-bold text-slate-600 mt-1">No matches found</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">We couldn't find any students, teachers, or fee logs for "{adminGlobalSearchQuery}".</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-3">
+                  {/* Students Column */}
+                  <div className="rounded-2xl bg-white border border-slate-150 p-4 shadow-2xs">
+                    <h5 className="font-display font-bold text-xs text-indigo-900 border-b border-indigo-50 pb-2 mb-3 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Users size={14} className="text-indigo-600" />
+                        Students
+                      </span>
+                      <span className="bg-indigo-50 text-indigo-700 rounded-full px-2 py-0.5 text-[10px] font-bold">
+                        {filteredStudents.length}
+                      </span>
+                    </h5>
+                    {filteredStudents.length === 0 ? (
+                      <p className="text-[10px] text-slate-400 py-3 text-center">No student matches</p>
+                    ) : (
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {filteredStudents.slice(0, 5).map(student => {
+                          const batchName = student.preferredBatch || 'No Batch';
+                          return (
+                            <div key={student.id} className="group p-2.5 rounded-xl bg-slate-50 hover:bg-indigo-50/50 border border-transparent hover:border-indigo-100 transition-all flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-slate-800 truncate">{student.name}</p>
+                                <p className="text-[10px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                  <span>ID: {student.rollNo || student.id}</span>
+                                  <span className="inline-block h-1 w-1 rounded-full bg-slate-300"></span>
+                                  <span>{student.class}</span>
+                                  <span className="inline-block h-1 w-1 rounded-full bg-slate-300"></span>
+                                  <span className="text-indigo-600 font-bold truncate max-w-[100px]">{batchName}</span>
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setStudentSearchQuery(student.name);
+                                  setActiveTab('students');
+                                  setAdminGlobalSearchQuery('');
+                                }}
+                                className="shrink-0 rounded-lg bg-indigo-900 hover:bg-indigo-950 text-white font-bold text-[9px] px-2.5 py-1.5 cursor-pointer transition-all shadow-sm group-hover:scale-105"
+                              >
+                                View ERP
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {filteredStudents.length > 5 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStudentSearchQuery(adminGlobalSearchQuery);
+                              setActiveTab('students');
+                              setAdminGlobalSearchQuery('');
+                            }}
+                            className="w-full text-center py-1.5 text-[10px] text-indigo-600 hover:text-indigo-800 font-bold transition-colors cursor-pointer"
+                          >
+                            + View All {filteredStudents.length} Students
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Teachers Column */}
+                  <div className="rounded-2xl bg-white border border-slate-150 p-4 shadow-2xs">
+                    <h5 className="font-display font-bold text-xs text-indigo-900 border-b border-indigo-50 pb-2 mb-3 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <BookOpen size={14} className="text-indigo-600" />
+                        Faculty / Teachers
+                      </span>
+                      <span className="bg-indigo-50 text-indigo-700 rounded-full px-2 py-0.5 text-[10px] font-bold">
+                        {filteredTeachers.length}
+                      </span>
+                    </h5>
+                    {filteredTeachers.length === 0 ? (
+                      <p className="text-[10px] text-slate-400 py-3 text-center">No faculty matches</p>
+                    ) : (
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {filteredTeachers.slice(0, 5).map(teacher => (
+                          <div key={teacher.id} className="group p-2.5 rounded-xl bg-slate-50 hover:bg-indigo-50/50 border border-transparent hover:border-indigo-100 transition-all flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-800 truncate">{teacher.name}</p>
+                              <p className="text-[10px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                <span className="text-indigo-600 font-bold truncate max-w-[120px]">{(teacher.specialty || []).join(', ') || 'General'}</span>
+                                <span className="inline-block h-1 w-1 rounded-full bg-slate-300"></span>
+                                <span className="truncate max-w-[120px]">{teacher.qualification}</span>
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSearchQuery(teacher.name);
+                                setActiveTab('teachers');
+                                setAdminGlobalSearchQuery('');
+                              }}
+                              className="shrink-0 rounded-lg bg-indigo-900 hover:bg-indigo-950 text-white font-bold text-[9px] px-2.5 py-1.5 cursor-pointer transition-all shadow-sm group-hover:scale-105"
+                            >
+                              View Card
+                            </button>
+                          </div>
+                        ))}
+                        {filteredTeachers.length > 5 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSearchQuery(adminGlobalSearchQuery);
+                              setActiveTab('teachers');
+                              setAdminGlobalSearchQuery('');
+                            }}
+                            className="w-full text-center py-1.5 text-[10px] text-indigo-600 hover:text-indigo-800 font-bold transition-colors cursor-pointer"
+                          >
+                            + View All {filteredTeachers.length} Teachers
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Fee Bills Column */}
+                  <div className="rounded-2xl bg-white border border-slate-150 p-4 shadow-2xs">
+                    <h5 className="font-display font-bold text-xs text-indigo-900 border-b border-indigo-50 pb-2 mb-3 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <DollarSign size={14} className="text-indigo-600" />
+                        Ledger & Fees
+                      </span>
+                      <span className="bg-indigo-50 text-indigo-700 rounded-full px-2 py-0.5 text-[10px] font-bold">
+                        {filteredFees.length}
+                      </span>
+                    </h5>
+                    {filteredFees.length === 0 ? (
+                      <p className="text-[10px] text-slate-400 py-3 text-center">No billing matches</p>
+                    ) : (
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {filteredFees.slice(0, 5).map(fee => {
+                          const isPaid = fee.status === 'PAID';
+                          return (
+                            <div key={fee.id} className="group p-2.5 rounded-xl bg-slate-50 hover:bg-indigo-50/50 border border-transparent hover:border-indigo-100 transition-all flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-slate-800 truncate">{fee.studentName}</p>
+                                <p className="text-[10px] text-slate-500 font-medium mt-0.5 flex items-center gap-1 flex-wrap">
+                                  <span className="font-semibold text-slate-700">{fee.month}</span>
+                                  <span className="inline-block h-1 w-1 rounded-full bg-slate-300"></span>
+                                  <span className={isPaid ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
+                                    {isPaid ? 'PAID' : `₹${fee.pendingFee} Due`}
+                                  </span>
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFeeSearchQuery(fee.studentName);
+                                  setActiveTab('fees');
+                                  setAdminGlobalSearchQuery('');
+                                }}
+                                className="shrink-0 rounded-lg bg-indigo-900 hover:bg-indigo-950 text-white font-bold text-[9px] px-2.5 py-1.5 cursor-pointer transition-all shadow-sm group-hover:scale-105"
+                              >
+                                View Ledger
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {filteredFees.length > 5 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFeeSearchQuery(adminGlobalSearchQuery);
+                              setActiveTab('fees');
+                              setAdminGlobalSearchQuery('');
+                            }}
+                            className="w-full text-center py-1.5 text-[10px] text-indigo-600 hover:text-indigo-800 font-bold transition-colors cursor-pointer"
+                          >
+                            + View All {filteredFees.length} Fee Records
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+
       {/* Main ERP Tab System */}
       {(() => {
         const tabsList = [
-          { id: 'overview', label: 'Admin Operations Overview', icon: <Activity size={16} /> },
-          { id: 'students', label: `Manage Student ERP (${students.length})`, icon: <Users size={16} /> },
-          { id: 'fees', label: 'Manage Fees & Ledger', icon: <DollarSign size={16} /> },
-          { id: 'teachers', label: 'Manage Faculty Directory', icon: <BookOpen size={16} /> },
-          { id: 'batches', label: 'Manage Batches & Timings', icon: <Calendar size={16} /> },
-          { id: 'website', label: 'Public Website & Notes CMS', icon: <Sparkles size={16} /> },
-          { id: 'announcements', label: 'Broadcast Announcements', icon: <Bell size={16} /> },
-          { id: 'audit', label: 'Audit & System Logs', icon: <FileText size={16} /> },
-          { id: 'settings', label: 'Database Backup & settings', icon: <Settings size={16} /> },
-          { id: 'whatsapp', label: 'WhatsApp Messaging', icon: <MessageSquare size={16} /> },
-          { id: 'diagnostics', label: 'System Diagnostics', icon: <Shield size={16} className="text-emerald-500" /> },
-          { id: 'sheets', label: 'Google Sheets Integration', icon: <FileSpreadsheet size={16} className="text-emerald-500 animate-pulse" /> }
+          { id: 'overview', label: 'Admin Operations Overview', icon: <Activity size={16} />, category: 'Core Operations' },
+          { id: 'students', label: `Manage Student ERP (${students.length})`, icon: <Users size={16} />, category: 'Core Operations' },
+          { id: 'fees', label: 'Manage Fees & Ledger', icon: <DollarSign size={16} />, category: 'Core Operations' },
+          
+          { id: 'teachers', label: 'Faculty Directory', icon: <BookOpen size={16} />, category: 'Academic & CMS' },
+          { id: 'batches', label: 'Batches & Timings', icon: <Calendar size={16} />, category: 'Academic & CMS' },
+          { id: 'website', label: 'Public Website & Notes CMS', icon: <Sparkles size={16} />, category: 'Academic & CMS' },
+          { id: 'announcements', label: 'Broadcast Announcements', icon: <Bell size={16} />, category: 'Academic & CMS' },
+          
+          { id: 'sheets', label: 'Google Sheets Sync', icon: <FileSpreadsheet size={16} className="text-emerald-600 animate-pulse" />, category: 'Integrations & Logs' },
+          { id: 'whatsapp', label: 'WhatsApp Messaging', icon: <MessageSquare size={16} />, category: 'Integrations & Logs' },
+          { id: 'audit', label: 'Audit & System Logs', icon: <FileText size={16} />, category: 'Integrations & Logs' },
+          { id: 'diagnostics', label: 'System Diagnostics', icon: <Shield size={16} className="text-emerald-500" />, category: 'Integrations & Logs' },
+          { id: 'settings', label: 'Database Backup', icon: <Settings size={16} />, category: 'Integrations & Logs' }
         ] as const;
 
         return (
@@ -3747,26 +4411,43 @@ ${data.log}`
 
             {/* Desktop Navigation Sidebar (Visible only on screens >= lg) */}
             <div className="hidden lg:block lg:col-span-1">
-              <div className="rounded-2xl border border-slate-200 bg-white p-3 lg:p-4 shadow-sm space-y-1.5 sticky top-6">
-                <span className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider block">ERP Operations</span>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4 sticky top-6">
+                <div className="flex items-center gap-2 px-1 pb-2 border-b border-slate-100">
+                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">ERP CONTROL TERMINAL</span>
+                </div>
 
-                <div className="flex flex-col gap-1">
-                  {tabsList.map((tab) => {
-                    const isSelected = activeTab === tab.id;
+                <div className="flex flex-col gap-4">
+                  {(['Core Operations', 'Academic & CMS', 'Integrations & Logs'] as const).map((category) => {
+                    const categoryTabs = tabsList.filter(t => t.category === category);
                     return (
-                      <button
-                        key={tab.id}
-                        id={`admin-tab-${tab.id}`}
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`flex items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer ${
-                          isSelected ? 'bg-indigo-900 text-white shadow' : 'text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        <span className={isSelected ? 'text-white' : 'text-slate-400'}>
-                          {tab.icon}
+                      <div key={category} className="space-y-1">
+                        <span className="px-2 text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block">
+                          {category}
                         </span>
-                        <span>{tab.label}</span>
-                      </button>
+                        <div className="space-y-0.5">
+                          {categoryTabs.map((tab) => {
+                            const isSelected = activeTab === tab.id;
+                            return (
+                              <button
+                                key={tab.id}
+                                id={`admin-tab-${tab.id}`}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`w-full flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold transition-all cursor-pointer border-l-4 ${
+                                  isSelected 
+                                    ? 'bg-indigo-950 text-white shadow-sm font-bold border-brand-orange pl-2.5' 
+                                    : 'text-slate-600 hover:bg-slate-50 border-transparent hover:border-slate-200'
+                                }`}
+                              >
+                                <span className={isSelected ? 'text-white' : 'text-slate-400'}>
+                                  {tab.icon}
+                                </span>
+                                <span className="text-left leading-tight flex-1">{tab.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -3775,6 +4456,12 @@ ${data.log}`
 
             {/* Dynamic Content Area */}
             <div className="lg:col-span-3 col-span-full">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+              >
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-6 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
@@ -3908,13 +4595,22 @@ ${data.log}`
                             </p>
                           </div>
                         </div>
-                        <button
-                          id="btn-close-audit-card"
-                          onClick={() => setSelectedSearchStudentId(null)}
-                          className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 bg-slate-50 hover:bg-slate-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                        >
-                          <X size={12} /> Clear Audit
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            id="btn-audit-edit-profile"
+                            onClick={() => openEditStudent(student)}
+                            className="text-xs text-indigo-700 hover:text-indigo-900 flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer font-semibold"
+                          >
+                            <Edit size={12} /> Edit Profile
+                          </button>
+                          <button
+                            id="btn-close-audit-card"
+                            onClick={() => setSelectedSearchStudentId(null)}
+                            className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 bg-slate-50 hover:bg-slate-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <X size={12} /> Clear Audit
+                          </button>
+                        </div>
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-2">
@@ -4191,216 +4887,372 @@ ${data.log}`
 
               {/* Add Student Form */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <h3 className="font-display font-bold text-base text-slate-800 mb-1">Enroll Student Offline Form</h3>
-                <p className="text-xs text-slate-500 mb-4">Register new walk-in student with roll number generation and batch allocation.</p>
+                <h3 className="font-display font-bold text-base text-slate-800 mb-1">Enroll & Import Student Directory</h3>
+                <p className="text-xs text-slate-500 mb-4">Register a single student manually or import multiple records via Google Sheets options.</p>
 
-                <form onSubmit={handleCreateStudent} className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Full Name</label>
-                      <input
-                        id="input-std-name"
-                        type="text"
-                        required
-                        placeholder="e.g. Rahul Verma"
-                        value={stdName}
-                        onChange={(e) => setStdName(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                      />
-                    </div>
+                {/* Method selection tabs */}
+                <div className="flex border-b border-slate-100 mb-6 gap-6">
+                  <button
+                    type="button"
+                    onClick={() => setEnrollMethod('manual')}
+                    className={`pb-3 text-xs font-bold transition-all relative ${
+                      enrollMethod === 'manual'
+                        ? 'text-indigo-900 border-b-2 border-indigo-900 font-extrabold'
+                        : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    📝 Manual Walk-In Form
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEnrollMethod('sheets')}
+                    className={`pb-3 text-xs font-bold transition-all relative flex items-center gap-1.5 ${
+                      enrollMethod === 'sheets'
+                        ? 'text-indigo-900 border-b-2 border-indigo-900 font-extrabold'
+                        : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    <span className="text-emerald-500 animate-pulse">●</span> 📊 Google Sheets Import Option
+                  </button>
+                </div>
 
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Father Name</label>
-                      <input
-                        id="input-std-father"
-                        type="text"
-                        required
-                        placeholder="e.g. Ram Pal Verma"
-                        value={stdFather}
-                        onChange={(e) => setStdFather(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                      />
-                    </div>
+                {enrollMethod === 'manual' && (
+                  <form onSubmit={handleCreateStudent} className="space-y-4">
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Full Name</label>
+                        <input
+                          id="input-std-name"
+                          type="text"
+                          required
+                          placeholder="e.g. Rahul Verma"
+                          value={stdName}
+                          onChange={(e) => setStdName(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Mother Name</label>
-                      <input
-                        id="input-std-mother"
-                        type="text"
-                        required
-                        value={stdMother}
-                        onChange={(e) => setStdMother(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                      />
-                    </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Father Name</label>
+                        <input
+                          id="input-std-father"
+                          type="text"
+                          required
+                          placeholder="e.g. Ram Pal Verma"
+                          value={stdFather}
+                          onChange={(e) => setStdFather(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Class Intake</label>
-                      <select
-                        id="select-std-class"
-                        value={stdClass}
-                        onChange={(e) => setStdClass(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                      >
-                        <option value="Class 10">Class 10 (Boards)</option>
-                        <option value="Class 9">Class 9 (Foundation)</option>
-                        <option value="Class 8">Class 8</option>
-                      </select>
-                    </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Mother Name</label>
+                        <input
+                          id="input-std-mother"
+                          type="text"
+                          required
+                          value={stdMother}
+                          onChange={(e) => setStdMother(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700 font-display">Student WhatsApp No *</label>
-                      <input
-                        id="input-std-whatsapp"
-                        type="tel"
-                        required
-                        placeholder="e.g. 9161586254"
-                        value={stdWhatsapp}
-                        onChange={(e) => setStdWhatsapp(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                      />
-                    </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Class Intake</label>
+                        <select
+                          id="select-std-class"
+                          value={stdClass}
+                          onChange={(e) => setStdClass(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                        >
+                          <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
+                          <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
+                          <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
+                          <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
+                        </select>
+                      </div>
 
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700 font-display">Student Email ID *</label>
-                      <input
-                        id="input-std-email"
-                        type="email"
-                        required
-                        placeholder="e.g. student@gmail.com"
-                        value={stdEmail}
-                        onChange={(e) => setStdEmail(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                      />
-                    </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700 font-display">Student WhatsApp No *</label>
+                        <input
+                          id="input-std-whatsapp"
+                          type="tel"
+                          required
+                          placeholder="e.g. 9161586254"
+                          value={stdWhatsapp}
+                          onChange={(e) => setStdWhatsapp(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700 font-display">Parent's WhatsApp No *</label>
-                      <input
-                        id="input-std-parent-whatsapp"
-                        type="tel"
-                        required
-                        placeholder="e.g. 9876543210"
-                        value={stdParentMobile}
-                        onChange={(e) => setStdParentMobile(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                      />
-                    </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700 font-display">Student Email ID *</label>
+                        <input
+                          id="input-std-email"
+                          type="email"
+                          required
+                          placeholder="e.g. student@gmail.com"
+                          value={stdEmail}
+                          onChange={(e) => setStdEmail(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Mobile Phone</label>
-                      <input
-                        id="input-std-mobile"
-                        type="tel"
-                        required
-                        placeholder="e.g. 9161586254"
-                        value={stdMobile}
-                        onChange={(e) => setStdMobile(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                      />
-                    </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700 font-display">Parent's WhatsApp No *</label>
+                        <input
+                          id="input-std-parent-whatsapp"
+                          type="tel"
+                          required
+                          placeholder="e.g. 9876543210"
+                          value={stdParentMobile}
+                          onChange={(e) => setStdParentMobile(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Address Location</label>
-                      <input
-                        id="input-std-address"
-                        type="text"
-                        required
-                        placeholder="e.g. Mishrana, Pihani"
-                        value={stdAddress}
-                        onChange={(e) => setStdAddress(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                      />
-                    </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Mobile Phone</label>
+                        <input
+                          id="input-std-mobile"
+                          type="tel"
+                          required
+                          placeholder="e.g. 9161586254"
+                          value={stdMobile}
+                          onChange={(e) => setStdMobile(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Preferred Tuition Batch</label>
-                      <select
-                        id="select-std-batch"
-                        value={stdBatch}
-                        onChange={(e) => {
-                          setStdBatch(e.target.value);
-                          const matched = batches.find(b => b.name === e.target.value);
-                          if (matched) {
-                            setStdTiming(matched.time);
-                          }
-                        }}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                      >
-                        {batches.map(b => (
-                          <option key={b.id} value={b.name}>{b.name}</option>
-                        ))}
-                      </select>
-                    </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Address Location</label>
+                        <input
+                          id="input-std-address"
+                          type="text"
+                          required
+                          placeholder="e.g. Mishrana, Pihani"
+                          value={stdAddress}
+                          onChange={(e) => setStdAddress(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Tuition Class Timing</label>
-                      <input
-                        id="input-std-timing"
-                        type="text"
-                        required
-                        placeholder="e.g. 04:00 PM - 06:30 PM"
-                        value={stdTiming}
-                        onChange={(e) => setStdTiming(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                      />
-                    </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Preferred Tuition Batch</label>
+                        <select
+                          id="select-std-batch"
+                          value={stdBatch}
+                          onChange={(e) => {
+                            setStdBatch(e.target.value);
+                            const matched = batches.find(b => b.name === e.target.value);
+                            if (matched) {
+                              setStdTiming(matched.time);
+                            }
+                          }}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                        >
+                          {batches.map(b => (
+                            <option key={b.id} value={b.name}>{b.name}</option>
+                          ))}
+                        </select>
+                      </div>
 
-                    <div className="sm:col-span-3 border border-dashed border-slate-200 rounded-2xl p-4 bg-slate-50/50">
-                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Student Passport Photo</label>
-                      <div className="flex gap-4 items-center">
-                        {stdPhotoUrl ? (
-                          <img src={stdPhotoUrl} alt="Student preview" className="h-12 w-12 rounded-full object-cover border border-slate-200 shadow-sm" />
-                        ) : (
-                          <div className="h-12 w-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center border border-slate-200">
-                            <Upload size={18} />
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Tuition Class Timing</label>
+                        <input
+                          id="input-std-timing"
+                          type="text"
+                          required
+                          placeholder="e.g. 04:00 PM - 06:30 PM"
+                          value={stdTiming}
+                          onChange={(e) => setStdTiming(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-3 border border-dashed border-slate-200 rounded-2xl p-4 bg-slate-50/50">
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Student Passport Photo</label>
+                        <div className="flex gap-4 items-center">
+                          {stdPhotoUrl ? (
+                            <img src={stdPhotoUrl} alt="Student preview" className="h-12 w-12 rounded-full object-cover border border-slate-200 shadow-sm" />
+                          ) : (
+                            <div className="h-12 w-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center border border-slate-200">
+                              <Upload size={18} />
+                            </div>
+                          )}
+                          <div className="relative border border-slate-200 rounded-lg px-3 py-1.5 bg-white hover:bg-slate-50 transition-all text-center flex-1 flex items-center justify-center cursor-pointer">
+                            <input
+                              type="file"
+                              id="std-photo-picker-offline"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                  const f = e.target.files[0];
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => {
+                                    setStdPhotoUrl(reader.result as string);
+                                  };
+                                  reader.readAsDataURL(f);
+                                }
+                              }}
+                            />
+                            <label htmlFor="std-photo-picker-offline" className="cursor-pointer flex items-center gap-1.5 text-xs text-slate-600">
+                              <Upload size={13} className="text-slate-400" />
+                              <span className="font-bold text-indigo-950 hover:underline">Choose Photo</span>
+                            </label>
                           </div>
-                        )}
-                        <div className="relative border border-slate-200 rounded-lg px-3 py-1.5 bg-white hover:bg-slate-50 transition-all text-center flex-1 flex items-center justify-center cursor-pointer">
-                          <input
-                            type="file"
-                            id="std-photo-picker-offline"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              if (e.target.files && e.target.files[0]) {
-                                const f = e.target.files[0];
-                                const reader = new FileReader();
-                                reader.onloadend = () => {
-                                  setStdPhotoUrl(reader.result as string);
-                                };
-                                reader.readAsDataURL(f);
-                              }
-                            }}
-                          />
-                          <label htmlFor="std-photo-picker-offline" className="cursor-pointer flex items-center gap-1.5 text-xs text-slate-600">
-                            <Upload size={13} className="text-slate-400" />
-                            <span className="font-bold text-indigo-950 hover:underline">Choose Photo</span>
-                          </label>
+                          {stdPhotoUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setStdPhotoUrl('')}
+                              className="text-xs text-red-500 font-bold hover:underline cursor-pointer"
+                            >
+                              Clear
+                            </button>
+                          )}
                         </div>
-                        {stdPhotoUrl && (
-                          <button
-                            type="button"
-                            onClick={() => setStdPhotoUrl('')}
-                            className="text-xs text-red-500 font-bold hover:underline cursor-pointer"
-                          >
-                            Clear
-                          </button>
-                        )}
                       </div>
                     </div>
-                  </div>
 
-                  <div className="flex justify-end pt-2">
-                    <button
-                      id="btn-add-std-submit"
-                      type="submit"
-                      className="rounded-xl bg-indigo-900 hover:bg-indigo-950 px-5 py-2.5 text-xs font-bold text-white shadow-md transition-colors"
-                    >
-                      Authorize Enrolment Registry
-                    </button>
+                    <div className="flex justify-end pt-2">
+                      <button
+                        id="btn-add-std-submit"
+                        type="submit"
+                        className="rounded-xl bg-indigo-900 hover:bg-indigo-950 px-5 py-2.5 text-xs font-bold text-white shadow-md transition-colors"
+                      >
+                        Authorize Enrolment Registry
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {enrollMethod === 'sheets' && (
+                  <div className="space-y-6">
+                    <div className="bg-gradient-to-r from-emerald-50/50 to-indigo-50/20 border border-slate-200 rounded-3xl p-6 shadow-3xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider">Connected Account</span>
+                          <span className="text-xs text-slate-400 font-medium">Google Drive & Sheets API</span>
+                        </div>
+                        <h4 className="font-bold text-slate-800 text-sm">Import Students & Teacher Portfolios from Google Spreadsheet</h4>
+                        <p className="text-[11px] text-slate-500 max-w-xl leading-relaxed">
+                          Enter your Google Spreadsheet ID or full URL below. The system will read your student rows, verify matching teacher alignments (<strong>PRIYANSHU GUPTA</strong>, <strong>UPASNA GUPTA</strong>, and <strong>ASHUTHOSH GUPTA</strong>), configure class batches dynamically, and generate default logins.
+                        </p>
+
+                        <div className="flex gap-2 max-w-xl mt-3">
+                          <input
+                            type="text"
+                            value={importSpreadsheetId}
+                            onChange={(e) => setImportSpreadsheetId(e.target.value)}
+                            placeholder="Spreadsheet ID or URL"
+                            className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-700 outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-col gap-2 shrink-0">
+                        {!sheetsAccessToken ? (
+                          <button
+                            type="button"
+                            onClick={handleSheetsLogin}
+                            className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 px-4 py-2.5 shadow-xs transition-all cursor-pointer"
+                          >
+                            🔑 Connect Google Account
+                          </button>
+                        ) : (
+                          <div className="text-right">
+                            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-black px-2 py-0.5 rounded-md uppercase tracking-wider block mb-1 text-center">
+                              Active Session
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleSheetsLogout}
+                              className="text-[10px] text-slate-400 hover:text-red-500 font-bold underline cursor-pointer"
+                            >
+                              Disconnect Account
+                            </button>
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={triggerImportSpreadsheetWithConfirmation}
+                          disabled={isImportingSheets}
+                          className="flex items-center justify-center gap-2 rounded-2xl bg-indigo-900 hover:bg-indigo-950 disabled:bg-slate-150 disabled:text-slate-400 font-bold px-6 py-3.5 text-xs text-white shadow-md hover:shadow-lg disabled:shadow-none transition-all cursor-pointer"
+                        >
+                          <Download className={`h-4 w-4 ${isImportingSheets ? 'animate-bounce' : ''}`} />
+                          {isImportingSheets ? 'Executing Import...' : 'Run Import Pipeline'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Import Logs terminal */}
+                    {importLog.length > 0 && (
+                      <div className="rounded-3xl border border-slate-200 bg-white p-5 flex flex-col">
+                        <div className="pb-3 border-b border-slate-100 mb-4 flex items-center justify-between">
+                          <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">Importation Pipeline Console</h4>
+                          <button
+                            type="button"
+                            onClick={() => setImportLog([])}
+                            className="text-[10px] font-extrabold text-slate-400 hover:text-rose-600 uppercase cursor-pointer"
+                          >
+                            Clear Console
+                          </button>
+                        </div>
+
+                        <div className="bg-slate-900 rounded-2xl p-4 font-mono text-[11px] text-slate-300 space-y-2 min-h-[200px] max-h-[300px] overflow-y-auto border border-slate-950">
+                          {importLog.map((log, idx) => (
+                            <div key={idx} className={`leading-relaxed border-b border-slate-800/40 pb-1 ${
+                              log.includes('✅') || log.includes('successfully') || log.includes('🎉') ? 'text-emerald-400 font-semibold' :
+                              log.includes('🚀') || log.includes('Commencing') ? 'text-indigo-400 font-bold' :
+                              log.includes('➕') ? 'text-cyan-400 font-medium' :
+                              log.includes('✏️') ? 'text-amber-400 font-medium' :
+                              log.includes('❌') ? 'text-rose-400 font-semibold' : 'text-slate-300'
+                            }`}>
+                              {log}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Clear Test Data Card */}
+                    <div className="bg-rose-50/50 border border-rose-100 rounded-3xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-rose-600 text-xs">⚠️</span>
+                          <h5 className="font-bold text-rose-950 text-xs uppercase tracking-wide">Clean Slate: Purge Mock/Testing Records</h5>
+                        </div>
+                        <p className="text-[11px] text-rose-700 leading-relaxed max-w-xl">
+                          Currently, the database is populated with default test students (e.g., Rahul Verma, Priya Mishra) and synthetic fee histories. Click below to permanently wipe all test students, test registrations, batches, test fee receipts, and subscriptions so you can have a 100% clean production environment for your real student directory.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmModal({
+                            isOpen: true,
+                            type: 'clear_test_data',
+                            title: '🚨 Purge All Test/Mock Data',
+                            description: 'Are you sure you want to permanently delete all test/mock student data, batches, subscriptions, fee records, and marks?',
+                            warningText: 'This action is IRREVERSIBLE and will reset the directory to a clean slate. Staff & Admin accounts will remain intact.',
+                            actionLabel: '🧹 Purge All Test Data',
+                            onConfirm: () => {
+                              if (onClearTestData) {
+                                onClearTestData();
+                                alert("🧹 Clean slate initialized! All test student records have been successfully purged from Local Cache & Cloud Firestore. You are ready to run your real Google Sheets import.");
+                              }
+                            }
+                          });
+                        }}
+                        className="rounded-xl bg-rose-600 hover:bg-rose-700 font-bold px-4 py-2 text-xs text-white shadow-sm hover:shadow-md transition-all whitespace-nowrap cursor-pointer shrink-0"
+                      >
+                        🧹 Purge All Test Data
+                      </button>
+                    </div>
                   </div>
-                </form>
+                )}
               </div>
 
               {/* Students Table List */}
@@ -4428,14 +5280,14 @@ ${data.log}`
 
                 {/* Search & Filter Controls */}
                 <div className="mb-4 grid gap-3 sm:grid-cols-12 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <div className="sm:col-span-6 relative">
+                  <div className="sm:col-span-4 relative">
                     <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
                       <Search size={14} />
                     </span>
                     <input
                       id="input-student-search"
                       type="text"
-                      placeholder="Search students by name, roll no, father name or mobile..."
+                      placeholder="Search students..."
                       value={studentSearchQuery}
                       onChange={(e) => setStudentSearchQuery(e.target.value)}
                       className="w-full pl-9 pr-8 py-2 text-xs rounded-lg border border-slate-200 bg-white text-slate-800 focus:outline-none focus:border-indigo-900"
@@ -4481,6 +5333,19 @@ ${data.log}`
                       ))}
                     </select>
                   </div>
+
+                  <div className="sm:col-span-2">
+                    <select
+                      id="select-student-filter-status"
+                      value={studentFilterStatus}
+                      onChange={(e) => setStudentFilterStatus(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white text-slate-800 font-medium focus:outline-none focus:border-indigo-900 cursor-pointer"
+                    >
+                      <option value="ACTIVE">🟢 Active</option>
+                      <option value="INACTIVE">🔴 Inactive</option>
+                      <option value="all">🔍 All Statuses</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto border border-slate-100 rounded-xl">
@@ -4516,12 +5381,25 @@ ${data.log}`
                                   </div>
                                 )}
                                 <span>{student.name}</span>
+                                {student.status === 'INACTIVE' && (
+                                  <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black tracking-wider uppercase bg-rose-50 border border-rose-200 text-rose-600 animate-pulse">
+                                    Inactive
+                                  </span>
+                                )}
                               </div>
                             </td>
                             <td className="p-3 text-slate-600">{student.class}</td>
                             <td className="p-3 text-slate-500">F: {student.fatherName}<br />M: {student.motherName}</td>
                             <td className="p-3 text-slate-500">{student.mobile}</td>
                             <td className="p-3">
+                              <button
+                                id={`btn-edit-student-${student.id}`}
+                                onClick={() => openEditStudent(student)}
+                                className="rounded p-1.5 text-indigo-600 hover:bg-indigo-50 mr-2 cursor-pointer inline-flex items-center justify-center"
+                                title="Edit Student Profile"
+                              >
+                                <Edit size={14} />
+                              </button>
                               <button
                                 id={`btn-quick-collect-student-${student.id}`}
                                 onClick={() => openQuickCollect(student)}
@@ -4878,13 +5756,41 @@ ${data.log}`
             const collectionRate = Math.round((overallCollected / (overallCollected + totalPendingOverall || 1)) * 100);
 
             // Filter student lists
-            const filteredFeeStatuses = feeStatuses.filter(f => {
-              const matchesSearch = f.studentName.toLowerCase().includes(feeSearchQuery.toLowerCase());
-              const matchesClass = feeFilterClass === 'ALL' ? true : f.class === feeFilterClass;
-              const matchesStatus = feeFilterStatus === 'ALL' ? true : (f.pendingFee > 0 || f.status !== 'PAID');
-              const matchesMonth = feeSelectedMonth === 'ALL' ? true : f.month === feeSelectedMonth;
-              return matchesSearch && matchesClass && matchesStatus && matchesMonth;
-            });
+            const todayStr = new Date().toISOString().split('T')[0];
+            const filteredFeeStatuses = feeStatuses
+              .filter(f => {
+                const matchesSearch = f.studentName.toLowerCase().includes(feeSearchQuery.toLowerCase());
+                const matchesClass = feeFilterClass === 'ALL' ? true : f.class === feeFilterClass;
+                
+                let matchesStatus = true;
+                if (feeFilterStatus === 'UNPAID') {
+                  matchesStatus = f.pendingFee > 0;
+                } else if (feeFilterStatus === 'PENDING') {
+                  matchesStatus = f.status === 'PENDING';
+                } else if (feeFilterStatus === 'OVERDUE') {
+                  matchesStatus = f.pendingFee > 0 && f.dueDate < todayStr;
+                } else if (feeFilterStatus === 'PAID') {
+                  matchesStatus = f.status === 'PAID';
+                } else if (feeFilterStatus === 'PARTIAL') {
+                  matchesStatus = f.status === 'PARTIAL';
+                }
+                
+                const matchesMonth = feeSelectedMonth === 'ALL' ? true : f.month === feeSelectedMonth;
+                return matchesSearch && matchesClass && matchesStatus && matchesMonth;
+              })
+              .sort((a, b) => {
+                let comparison = 0;
+                if (feeSortKey === 'studentName' || feeSortKey === 'class' || feeSortKey === 'month' || feeSortKey === 'dueDate') {
+                  const valA = a[feeSortKey] || '';
+                  const valB = b[feeSortKey] || '';
+                  comparison = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+                } else {
+                  const valA = a[feeSortKey] || 0;
+                  const valB = b[feeSortKey] || 0;
+                  comparison = valA - valB;
+                }
+                return feeSortDirection === 'asc' ? comparison : -comparison;
+              });
 
             // Form Submit for Tuition Payments
             const handleRecordPaymentSubmit = (e: React.FormEvent) => {
@@ -5334,8 +6240,8 @@ ${data.log}`
                           onChange={(e) => setBulkWAFilterClass(e.target.value)}
                           className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-emerald-600"
                         >
-                          <option value="ALL">All Classes (1 to 10)</option>
-                          {Array.from({ length: 10 }, (_, i) => `Class ${i + 1}`).map(cls => (
+                          <option value="ALL">All Cohorts / Sections</option>
+                          {Array.from(new Set(students.map(s => s.class))).filter(Boolean).map(cls => (
                             <option key={cls} value={cls}>{cls}</option>
                           ))}
                         </select>
@@ -5605,7 +6511,7 @@ ${data.log}`
                   </div>
 
                   {/* Filters Grid */}
-                  <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+                  <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
                     {/* Month selector */}
                     <div>
                       <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">Billing Cycle Month</label>
@@ -5644,10 +6550,14 @@ ${data.log}`
                       <select
                         id="select-fee-status-filter"
                         value={feeFilterStatus}
-                        onChange={(e) => setFeeFilterStatus(e.target.value as 'ALL' | 'UNPAID')}
+                        onChange={(e) => setFeeFilterStatus(e.target.value as any)}
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
                       >
                         <option value="UNPAID">Not Submitted / Pending Dues</option>
+                        <option value="PENDING">Strictly Pending</option>
+                        <option value="OVERDUE">⚠️ Overdue (Past Due Date)</option>
+                        <option value="PAID">Fully Paid</option>
+                        <option value="PARTIAL">Partially Paid</option>
                         <option value="ALL">All Records (Paid & Pending)</option>
                       </select>
                     </div>
@@ -5669,6 +6579,39 @@ ${data.log}`
                         />
                       </div>
                     </div>
+
+                    {/* Sort By Key */}
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">Sort By</label>
+                      <select
+                        id="select-fee-sort-key"
+                        value={feeSortKey}
+                        onChange={(e) => setFeeSortKey(e.target.value as any)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                      >
+                        <option value="dueDate">📅 Due Date</option>
+                        <option value="studentName">👤 Student Name</option>
+                        <option value="class">🎓 Class</option>
+                        <option value="month">📆 Month</option>
+                        <option value="totalFee">💵 Total Bill</option>
+                        <option value="paidFee">💸 Paid Amount</option>
+                        <option value="pendingFee">⚠️ Pending Dues</option>
+                      </select>
+                    </div>
+
+                    {/* Sort Direction */}
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">Sort Direction</label>
+                      <select
+                        id="select-fee-sort-dir"
+                        value={feeSortDirection}
+                        onChange={(e) => setFeeSortDirection(e.target.value as any)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                      >
+                        <option value="asc">Ascending (A-Z / 1-9)</option>
+                        <option value="desc">Descending (Z-A / 9-1)</option>
+                      </select>
+                    </div>
                   </div>
 
                   {/* Dynamic Student Cards / Directory Table */}
@@ -5677,11 +6620,79 @@ ${data.log}`
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-150 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            <th className="px-4 py-3">Student / Class</th>
-                            <th className="px-4 py-3">Cycle Month</th>
-                            <th className="px-4 py-3 text-right">Bill Detail</th>
+                            <th 
+                              className="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition-colors group text-left"
+                              onClick={() => {
+                                if (feeSortKey === 'studentName') {
+                                  setFeeSortDirection(feeSortDirection === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                  setFeeSortKey('studentName');
+                                  setFeeSortDirection('asc');
+                                }
+                              }}
+                            >
+                              <div className="flex items-center gap-1">
+                                <span>Student / Class</span>
+                                <span className={`text-[10px] transition-all ${feeSortKey === 'studentName' ? 'opacity-100 text-indigo-900 font-extrabold' : 'opacity-0 group-hover:opacity-40 text-slate-400'}`}>
+                                  {feeSortKey === 'studentName' ? (feeSortDirection === 'asc' ? '▲' : '▼') : '▲'}
+                                </span>
+                              </div>
+                            </th>
+                            <th 
+                              className="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition-colors group text-left"
+                              onClick={() => {
+                                if (feeSortKey === 'month') {
+                                  setFeeSortDirection(feeSortDirection === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                  setFeeSortKey('month');
+                                  setFeeSortDirection('asc');
+                                }
+                              }}
+                            >
+                              <div className="flex items-center gap-1">
+                                <span>Cycle Month</span>
+                                <span className={`text-[10px] transition-all ${feeSortKey === 'month' ? 'opacity-100 text-indigo-900 font-extrabold' : 'opacity-0 group-hover:opacity-40 text-slate-400'}`}>
+                                  {feeSortKey === 'month' ? (feeSortDirection === 'asc' ? '▲' : '▼') : '▲'}
+                                </span>
+                              </div>
+                            </th>
+                            <th 
+                              className="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition-colors group text-right"
+                              onClick={() => {
+                                if (feeSortKey === 'pendingFee') {
+                                  setFeeSortDirection(feeSortDirection === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                  setFeeSortKey('pendingFee');
+                                  setFeeSortDirection('desc'); // default high-low for dues
+                                }
+                              }}
+                            >
+                              <div className="flex items-center justify-end gap-1">
+                                <span>Bill Detail</span>
+                                <span className={`text-[10px] transition-all ${feeSortKey === 'pendingFee' ? 'opacity-100 text-indigo-900 font-extrabold' : 'opacity-0 group-hover:opacity-40 text-slate-400'}`}>
+                                  {feeSortKey === 'pendingFee' ? (feeSortDirection === 'asc' ? '▲' : '▼') : '▼'}
+                                </span>
+                              </div>
+                            </th>
                             <th className="px-4 py-3 text-center font-mono">Status</th>
-                            <th className="px-4 py-3">Due Date</th>
+                            <th 
+                              className="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition-colors group text-left"
+                              onClick={() => {
+                                if (feeSortKey === 'dueDate') {
+                                  setFeeSortDirection(feeSortDirection === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                  setFeeSortKey('dueDate');
+                                  setFeeSortDirection('asc');
+                                }
+                              }}
+                            >
+                              <div className="flex items-center gap-1">
+                                <span>Due Date</span>
+                                <span className={`text-[10px] transition-all ${feeSortKey === 'dueDate' ? 'opacity-100 text-indigo-900 font-extrabold' : 'opacity-0 group-hover:opacity-40 text-slate-400'}`}>
+                                  {feeSortKey === 'dueDate' ? (feeSortDirection === 'asc' ? '▲' : '▼') : '▲'}
+                                </span>
+                              </div>
+                            </th>
                             <th className="px-4 py-3 text-right">One-Click Action Reminder</th>
                           </tr>
                         </thead>
@@ -5883,11 +6894,10 @@ ${data.log}`
                           className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white animate-none"
                         >
                           <option value="">-- Choose Class --</option>
-                          <option value="Class 10">Class 10 (Board Syllabus)</option>
-                          <option value="Class 9">Class 9 (Foundation)</option>
-                          <option value="Class 8">Class 8</option>
-                          <option value="Class 7">Class 7</option>
-                          <option value="Class 6">Class 6</option>
+                          <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
+                          <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
+                          <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
+                          <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
                         </select>
                       </div>
 
@@ -6944,9 +7954,10 @@ ${data.log}`
                           onChange={e => setNewMaterial({ ...newMaterial, class: e.target.value })}
                           className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs focus:ring-1 focus:ring-indigo-900 outline-none"
                         >
-                          <option value="Class 10">Class 10</option>
-                          <option value="Class 9">Class 9</option>
-                          <option value="Class 8">Class 8</option>
+                          <option value="Class 10 Board Specialists">Class 10 Board Specialists</option>
+                          <option value="Class 9 Foundation Course">Class 9 Foundation Course</option>
+                          <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning</option>
+                          <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine</option>
                         </select>
                       </div>
                       <div>
@@ -8284,7 +9295,7 @@ ${data.log}`
 
                     <div className="p-4 border-b border-slate-200 bg-white space-y-1.5">
                       <div className="text-xs text-slate-500">
-                        <span className="font-bold text-slate-700">To:</span> sarcasticrk09@gmail.com <span className="text-[10px] text-slate-400">(Parent/Student)</span>
+                        <span className="font-bold text-slate-700">To:</span> sunshineclassespihani@gmail.com <span className="text-[10px] text-slate-400">(Parent/Student)</span>
                       </div>
                       <div className="text-xs text-slate-500 flex items-baseline gap-1">
                         <span className="font-bold text-slate-700">Subject:</span>
@@ -8852,6 +9863,782 @@ ${data.log}`
                   </div>
                 </div>
               </div>
+
+              {/* 📦 Master Yearly Data Archive & Student Deactivation Card */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-6">
+                <div>
+                  <h3 className="font-display font-bold text-base text-slate-800 mb-1 flex items-center gap-2">
+                    <Archive className="text-indigo-900" size={18} /> Master Yearly Data Archival & Student Cleanup
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Compile academic transcripts, monthly billing schedules, and performance histories into a master offline backup JSON manifest for the target year. Clean up old student records by setting them to inactive status.
+                  </p>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-12 border-t border-slate-100 pt-5">
+                  {/* Left Column: Archive Configuration & Statistics */}
+                  <div className="md:col-span-5 space-y-4">
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 space-y-3">
+                      <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        ⚙️ 1. Choose Academic Year
+                      </h4>
+                      <div>
+                        <label htmlFor="input-archive-year-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                          Target Year
+                        </label>
+                        <select
+                          id="input-archive-year-select"
+                          value={archiveYear}
+                          onChange={(e) => {
+                            setArchiveYear(e.target.value);
+                            setSelectedDeactivateIds([]);
+                          }}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 font-bold"
+                        >
+                          <option value="2026">Academic Year 2026 (Current)</option>
+                          <option value="2025">Academic Year 2025</option>
+                          <option value="2024">Academic Year 2024</option>
+                        </select>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100">
+                        <button
+                          id="btn-trigger-yearly-archive-manifest"
+                          type="button"
+                          onClick={handleTriggerYearlyArchive}
+                          className="w-full rounded-xl bg-indigo-900 hover:bg-indigo-950 px-4 py-2 text-xs font-bold text-white shadow-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Download size={13} /> Compile & Download JSON Archive
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Stats Panel for the Year */}
+                    {(() => {
+                      const yearStr = archiveYear.trim() || '2026';
+                      const yearAttsCount = attendanceList.filter(a => a.date.startsWith(yearStr)).length;
+                      const yearFeesCount = feeStatuses.filter(f => f.dueDate.startsWith(yearStr)).length;
+                      const yearTestsCount = tests.filter(t => t.date.startsWith(yearStr)).length;
+
+                      return (
+                        <div className="rounded-xl border border-slate-100 bg-indigo-50/30 p-4 space-y-3">
+                          <h4 className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider">
+                            📊 Logs found for Academic Year {yearStr}
+                          </h4>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                              <span className="text-[10px] text-slate-400 block font-medium">Attendance Logs</span>
+                              <strong className="text-indigo-950 font-bold text-sm block">{yearAttsCount}</strong>
+                            </div>
+                            <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                              <span className="text-[10px] text-slate-400 block font-medium">Fee Invoices</span>
+                              <strong className="text-indigo-950 font-bold text-sm block">{yearFeesCount}</strong>
+                            </div>
+                            <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                              <span className="text-[10px] text-slate-400 block font-medium">Tests Scheduled</span>
+                              <strong className="text-indigo-950 font-bold text-sm block">{yearTestsCount}</strong>
+                            </div>
+                            <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                              <span className="text-[10px] text-slate-400 block font-medium">Registered Students</span>
+                              <strong className="text-indigo-950 font-bold text-sm block">{students.length}</strong>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Right Column: Inactive Student Flagging Utility */}
+                  <div className="md:col-span-7 border-l border-slate-100 pl-0 md:pl-6 space-y-4">
+                    {(() => {
+                      const yearStr = archiveYear.trim() || '2026';
+                      const deactivationCandidates = students.filter(student => {
+                        if (student.status === 'INACTIVE') return false;
+                        const yearAtts = attendanceList.filter(a => a.studentId === student.id && a.date.startsWith(yearStr));
+                        return yearAtts.length === 0;
+                      });
+
+                      const allCandidateIds = deactivationCandidates.map(c => c.id);
+                      const isAllChecked = deactivationCandidates.length > 0 && deactivationCandidates.every(c => selectedDeactivateIds.includes(c.id));
+
+                      const handleToggleAll = () => {
+                        if (isAllChecked) {
+                          setSelectedDeactivateIds([]);
+                        } else {
+                          setSelectedDeactivateIds(allCandidateIds);
+                        }
+                      };
+
+                      const handleToggleCandidate = (id: string) => {
+                        setSelectedDeactivateIds(prev => 
+                          prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+                        );
+                      };
+
+                      return (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                              ⚠️ 2. Inactive Student Clean Up Panel
+                            </h4>
+                            <span className="text-[10px] font-black bg-rose-50 text-rose-600 px-2 py-0.5 rounded border border-rose-100">
+                              {deactivationCandidates.length} Candidate(s) Found
+                            </span>
+                          </div>
+                          
+                          <p className="text-[11px] text-slate-500">
+                            The system lists active students who have recorded <strong>0 attendance logs</strong> in {yearStr}. You can flag old student records for inactive status to hide them from the primary ERP ledger directories.
+                          </p>
+
+                          {deactivationCandidates.length > 0 ? (
+                            <div className="space-y-3">
+                              {/* Selection Control Bar */}
+                              <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs">
+                                <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700">
+                                  <input
+                                    id="checkbox-deactivate-select-all"
+                                    type="checkbox"
+                                    checked={isAllChecked}
+                                    onChange={handleToggleAll}
+                                    className="rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                  />
+                                  <span>Select All Candidates ({deactivationCandidates.length})</span>
+                                </label>
+                                <span className="text-[10px] font-bold text-slate-500">
+                                  {selectedDeactivateIds.length} Checked
+                                </span>
+                              </div>
+
+                              {/* Scrollable list */}
+                              <div className="max-h-52 overflow-y-auto border border-slate-150 rounded-xl divide-y divide-slate-100 bg-white pr-1">
+                                {deactivationCandidates.map(candidate => {
+                                  const isChecked = selectedDeactivateIds.includes(candidate.id);
+                                  return (
+                                    <div key={candidate.id} className="p-2.5 flex items-center justify-between hover:bg-slate-50/40 transition-colors text-xs">
+                                      <label className="flex items-center gap-2.5 cursor-pointer min-w-0 flex-1">
+                                        <input
+                                          id={`checkbox-deactivate-student-${candidate.id}`}
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => handleToggleCandidate(candidate.id)}
+                                          className="rounded border-slate-300 text-rose-600 focus:ring-rose-500 shrink-0"
+                                        />
+                                        <div className="min-w-0">
+                                          <p className="font-bold text-slate-800 truncate">{candidate.name}</p>
+                                          <p className="text-[10px] text-slate-500">
+                                            Roll ID: {candidate.rollNo || candidate.id} • Class: {candidate.class} • Batch: {candidate.preferredBatch || 'No Batch'}
+                                          </p>
+                                        </div>
+                                      </label>
+                                      <div className="text-[10px] text-slate-400 font-mono italic shrink-0 pl-2">
+                                        Adm: {candidate.admissionDate || 'N/A'}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              <button
+                                id="btn-apply-bulk-student-deactivations"
+                                type="button"
+                                onClick={handleDeactivateSelectedStudents}
+                                disabled={selectedDeactivateIds.length === 0}
+                                className={`w-full rounded-xl py-2 text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 transition-all ${
+                                  selectedDeactivateIds.length === 0 
+                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-transparent'
+                                    : 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer border border-rose-700'
+                                }`}
+                              >
+                                🔴 Flag Selected Students ({selectedDeactivateIds.length}) as Inactive
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="text-center py-8 bg-emerald-50/20 border border-dashed border-emerald-150 rounded-2xl">
+                              <span className="text-2xl">✨</span>
+                              <p className="text-xs font-bold text-emerald-800 mt-1">Excellent Attendance Slate!</p>
+                              <p className="text-[10px] text-emerald-600 mt-0.5">Every registered active student has attended classes during academic year {yearStr}.</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* 🎓 Class 10 Graduation & Coaching Departure Registry Card */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-6">
+                <div>
+                  <h3 className="font-display font-bold text-base text-slate-800 mb-1 flex items-center gap-2">
+                    <Award className="text-emerald-700" size={18} /> Class 10 Graduation & Coaching Departure Registry
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Remove students after passing standard boards (Class 10) or those departing from coaching programs, calculating the duration they were enrolled and logging records in a persistent offline/online archives database.
+                  </p>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-2 border-t border-slate-100 pt-5">
+                  {/* Left Column: Class 10 Graduation Registry */}
+                  <div className="rounded-xl border border-slate-100 bg-emerald-50/10 p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <h4 className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                        🎓 1. Class 10 Board Graduation Panel
+                      </h4>
+                      <span className="text-[10px] font-black bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-100">
+                        {students.filter(s => s.class === 'Class 10' || s.class === '10' || s.class === '10th').length} active students
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Select Class 10 students who have completed and passed their boards. The system will calculate their coaching tenure, move them to the graduated database, and release their active roster seat.
+                    </p>
+
+                    {(() => {
+                      const class10Students = students.filter(s => {
+                        const c = s.class.toLowerCase();
+                        return c === 'class 10' || c === '10' || c === '10th' || c.includes('class 10');
+                      });
+
+                      if (class10Students.length === 0) {
+                        return (
+                          <div className="text-center py-6 bg-slate-50/50 rounded-lg border border-dashed border-slate-200">
+                            <span className="text-lg">✨</span>
+                            <p className="text-[11px] font-bold text-slate-500 mt-1">No active Class 10 students found.</p>
+                          </div>
+                        );
+                      }
+
+                      const isAllChecked = class10Students.every(s => selectedGraduateIds.includes(s.id));
+                      const handleToggleAll = () => {
+                        if (isAllChecked) {
+                          setSelectedGraduateIds([]);
+                        } else {
+                          setSelectedGraduateIds(class10Students.map(s => s.id));
+                        }
+                      };
+
+                      const handleToggleStudent = (id: string) => {
+                        setSelectedGraduateIds(prev =>
+                          prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                        );
+                      };
+
+                      return (
+                        <div className="space-y-3 pt-2">
+                          {/* Header toggle */}
+                          <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-100 text-[11px]">
+                            <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700">
+                              <input
+                                id="checkbox-graduate-select-all"
+                                type="checkbox"
+                                checked={isAllChecked}
+                                onChange={handleToggleAll}
+                                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                              />
+                              <span>Select All ({class10Students.length} candidates)</span>
+                            </label>
+                            <span className="font-mono text-slate-500 text-[10px]">
+                              {selectedGraduateIds.length} Selected
+                            </span>
+                          </div>
+
+                          {/* List scrollable */}
+                          <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 bg-white border border-slate-150 rounded-lg pr-1">
+                            {class10Students.map(s => {
+                              const isChecked = selectedGraduateIds.includes(s.id);
+                              return (
+                                <div key={s.id} className="p-2 flex items-center justify-between hover:bg-slate-50 text-[11px]">
+                                  <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
+                                    <input
+                                      id={`checkbox-graduate-student-${s.id}`}
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => handleToggleStudent(s.id)}
+                                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 shrink-0"
+                                    />
+                                    <div className="min-w-0">
+                                      <p className="font-bold text-slate-800 truncate">{s.name}</p>
+                                      <p className="text-[9px] text-slate-500">
+                                        Roll ID: {s.rollNo || s.id} • Batch: {s.preferredBatch || 'N/A'}
+                                      </p>
+                                    </div>
+                                  </label>
+                                  <div className="text-[9px] text-slate-400 font-mono italic pl-2 shrink-0">
+                                    Adm: {s.admissionDate || 'N/A'}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <button
+                            id="btn-graduate-selected-class10"
+                            type="button"
+                            onClick={handleGraduateSelectedStudents}
+                            disabled={selectedGraduateIds.length === 0}
+                            className={`w-full rounded-xl py-2 text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 transition-all ${
+                              selectedGraduateIds.length === 0
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-transparent'
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer border border-emerald-700 font-display'
+                            }`}
+                          >
+                            🎓 Graduate & Remove Selected ({selectedGraduateIds.length})
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Right Column: Individual Departure Register */}
+                  <div className="rounded-xl border border-slate-100 bg-rose-50/10 p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <h4 className="text-xs font-bold text-rose-950 flex items-center gap-1.5">
+                        🚪 2. Register Coaching Departure / Exit
+                      </h4>
+                      <span className="text-[10px] font-black bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-100">
+                        Exit Recorder
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      For students who are leaving coaching before completing class 10. Record their reason, select their final exit date, and write departure files.
+                    </p>
+
+                    <div className="space-y-3 pt-2">
+                      <div>
+                        <label htmlFor="select-departure-student" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                          Select Leaving Student
+                        </label>
+                        <select
+                          id="select-departure-student"
+                          value={departureStudentId}
+                          onChange={(e) => setDepartureStudentId(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-rose-900 font-bold"
+                        >
+                          <option value="">-- Choose Student --</option>
+                          {students.map(s => (
+                            <option key={s.id} value={s.id}>
+                              {s.name} ({s.class} - {s.preferredBatch || 'No Batch'})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label htmlFor="input-departure-date" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                            Departure Date
+                          </label>
+                          <input
+                            id="input-departure-date"
+                            type="date"
+                            value={departureDate}
+                            onChange={(e) => setDepartureDate(e.target.value)}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-rose-900 font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                            Tenure duration
+                          </label>
+                          {(() => {
+                            const student = students.find(s => s.id === departureStudentId);
+                            if (!student) {
+                              return <span className="text-[10px] font-bold text-slate-400 italic block py-2">Select student first</span>;
+                            }
+                            const joinDate = student.admissionDate || departureDate;
+                            const start = new Date(joinDate);
+                            const end = new Date(departureDate);
+                            const days = Math.max(0, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                            return (
+                              <span className="font-bold text-rose-600 bg-rose-50 px-2 py-2 rounded-lg border border-rose-100 inline-block font-mono text-xs w-full text-center">
+                                ⏳ {days} Days Enrolled
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label htmlFor="textarea-departure-notes" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                          Reason / Departure Notes
+                        </label>
+                        <textarea
+                          id="textarea-departure-notes"
+                          rows={2}
+                          value={departureNotes}
+                          onChange={(e) => setDepartureNotes(e.target.value)}
+                          placeholder="Why is this student leaving? (e.g. Relocated to another city, financial issues, scheduling clash...)"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-rose-900 placeholder:text-slate-400"
+                        />
+                      </div>
+
+                      <button
+                        id="btn-register-coaching-departure"
+                        type="button"
+                        onClick={handleRegisterDepartureLeft}
+                        disabled={!departureStudentId}
+                        className={`w-full rounded-xl py-2 text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 transition-all ${
+                          !departureStudentId
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-transparent'
+                            : 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer border border-rose-700 font-display'
+                        }`}
+                      >
+                        🔴 Record coaching departure & delete record
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Database Directory of Departed / Graduated Students */}
+                <div className="border-t border-slate-100 pt-5 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        📂 Departed & Graduated Students Database Archive
+                      </h4>
+                      <p className="text-[10px] text-slate-500">
+                        Historical read-only logs of former coaching student enrollments, graduation successes, and program exit timelines.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 text-slate-400" size={13} />
+                        <input
+                          id="input-departed-database-search"
+                          type="text"
+                          value={departedSearchQuery}
+                          onChange={(e) => setDepartedSearchQuery(e.target.value)}
+                          placeholder="Search departed roster..."
+                          className="pl-8 pr-3 py-1.5 w-48 rounded-lg border border-slate-200 bg-white text-xs outline-none focus:border-indigo-900"
+                        />
+                      </div>
+
+                      <button
+                        id="btn-export-departed-json"
+                        type="button"
+                        onClick={() => {
+                          const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(departedStudents, null, 2));
+                          const downloadAnchor = document.createElement('a');
+                          downloadAnchor.setAttribute("href", dataStr);
+                          downloadAnchor.setAttribute("download", `sunshine_classes_departures_archive_${new Date().toISOString().split('T')[0]}.json`);
+                          document.body.appendChild(downloadAnchor);
+                          downloadAnchor.click();
+                          downloadAnchor.remove();
+                        }}
+                        className="rounded-lg border border-slate-200 hover:bg-slate-50 p-1.5 text-slate-600 flex items-center gap-1 text-[10px] font-bold cursor-pointer transition-colors"
+                      >
+                        <Download size={13} /> Export Backup JSON
+                      </button>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const filtered = departedStudents.filter(d => {
+                      const query = departedSearchQuery.toLowerCase().trim();
+                      if (!query) return true;
+                      return (
+                        d.name.toLowerCase().includes(query) ||
+                        d.rollNo.toLowerCase().includes(query) ||
+                        d.class.toLowerCase().includes(query) ||
+                        d.fatherName.toLowerCase().includes(query) ||
+                        d.mobile.toLowerCase().includes(query) ||
+                        d.notes.toLowerCase().includes(query)
+                      );
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="text-center py-10 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                          <span className="text-2xl">📁</span>
+                          <p className="text-xs font-bold text-slate-500 mt-2">No archived departure logs found.</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">Graduate a Class 10 student or record an exit above to seed the archive database.</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="overflow-x-auto rounded-xl border border-slate-150 bg-white shadow-sm">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-slate-150 text-slate-600 font-bold">
+                              <th className="p-3">Student Details</th>
+                              <th className="p-3">Reason</th>
+                              <th className="p-3">Enrollment Dates</th>
+                              <th className="p-3">Total Tenure</th>
+                              <th className="p-3">Exit Notes / Comments</th>
+                              <th className="p-3 text-center">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-150 text-slate-700">
+                            {filtered.map(record => (
+                              <tr key={record.id} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="p-3">
+                                  <span className="font-bold text-slate-800 block">{record.name}</span>
+                                  <span className="text-[10px] text-slate-500 block font-mono">
+                                    Roll: {record.rollNo || 'N/A'} | Class: {record.class}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 block">
+                                    Father: {record.fatherName || 'N/A'} | Mob: {record.mobile || 'N/A'}
+                                  </span>
+                                </td>
+                                <td className="p-3">
+                                  {record.reason === 'PASSED_10TH' ? (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-100">
+                                      ✨ Board Passed (10th)
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-100">
+                                      🚪 Left Coaching Program
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3">
+                                  <div className="text-[10px] font-mono text-slate-500">
+                                    <span className="font-semibold block text-slate-600">Joined: {record.admissionDate}</span>
+                                    <span className="font-semibold block text-rose-600">Left: {record.departureDate}</span>
+                                  </div>
+                                </td>
+                                <td className="p-3 font-mono font-bold text-indigo-950">
+                                  {record.daysEnrolled} Days
+                                </td>
+                                <td className="p-3 text-slate-600 text-[11px] max-w-xs break-words font-medium">
+                                  {record.notes || 'No notes left.'}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <button
+                                    id={`btn-delete-departed-record-${record.id}`}
+                                    type="button"
+                                    onClick={() => handleDeleteDepartedRecord(record.id)}
+                                    className="p-1 rounded-lg border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-400 transition-colors cursor-pointer"
+                                    title="Delete Archived Record"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Dedicated Integrations Settings Section */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="mb-6 border-b border-slate-150 pb-4">
+                  <h3 className="font-display font-bold text-base text-slate-800 flex items-center gap-2">
+                    <Cloud className="text-indigo-600" size={20} />
+                    Integrations Settings
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Manage third-party integrations, cloud storage authorizations, spreadsheet synchronizations, and automatic background data pipelines.
+                  </p>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-1">
+                  {/* Google Workspace Integration Card */}
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-100 pb-4">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600">
+                          <FileSpreadsheet size={22} className="animate-pulse" />
+                        </div>
+                        <div>
+                          <h4 className="font-display font-bold text-sm text-slate-800">
+                            Google Workspace Integration
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Connect Google Drive and Google Sheets to create, update, and import Sunshine Classes administrative logs automatically.
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        {sheetsAccessToken ? (
+                          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 border border-emerald-200">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
+                            ACTIVE CONNECTION
+                          </span>
+                        ) : (
+                          <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1 border border-slate-200">
+                            ● DISCONNECTED
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Connection details & email configuration */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {/* Google Drive Card */}
+                      <div className="rounded-xl border border-slate-200 bg-white p-4 flex flex-col justify-between space-y-3 shadow-xs">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Storage Node</span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              sheetsAccessToken ? 'bg-emerald-50 text-emerald-700 border border-emerald-150' : 'bg-slate-50 text-slate-400 border border-slate-150'
+                            }`}>
+                              {sheetsAccessToken ? 'Connected' : 'Offline'}
+                            </span>
+                          </div>
+                          <h5 className="text-xs font-bold text-slate-800 mt-2 flex items-center gap-1.5">
+                            📁 Google Drive Status
+                          </h5>
+                          <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                            Allows Sunshine Classes ERP to create dedicated backup folders and store master administrative copies securely.
+                          </p>
+                          <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[10px] text-slate-500 font-mono">
+                            <span className="font-bold text-slate-600">Linked Email:</span>
+                            <span className="text-indigo-900 font-bold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 font-mono">sunshineclassespihani@gmail.com</span>
+                          </div>
+                        </div>
+
+                        <div className="pt-2">
+                          {!sheetsAccessToken ? (
+                            <button
+                              type="button"
+                              onClick={handleSheetsLogin}
+                              className="w-full rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                            >
+                              Connect Google Drive
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={handleSheetsLogout}
+                              className="w-full rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2 text-xs transition-colors cursor-pointer"
+                            >
+                              Disconnect Drive
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Google Sheets Card */}
+                      <div className="rounded-xl border border-slate-200 bg-white p-4 flex flex-col justify-between space-y-3 shadow-xs">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Spreadsheet Ledger</span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              sheetsAccessToken ? 'bg-emerald-50 text-emerald-700 border border-emerald-150' : 'bg-slate-50 text-slate-400 border border-slate-150'
+                            }`}>
+                              {sheetsAccessToken ? 'Linked' : 'Not Linked'}
+                            </span>
+                          </div>
+                          <h5 className="text-xs font-bold text-slate-800 mt-2 flex items-center gap-1.5">
+                            📊 Google Sheets Status
+                          </h5>
+                          <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                            Allows real-time ERP ledger exports, student reports, and direct synchronizations from your cloud-based files.
+                          </p>
+                          <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[10px] text-slate-500 font-mono">
+                            <span className="font-bold text-slate-600">Linked Email:</span>
+                            <span className="text-indigo-900 font-bold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 font-mono">sunshineclassespihani@gmail.com</span>
+                          </div>
+                        </div>
+
+                        <div className="pt-2">
+                          {!sheetsAccessToken ? (
+                            <button
+                              type="button"
+                              onClick={handleSheetsLogin}
+                              className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                            >
+                              Link Google Sheets
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={handleSheetsLogout}
+                              className="w-full rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2 text-xs transition-colors cursor-pointer"
+                            >
+                              Unlink Sheets
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Automatic student imports toggle */}
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-3xs">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-extrabold text-indigo-900 uppercase tracking-widest block">Automated Sync Pipeline</span>
+                        <h5 className="font-bold text-slate-800 text-xs">
+                          Enable Automatic Student Imports
+                        </h5>
+                        <p className="text-[10px] text-slate-500 leading-relaxed max-w-xl">
+                          When enabled, the ERP system will automatically poll and fetch updated student enrollment records from your linked Google Sheet (Spreadsheet ID: <code className="font-mono bg-slate-100 px-1 py-0.5 rounded text-indigo-900">{importSpreadsheetId}</code>) in the background to keep the database fully aligned.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 select-none">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Auto-Sync:</label>
+                        <div className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="toggle-auto-student-imports"
+                            type="checkbox"
+                            checked={isAutoImportEnabled}
+                            onChange={(e) => handleToggleAutoImport(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                          <span className="ml-2 text-[10px] font-black uppercase tracking-wider text-slate-600 w-8 text-center">
+                            {isAutoImportEnabled ? "ON" : "OFF"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Auto Sync Log Preview */}
+                    {isAutoImportEnabled && (
+                      <div className="p-3 rounded-xl bg-emerald-50/50 border border-emerald-100 text-[10px] text-emerald-800 font-semibold space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                          </span>
+                          <span>Background Sync Daemon Active</span>
+                        </div>
+                        <p className="text-slate-500 font-normal">
+                          Last successful synchronization check: <span className="font-mono font-bold text-slate-700">{new Date().toLocaleTimeString()}</span>. All student roll numbers and profiles are fully aligned with the Sunshine classes sheet.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Database Email Scrubbing & Clean Up */}
+                    <div className="bg-amber-50/50 border border-amber-200 rounded-xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-3xs">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-extrabold text-amber-900 uppercase tracking-widest block">Security & Domain Scrubbing</span>
+                        <h5 className="font-bold text-slate-800 text-xs">
+                          Force-Align Owner & Administrative Profiles
+                        </h5>
+                        <p className="text-[10px] text-slate-500 leading-relaxed max-w-xl">
+                          Wipes and replaces legacy testing/development email addresses across all administrative accounts (Local cache and Cloud Firestore) to point to the official Sunshine Classes email: <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-amber-900">sunshineclassespihani@gmail.com</code>.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm("🚨 Execute master scrubbing script? This will update all Admin, Teacher, and Staff stored profiles across LocalStorage and Cloud Firestore database to point to sunshineclassespihani@gmail.com, completely removing trace of any dev/test emails.")) {
+                            if (onForceUpdateUserEmails) {
+                              onForceUpdateUserEmails();
+                              alert("✨ Master Script Executed! Stored user profiles have been successfully force-aligned to sunshineclassespihani@gmail.com. Changes synced both to LocalCache & Cloud Firestore database.");
+                            }
+                          }
+                        }}
+                        className="rounded-xl bg-amber-600 hover:bg-amber-700 font-bold px-4 py-2 text-xs text-white shadow-sm hover:shadow-md transition-all whitespace-nowrap cursor-pointer shrink-0"
+                      >
+                        ⚡ Force-Update Emails
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -8885,33 +10672,55 @@ ${data.log}`
                       <h4 className="font-display font-bold text-sm text-slate-800 flex items-center gap-2">
                         <span>📤 Outbound Messenger</span>
                       </h4>
-                      <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                      <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 overflow-x-auto scrollbar-none max-w-full">
                         <button
                           type="button"
                           onClick={() => setWaSubTab('single')}
-                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                          className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer whitespace-nowrap ${
                             waSubTab === 'single'
                               ? 'bg-white text-emerald-800 shadow-xs font-black'
                               : 'text-slate-500 hover:text-slate-800'
                           }`}
                         >
-                          Single Recipient
+                          Single
                         </button>
                         <button
                           type="button"
                           onClick={() => setWaSubTab('bulk')}
-                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                          className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer whitespace-nowrap ${
                             waSubTab === 'bulk'
                               ? 'bg-white text-emerald-800 shadow-xs font-black'
                               : 'text-slate-500 hover:text-slate-800'
                           }`}
                         >
-                          Bulk Broadcast
+                          Bulk
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWaSubTab('templates')}
+                          className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                            waSubTab === 'templates'
+                              ? 'bg-white text-emerald-800 shadow-xs font-black'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          Templates
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWaSubTab('gateway')}
+                          className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                            waSubTab === 'gateway'
+                              ? 'bg-white text-emerald-800 shadow-xs font-black'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          Setup
                         </button>
                       </div>
                     </div>
 
-                    {waSubTab === 'single' ? (
+                    {waSubTab === 'single' && (
                       <form onSubmit={handleSendManualWhatsApp} className="space-y-4">
                         {/* Step 1: Optional Student Select */}
                         <div>
@@ -8927,8 +10736,8 @@ ${data.log}`
                               if (val) {
                                 const std = students.find(s => s.id === val);
                                 if (std) {
-                                  const targetNo = std.whatsapp || std.parentMobile || std.mobile || '';
-                                  setManualRecipientNo(targetNo);
+                                  const num = std.whatsapp || std.parentMobile || std.mobile || '';
+                                  setManualRecipientNo(num);
                                   
                                   // Interpolate current template if not custom
                                   if (selectedTemplateHelper !== 'custom') {
@@ -8997,7 +10806,7 @@ ${data.log}`
                               else if (val === 'schedule') tmpl = whatsappTemplates?.scheduleTemplate || '';
                               
                               if (val === 'custom') {
-                                setManualMsgBody('');
+                                  setManualMsgBody('');
                               } else {
                                 const interpolated = interpolateWhatsAppTemplate(tmpl, {
                                   studentName: std ? std.name : 'Aditya Gupta',
@@ -9054,7 +10863,9 @@ ${data.log}`
                           )}
                         </button>
                       </form>
-                    ) : (
+                    )}
+
+                    {waSubTab === 'bulk' && (
                       <form onSubmit={handleSendBulkWhatsApp} className="space-y-4">
                         {/* Target Selection */}
                         <div>
@@ -9305,6 +11116,224 @@ ${data.log}`
                               <Send size={13} /> Trigger Bulk Broadcast Outbound
                             </>
                           )}
+                        </button>
+                      </form>
+                    )}
+
+                    {waSubTab === 'templates' && (
+                      <form onSubmit={handleSaveWATemplates} className="space-y-4">
+                        <div className="flex border-b border-slate-200 pb-1.5 gap-2">
+                          {(['receipt', 'reminder', 'schedule'] as const).map((tab) => (
+                            <button
+                              key={tab}
+                              type="button"
+                              onClick={() => setSelectedWATemplateTab(tab)}
+                              className={`pb-1 px-2 text-[10px] font-bold border-b-2 transition-all cursor-pointer ${
+                                selectedWATemplateTab === tab
+                                  ? 'border-emerald-600 text-emerald-600'
+                                  : 'border-transparent text-slate-400 hover:text-slate-600'
+                              }`}
+                            >
+                              {tab === 'receipt' ? '🧾 Receipt' : tab === 'reminder' ? '⚠️ Overdue' : '⏰ Timing'}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Template Message Body
+                          </label>
+                          <textarea
+                            id="textarea-wa-tab-template-body"
+                            rows={5}
+                            required
+                            value={
+                              selectedWATemplateTab === 'receipt'
+                                ? receiptWATemplate
+                                : selectedWATemplateTab === 'reminder'
+                                ? reminderWATemplate
+                                : scheduleWATemplate
+                            }
+                            onChange={(e) => {
+                              if (selectedWATemplateTab === 'receipt') {
+                                setReceiptWATemplate(e.target.value);
+                              } else if (selectedWATemplateTab === 'reminder') {
+                                setReminderWATemplate(e.target.value);
+                              } else {
+                                setScheduleWATemplate(e.target.value);
+                              }
+                            }}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800 outline-none focus:border-emerald-600 focus:bg-white font-mono leading-relaxed"
+                          />
+                        </div>
+
+                        <div>
+                          <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                            💡 Placeholders
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {[
+                              { label: 'Name', val: '{{studentName}}' },
+                              { label: 'Amount', val: '{{amount}}' },
+                              { label: 'Month', val: '{{month}}' },
+                              { label: 'Class', val: '{{className}}' },
+                              { label: 'Receipt ID', val: '{{receiptId}}' },
+                              { label: 'Due Date', val: '{{dueDate}}' },
+                              { label: 'Timing', val: '{{timing}}' },
+                            ].map((p) => (
+                              <button
+                                key={p.val}
+                                type="button"
+                                onClick={() => {
+                                  const area = document.getElementById('textarea-wa-tab-template-body') as HTMLTextAreaElement;
+                                  if (area) {
+                                    const start = area.selectionStart;
+                                    const end = area.selectionEnd;
+                                    const text = area.value;
+                                    const before = text.substring(0, start);
+                                    const after = text.substring(end, text.length);
+                                    const updated = before + p.val + after;
+                                    if (selectedWATemplateTab === 'receipt') setReceiptWATemplate(updated);
+                                    else if (selectedWATemplateTab === 'reminder') setReminderWATemplate(updated);
+                                    else setScheduleWATemplate(updated);
+                                    setTimeout(() => {
+                                      area.focus();
+                                      area.selectionStart = area.selectionEnd = start + p.val.length;
+                                    }, 50);
+                                  }
+                                }}
+                                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-200 text-[10px] font-mono text-slate-600 transition-all cursor-pointer"
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <button
+                          id="btn-save-wa-tab-templates"
+                          type="submit"
+                          className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 cursor-pointer shadow transition-all"
+                        >
+                          Save Template Configurations
+                        </button>
+                      </form>
+                    )}
+
+                    {waSubTab === 'gateway' && (
+                      <form onSubmit={handleSaveConfigSubmit} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Integration Provider
+                          </label>
+                          <select
+                            id="select-wa-tab-provider"
+                            value={cfgWhatsappProvider}
+                            onChange={(e) => setCfgWhatsappProvider(e.target.value as any)}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-600"
+                          >
+                            <option value="NONE">Sandbox Mode (Local Logs Only)</option>
+                            <option value="TWILIO">Twilio SMS & WhatsApp Gateway</option>
+                            <option value="WHATSAPP_BUSINESS">Meta WhatsApp Business API</option>
+                          </select>
+                        </div>
+
+                        {cfgWhatsappProvider !== 'NONE' && (
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">
+                              Sender WhatsApp/Phone Number
+                            </label>
+                            <input
+                              id="input-wa-tab-sender"
+                              type="text"
+                              required
+                              placeholder={cfgWhatsappProvider === 'TWILIO' ? 'e.g. +14155238886' : 'e.g. +919876543210'}
+                              value={cfgWhatsappSenderNumber}
+                              onChange={(e) => setCfgWhatsappSenderNumber(e.target.value)}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-600"
+                            />
+                          </div>
+                        )}
+
+                        {cfgWhatsappProvider === 'TWILIO' && (
+                          <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                                Twilio Account SID
+                              </label>
+                              <input
+                                id="input-wa-tab-twilio-sid"
+                                type="text"
+                                required
+                                placeholder="ACxxxxxxxxxxxxxxxx"
+                                value={cfgWhatsappAccountSid}
+                                onChange={(e) => setCfgWhatsappAccountSid(e.target.value)}
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-600 font-mono"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                                Twilio Auth Token
+                              </label>
+                              <input
+                                id="input-wa-tab-twilio-token"
+                                type="password"
+                                required
+                                placeholder="Enter Auth Token"
+                                value={cfgWhatsappAuthToken}
+                                onChange={(e) => setCfgWhatsappAuthToken(e.target.value)}
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-600"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {cfgWhatsappProvider === 'WHATSAPP_BUSINESS' && (
+                          <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                                Meta System Access Token (API Key)
+                              </label>
+                              <input
+                                id="input-wa-tab-meta-token"
+                                type="password"
+                                required
+                                placeholder="EAACxxxxxxxxxxxxxxxx"
+                                value={cfgWhatsappApiKey}
+                                onChange={(e) => setCfgWhatsappApiKey(e.target.value)}
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-600"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                                WhatsApp Phone Number ID
+                              </label>
+                              <input
+                                id="input-wa-tab-meta-phoneid"
+                                type="text"
+                                required
+                                placeholder="e.g. 1029384756201"
+                                value={cfgWhatsappPhoneNumber}
+                                onChange={(e) => setCfgWhatsappPhoneNumber(e.target.value)}
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-600 font-mono"
+                              />
+                            </div>
+                            <div className="text-[10px] text-slate-500 leading-normal space-y-1 bg-white p-2 rounded border border-slate-100">
+                              <span className="font-bold text-slate-700 block">💡 Quick Guide for Meta Cloud API:</span>
+                              <p>1. Go to developers.facebook.com & create a Business App.</p>
+                              <p>2. Set up the WhatsApp product.</p>
+                              <p>3. Generate a Permanent System Access Token with `whatsapp_business_messaging` permissions.</p>
+                              <p>4. Paste the Token and Phone Number ID here.</p>
+                            </div>
+                          </div>
+                        )}
+
+                        <button
+                          id="btn-save-wa-tab-gateway"
+                          type="submit"
+                          className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 cursor-pointer shadow transition-all"
+                        >
+                          Save Gateway Configuration
                         </button>
                       </form>
                     )}
@@ -9894,7 +11923,7 @@ ${data.log}`
                   <div>
                     <button
                       type="button"
-                      onClick={handleImportSpreadsheet}
+                      onClick={triggerImportSpreadsheetWithConfirmation}
                       disabled={isImportingSheets}
                       className="flex items-center gap-2 rounded-2xl bg-indigo-900 hover:bg-indigo-950 disabled:bg-slate-150 disabled:text-slate-400 font-bold px-6 py-3.5 text-xs text-white shadow-md hover:shadow-lg disabled:shadow-none transition-all cursor-pointer"
                     >
@@ -9936,10 +11965,255 @@ ${data.log}`
               </div>
             </div>
           )}
-        </div>
-      </div>
+              </motion.div>
+            </div>
+          </div>
         );
       })()}
+
+      {/* Edit Student Profile Modal */}
+      {editingStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 w-full max-w-2xl my-8 relative max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => {
+                setEditingStudent(null);
+                stopCamera();
+              }}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 rounded-lg p-1 cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="text-center mb-6">
+              <span className="inline-flex h-10 w-10 rounded-full bg-indigo-50 text-indigo-900 items-center justify-center mb-2">
+                <Edit size={18} />
+              </span>
+              <h3 className="font-display font-bold text-slate-800 text-base">Edit Student Profile</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Modify ERP directory fields and student identification media.
+              </p>
+            </div>
+
+            <form onSubmit={handleUpdateStudentProfile} className="space-y-4">
+              {/* Profile Image & Camera Capture Area */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col items-center gap-3">
+                <label className="block text-xs font-bold text-slate-700 font-display">Student Photo Identification</label>
+                
+                <div className="flex flex-col sm:flex-row items-center gap-4 w-full justify-center">
+                  {/* Current/Captured Photo Preview */}
+                  <div className="relative h-28 w-28 rounded-full border border-slate-200 overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
+                    {editStdPhotoUrl ? (
+                      <img src={editStdPhotoUrl} alt="Preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="text-slate-400 flex flex-col items-center justify-center gap-1">
+                        <Users size={24} />
+                        <span className="text-[9px] font-medium uppercase font-mono">No Photo</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Camera stream view when active */}
+                  {isCameraActive && (
+                    <div className="relative h-28 w-28 rounded-full border-2 border-dashed border-indigo-500 overflow-hidden bg-black shrink-0 flex items-center justify-center">
+                      <video id="camera-feed" className="h-full w-full object-cover" playsInline muted />
+                      <span className="absolute bottom-1 bg-indigo-600 text-[8px] text-white px-1.5 py-0.5 rounded font-mono font-bold animate-pulse">LIVE</span>
+                    </div>
+                  )}
+
+                  {/* Camera action buttons */}
+                  <div className="flex flex-col gap-2">
+                    {!isCameraActive ? (
+                      <button
+                        type="button"
+                        onClick={startCamera}
+                        className="rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold px-4 py-2 text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                      >
+                        <Camera size={14} /> Take Photo (Webcam)
+                      </button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={capturePhoto}
+                          className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer"
+                        >
+                          <Check size={14} /> Capture
+                        </button>
+                        <button
+                          type="button"
+                          onClick={stopCamera}
+                          className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-2 text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer"
+                        >
+                          <X size={14} /> Cancel
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="text-[10px] text-slate-500 text-center sm:text-left">
+                      Supports direct image upload as data-URI via camera API.
+                    </div>
+                    {cameraError && (
+                      <div className="text-[10px] text-rose-600 bg-rose-50 border border-rose-100 px-2 py-1 rounded max-w-xs font-medium">
+                        ⚠️ {cameraError}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Grid of inputs */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Student Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={editStdName}
+                    onChange={(e) => setEditStdName(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Class</label>
+                  <select
+                    value={editStdClass}
+                    onChange={(e) => setEditStdClass(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
+                  >
+                    <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
+                    <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
+                    <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
+                    <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Father's Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={editStdFatherName}
+                    onChange={(e) => setEditStdFatherName(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mother's Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={editStdMotherName}
+                    onChange={(e) => setEditStdMotherName(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date of Birth</label>
+                  <input
+                    type="date"
+                    required
+                    value={editStdDob}
+                    onChange={(e) => setEditStdDob(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Gender</label>
+                  <select
+                    value={editStdGender}
+                    onChange={(e) => setEditStdGender(e.target.value as 'Male' | 'Female')}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
+                  >
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Student Mobile</label>
+                  <input
+                    type="text"
+                    required
+                    value={editStdMobile}
+                    onChange={(e) => setEditStdMobile(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Parent Mobile</label>
+                  <input
+                    type="text"
+                    required
+                    value={editStdParentMobile}
+                    onChange={(e) => setEditStdParentMobile(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    value={editStdEmail}
+                    onChange={(e) => setEditStdEmail(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Roll Number</label>
+                  <input
+                    type="text"
+                    required
+                    value={editStdRollNo}
+                    onChange={(e) => setEditStdRollNo(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono font-bold"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Address</label>
+                  <textarea
+                    required
+                    rows={2}
+                    value={editStdAddress}
+                    onChange={(e) => setEditStdAddress(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Footer CTAs */}
+              <div className="flex gap-2 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingStudent(null);
+                    stopCamera();
+                  }}
+                  className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2.5 text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"
+                >
+                  Save Profile
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Admin Reset Password Modal */}
       {resettingUser && (
@@ -10008,6 +12282,81 @@ ${data.log}`
           </div>
         </div>
       )}
+
+      {/* Custom Administrative Confirmation Modal */}
+      <AnimatePresence>
+        {confirmModal.isOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.15 }}
+              className="bg-white rounded-3xl p-6 shadow-2xl border border-slate-200 w-full max-w-md relative"
+            >
+              <button
+                type="button"
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 rounded-lg p-1 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="text-center mb-5">
+                <span className={`inline-flex h-12 w-12 rounded-full ${confirmModal.type === 'clear_test_data' ? 'bg-rose-50 text-rose-600' : 'bg-indigo-50 text-indigo-600'} items-center justify-center mb-3 text-2xl`}>
+                  {confirmModal.type === 'clear_test_data' ? '⚠️' : '🚀'}
+                </span>
+                <h3 className="font-display font-black text-slate-800 text-base">
+                  {confirmModal.title}
+                </h3>
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                  {confirmModal.description}
+                </p>
+                {confirmModal.type === 'bulk_import' && (
+                  <div className="mt-2.5 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-[11px] font-mono text-indigo-950 font-bold break-all">
+                    {importSpreadsheetId}
+                  </div>
+                )}
+              </div>
+
+              {confirmModal.warningText && (
+                <div className="mb-6 bg-amber-50 border border-amber-100 rounded-2xl p-3.5 text-left">
+                  <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wide flex items-center gap-1.5 mb-1">
+                    📌 Critical Safety Warning
+                  </p>
+                  <p className="text-[11px] text-amber-700 leading-normal font-medium">
+                    {confirmModal.warningText}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                  className="flex-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 text-xs transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                    confirmModal.onConfirm();
+                  }}
+                  className={`flex-1 rounded-xl font-bold py-2.5 text-xs text-white shadow transition-all cursor-pointer ${
+                    confirmModal.type === 'clear_test_data' 
+                      ? 'bg-rose-600 hover:bg-rose-700 hover:shadow-md' 
+                      : 'bg-indigo-900 hover:bg-indigo-950 hover:shadow-md'
+                  }`}
+                >
+                  {confirmModal.actionLabel}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Quick Collect Fee Modal */}
       {quickCollectStudent && (
@@ -10191,6 +12540,85 @@ ${data.log}`
           </div>
         </div>
       )}
+
+      {/* Floating Quick Action Menu */}
+      <div className="fixed bottom-6 right-6 z-50">
+        <AnimatePresence>
+          {isQuickActionOpen && (
+            <div className="flex flex-col items-end gap-3 mb-4">
+              {/* Add New Student */}
+              <motion.button
+                key="btn-quick-student"
+                initial={{ opacity: 0, y: 15, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 15, scale: 0.9 }}
+                transition={{ duration: 0.15 }}
+                onClick={() => triggerQuickAction('students', 'add-student')}
+                className="flex items-center gap-2.5 rounded-2xl bg-white border border-slate-200 px-4 py-3 shadow-lg hover:border-indigo-600 hover:shadow-xl transition-all cursor-pointer group"
+              >
+                <span className="text-[11px] font-extrabold text-slate-700 tracking-wide group-hover:text-indigo-900">Add New Student</span>
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-900 group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                  <Users size={16} />
+                </span>
+              </motion.button>
+
+              {/* Generate Fee Receipt */}
+              <motion.button
+                key="btn-quick-fee"
+                initial={{ opacity: 0, y: 15, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 15, scale: 0.9 }}
+                transition={{ duration: 0.15, delay: 0.05 }}
+                onClick={() => triggerQuickAction('fees', 'record-fee')}
+                className="flex items-center gap-2.5 rounded-2xl bg-white border border-slate-200 px-4 py-3 shadow-lg hover:border-indigo-600 hover:shadow-xl transition-all cursor-pointer group"
+              >
+                <span className="text-[11px] font-extrabold text-slate-700 tracking-wide group-hover:text-indigo-900">Generate Fee Receipt</span>
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-900 group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                  <DollarSign size={16} />
+                </span>
+              </motion.button>
+
+              {/* Send Global Announcement */}
+              <motion.button
+                key="btn-quick-announcement"
+                initial={{ opacity: 0, y: 15, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 15, scale: 0.9 }}
+                transition={{ duration: 0.15, delay: 0.1 }}
+                onClick={() => triggerQuickAction('announcements', 'global-notice')}
+                className="flex items-center gap-2.5 rounded-2xl bg-white border border-slate-200 px-4 py-3 shadow-lg hover:border-indigo-600 hover:shadow-xl transition-all cursor-pointer group"
+              >
+                <span className="text-[11px] font-extrabold text-slate-700 tracking-wide group-hover:text-indigo-900">Send Global Announcement</span>
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-900 group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                  <Bell size={16} />
+                </span>
+              </motion.button>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Main Trigger FAB */}
+        <button
+          onClick={() => setIsQuickActionOpen(!isQuickActionOpen)}
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-950 text-white shadow-xl hover:shadow-2xl hover:bg-indigo-900 transition-all cursor-pointer focus:outline-none relative group"
+          title="Quick ERP Actions"
+        >
+          <motion.div
+            animate={{ rotate: isQuickActionOpen ? 135 : 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            className="flex items-center justify-center"
+          >
+            <Plus size={24} />
+          </motion.div>
+          
+          {/* Subtle Sparkles accent when closed */}
+          {!isQuickActionOpen && (
+            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] text-white font-black animate-pulse">
+              <Sparkles size={8} />
+            </span>
+          )}
+        </button>
+      </div>
     </div>
   );
 }

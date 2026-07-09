@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Calendar,
   CreditCard,
@@ -96,6 +97,79 @@ export default function StudentDashboard({
   const [isSubmitHwOpen, setIsSubmitHwOpen] = useState(false);
   const [idCardOpen, setIdCardOpen] = useState(false);
 
+  // Interactive Sticker Board State
+  const [pinnedStickers, setPinnedStickers] = useState<Array<{
+    id: string;
+    stickerId: string;
+    x: number;
+    y: number;
+    scale: number;
+    rotation: number;
+    customNote?: string;
+  }>>(() => {
+    try {
+      const stored = localStorage.getItem(`sunshine_stickers_${student.id}`);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error("Failed loading local stickers:", e);
+    }
+    return [
+      { id: 'p1', stickerId: 'st8', x: 20, y: 30, scale: 1.1, rotation: -8, customNote: 'Sunshine Classes Rock!' },
+      { id: 'p2', stickerId: 'st2', x: 50, y: 15, scale: 1.2, rotation: 10, customNote: 'Math Exam Cleared!' },
+      { id: 'p3', stickerId: 'st3', x: 78, y: 40, scale: 1.0, rotation: 15, customNote: '7 Day Streak Active!' }
+    ];
+  });
+
+  const [selectedStickerForEdit, setSelectedStickerForEdit] = useState<string | null>(null);
+  const [stickerNoteInput, setStickerNoteInput] = useState('');
+  const [confettiBurst, setConfettiBurst] = useState(false);
+
+  const AVAILABLE_STICKERS = [
+    { id: 'st1', emoji: '🎓', label: 'Academic Hero', bg: 'from-amber-400 to-yellow-500', text: 'text-amber-950', glow: 'shadow-yellow-100', desc: 'Syllabus Specialist' },
+    { id: 'st2', emoji: '⭐', label: 'Super Star', bg: 'from-blue-400 to-indigo-500', text: 'text-blue-50', glow: 'shadow-blue-100', desc: 'Outstanding Effort' },
+    { id: 'st3', emoji: '🔥', label: 'Daily Streak', bg: 'from-orange-400 to-rose-500', text: 'text-orange-95', glow: 'shadow-orange-100', desc: 'Sustained Daily Study' },
+    { id: 'st4', emoji: '🚀', label: 'Launch Success', bg: 'from-purple-400 to-indigo-600', text: 'text-purple-50', glow: 'shadow-purple-100', desc: 'Aiming for 100% Boards' },
+    { id: 'st5', emoji: '💡', label: 'Einstein Spark', bg: 'from-emerald-400 to-teal-500', text: 'text-emerald-95', glow: 'shadow-emerald-100', desc: 'Creative Answers' },
+    { id: 'st6', emoji: '🏆', label: 'First Ranker', bg: 'from-yellow-400 to-orange-600', text: 'text-yellow-95', glow: 'shadow-amber-100', desc: 'Test Topper Status' },
+    { id: 'st7', emoji: '🧠', label: 'Deep Focus', bg: 'from-pink-400 to-rose-600', text: 'text-pink-50', glow: 'shadow-pink-100', desc: 'Full Concentration' },
+    { id: 'st8', emoji: '☀️', label: 'Sunshine pride', bg: 'from-yellow-300 to-amber-500', text: 'text-amber-900', glow: 'shadow-yellow-200', desc: 'Proud Sunshine Student' },
+    { id: 'st9', emoji: '🧪', label: 'Science Genius', bg: 'from-cyan-400 to-blue-500', text: 'text-cyan-50', glow: 'shadow-cyan-100', desc: 'NCERT Chemistry Master' },
+    { id: 'st10', emoji: '📚', label: 'Bookworm', bg: 'from-fuchsia-400 to-pink-500', text: 'text-fuchsia-50', glow: 'shadow-fuchsia-100', desc: 'Avid Syllabus Reader' }
+  ];
+
+  const saveStickers = (updated: typeof pinnedStickers) => {
+    setPinnedStickers(updated);
+    try {
+      localStorage.setItem(`sunshine_stickers_${student.id}`, JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const addStickerToBoard = (stickerId: string) => {
+    const id = `ps-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+    const randomRotation = Math.floor(Math.random() * 30) - 15; // -15 to +15
+    const newSticker = {
+      id,
+      stickerId,
+      x: 35 + Math.random() * 30, // 35% to 65%
+      y: 25 + Math.random() * 30, // 25% to 55%
+      scale: 1.0,
+      rotation: randomRotation,
+      customNote: 'Double-click to customize'
+    };
+    const updated = [...pinnedStickers, newSticker];
+    saveStickers(updated);
+    setSelectedStickerForEdit(id);
+    setStickerNoteInput('Double-click to customize');
+
+    // Trigger visual celebration spark
+    setConfettiBurst(true);
+    setTimeout(() => setConfettiBurst(false), 1200);
+  };
+
   // Profile fields state
   const [profileEmail, setProfileEmail] = useState(student.email || '');
   const [profileMobile, setProfileMobile] = useState(student.mobile || '');
@@ -103,6 +177,20 @@ export default function StudentDashboard({
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState('');
+
+  const handleBoardClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!selectedStickerForEdit) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = ((e.clientX - rect.left) / rect.width) * 100;
+    const clickY = ((e.clientY - rect.top) / rect.height) * 100;
+    
+    // Safety boundaries
+    const x = Math.max(5, Math.min(95, clickX));
+    const y = Math.max(5, Math.min(95, clickY));
+
+    const updated = pinnedStickers.map(s => s.id === selectedStickerForEdit ? { ...s, x, y } : s);
+    saveStickers(updated);
+  };
 
   React.useEffect(() => {
     setProfileEmail(student.email || '');
@@ -633,7 +721,12 @@ export default function StudentDashboard({
               </div>
             </div>
           ) : (
-            <>
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+            >
               {/* TAB 1: OVERVIEW */}
               {activeTab === 'overview' && (
                 <div className="space-y-6">
@@ -766,6 +859,250 @@ export default function StudentDashboard({
                             No temporary changes today. Standard timing is active.
                           </div>
                         )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Interactive Stickers & Rewards Study Desk */}
+                  <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-5 relative overflow-hidden">
+                    {/* Background celebratory sparks if active */}
+                    {confettiBurst && (
+                      <div className="absolute inset-0 z-10 bg-indigo-900/5 flex items-center justify-center pointer-events-none transition-all">
+                        <div className="text-center">
+                          <span className="text-4xl animate-bounce inline-block">✨🎉⭐🎉✨</span>
+                          <p className="text-xs font-bold text-indigo-950 uppercase tracking-widest mt-2">Sticker Placed!</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                      <div>
+                        <h4 className="font-display font-black text-slate-800 text-sm flex items-center gap-1.5">
+                          <Sparkles size={16} className="text-amber-500 animate-pulse" /> Sunshine Stickers & Study Desk
+                        </h4>
+                        <p className="text-[11px] text-slate-500 leading-normal mt-0.5">
+                          Click to select a sticker from the pack, then click on the board to position or move it!
+                        </p>
+                      </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const defaults = [
+                              { id: 'p1', stickerId: 'st8', x: 20, y: 30, scale: 1.1, rotation: -8, customNote: 'Sunshine Classes Rock!' },
+                              { id: 'p2', stickerId: 'st2', x: 50, y: 15, scale: 1.2, rotation: 10, customNote: 'Math Exam Cleared!' },
+                              { id: 'p3', stickerId: 'st3', x: 78, y: 40, scale: 1.0, rotation: 15, customNote: '7 Day Streak Active!' }
+                            ];
+                            saveStickers(defaults);
+                            setSelectedStickerForEdit(null);
+                          }}
+                          className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1 rounded-xl transition-all cursor-pointer"
+                        >
+                          Reset Board
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            saveStickers([]);
+                            setSelectedStickerForEdit(null);
+                          }}
+                          className="text-[10px] bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-2.5 py-1 rounded-xl transition-all cursor-pointer"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* The Corkboard Workspace Container */}
+                    <div 
+                      onClick={handleBoardClick}
+                      className="relative h-[280px] w-full rounded-2xl bg-amber-50/40 border border-slate-200 shadow-inner overflow-hidden cursor-crosshair select-none bg-[radial-gradient(#e2e8f0_1.5px,transparent_1.5px)] [background-size:16px_16px]"
+                    >
+                      {/* Corkboard visual instruction */}
+                      {pinnedStickers.length === 0 && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center pointer-events-none">
+                          <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-2">
+                            <Sparkles size={20} />
+                          </div>
+                          <p className="text-xs font-bold text-slate-600">Your Study Corkboard is Empty</p>
+                          <p className="text-[10px] text-slate-400 mt-1 max-w-[240px]">
+                            Click any colorful badge from the "Sticker Pack" below to place it here, then tap and drag to decorate!
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Sticky instructional guide on top-left of corkboard */}
+                      <div className="absolute top-2 left-2 bg-yellow-100/90 border border-yellow-200 rounded-lg p-2 max-w-[170px] text-[8.5px] text-yellow-800 leading-normal shadow-xs pointer-events-none z-10 font-mono">
+                        📌 <strong>Interactive Study Board:</strong> Select a sticker below, then <strong>click anywhere on the corkboard</strong> to move/reposition it!
+                      </div>
+
+                      {/* Render Pinned Stickers */}
+                      {pinnedStickers.map((ps) => {
+                        const stInfo = AVAILABLE_STICKERS.find(s => s.id === ps.stickerId);
+                        if (!stInfo) return null;
+                        const isSelected = selectedStickerForEdit === ps.id;
+
+                        return (
+                          <div
+                            key={ps.id}
+                            style={{
+                              position: 'absolute',
+                              left: `${ps.x}%`,
+                              top: `${ps.y}%`,
+                              transform: `translate(-50%, -50%) rotate(${ps.rotation}deg) scale(${ps.scale})`,
+                              transition: isSelected ? 'none' : 'all 0.15s ease-out',
+                              zIndex: isSelected ? 30 : 20
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation(); // don't trigger board move click!
+                              setSelectedStickerForEdit(ps.id);
+                              setStickerNoteInput(ps.customNote || '');
+                            }}
+                            className={`flex flex-col items-center cursor-pointer group p-1 rounded-xl transition-all ${
+                              isSelected ? 'ring-2 ring-indigo-600 ring-offset-2' : 'hover:scale-105'
+                            }`}
+                          >
+                            {/* Sticker Base Disc */}
+                            <div className={`h-11 w-11 rounded-full bg-gradient-to-tr ${stInfo.bg} shadow-md ${stInfo.glow} flex items-center justify-center border-2 border-white text-lg relative`}>
+                              {stInfo.emoji}
+                              {/* Small shine badge inside sticker */}
+                              <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-white/40 rounded-full blur-3xs pointer-events-none" />
+                            </div>
+
+                            {/* Handwritten Custom Mini Note Pin-board look */}
+                            {ps.customNote && (
+                              <div className="mt-1 bg-white/95 border border-slate-200 text-[8px] font-bold text-slate-800 px-1.5 py-0.5 rounded shadow-xs max-w-[90px] truncate text-center font-mono">
+                                {ps.customNote}
+                              </div>
+                            )}
+
+                            {/* Delete floating button when selected */}
+                            {isSelected && (
+                              <button
+                                type="button"
+                                title="Remove Sticker"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const updated = pinnedStickers.filter(s => s.id !== ps.id);
+                                  saveStickers(updated);
+                                  setSelectedStickerForEdit(null);
+                                }}
+                                className="absolute -top-3.5 -right-3.5 bg-rose-600 text-white rounded-full p-1 shadow hover:bg-rose-700 transition-all cursor-pointer z-40 border border-white"
+                              >
+                                <Trash2 size={10} />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Selected Sticker Controls Panel */}
+                    {selectedStickerForEdit && (() => {
+                      const selectedPs = pinnedStickers.find(s => s.id === selectedStickerForEdit);
+                      const selectedStInfo = selectedPs ? AVAILABLE_STICKERS.find(s => s.id === selectedPs.stickerId) : null;
+                      if (!selectedPs || !selectedStInfo) return null;
+
+                      return (
+                        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3.5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 animate-in fade-in duration-100">
+                          <div className="flex items-center gap-3">
+                            <span className="text-2xl bg-white h-10 w-10 rounded-full shadow-sm flex items-center justify-center border border-slate-200 animate-pulse">
+                              {selectedStInfo.emoji}
+                            </span>
+                            <div>
+                              <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 block">Sticker Selected</span>
+                              <h5 className="text-xs font-bold text-slate-800">{selectedStInfo.label}</h5>
+                              <p className="text-[9px] text-slate-400 mt-0.5">{selectedStInfo.desc}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/* Label Input */}
+                            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1 flex-1 min-w-[150px]">
+                              <span className="text-[9px] font-bold text-slate-400 font-mono shrink-0">Note:</span>
+                              <input
+                                type="text"
+                                maxLength={24}
+                                value={stickerNoteInput}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setStickerNoteInput(val);
+                                  const updated = pinnedStickers.map(s => s.id === selectedStickerForEdit ? { ...s, customNote: val } : s);
+                                  saveStickers(updated);
+                                }}
+                                placeholder="NCERT study complete"
+                                className="w-full bg-transparent outline-none text-[10px] text-slate-800 font-medium"
+                              />
+                            </div>
+
+                            {/* Rotation Cycle Button */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextRotation = (selectedPs.rotation + 15) > 45 ? -45 : (selectedPs.rotation + 15);
+                                const updated = pinnedStickers.map(s => s.id === selectedStickerForEdit ? { ...s, rotation: nextRotation } : s);
+                                saveStickers(updated);
+                              }}
+                              className="bg-white hover:bg-slate-100 text-slate-700 font-bold px-2 py-1.5 rounded-xl border border-slate-200 text-[10px] flex items-center gap-1 transition-all cursor-pointer animate-scale-in"
+                              title="Rotate Sticker"
+                            >
+                              🔄 Rotate
+                            </button>
+
+                            {/* Size Cycle Button */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextScale = selectedPs.scale >= 1.4 ? 0.8 : (selectedPs.scale + 0.2);
+                                const updated = pinnedStickers.map(s => s.id === selectedStickerForEdit ? { ...s, scale: Number(nextScale.toFixed(1)) } : s);
+                                saveStickers(updated);
+                              }}
+                              className="bg-white hover:bg-slate-100 text-slate-700 font-bold px-2 py-1.5 rounded-xl border border-slate-200 text-[10px] flex items-center gap-1 transition-all cursor-pointer"
+                              title="Resize Sticker"
+                            >
+                              📐 Size ({selectedPs.scale}x)
+                            </button>
+
+                            {/* Unselect */}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedStickerForEdit(null)}
+                              className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2.5 py-1.5 rounded-xl text-[10px] transition-all cursor-pointer"
+                            >
+                              Deselect
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Sticker Pack Album Tray */}
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-2.5">
+                        🎒 Available Stickers Pack (Click to Add to Corkboard)
+                      </span>
+                      <div className="grid grid-cols-5 sm:grid-cols-10 gap-2.5">
+                        {AVAILABLE_STICKERS.map((st) => (
+                          <button
+                            key={st.id}
+                            type="button"
+                            onClick={() => addStickerToBoard(st.id)}
+                            className="flex flex-col items-center p-2 rounded-xl border border-slate-100 bg-slate-50 hover:bg-indigo-50/40 hover:border-indigo-200 hover:shadow-xs transition-all text-center relative group cursor-pointer animate-scale-in"
+                          >
+                            <span className="text-2xl block group-hover:scale-115 transition-transform duration-150">
+                              {st.emoji}
+                            </span>
+                            <span className="text-[8px] font-bold text-slate-500 mt-1 font-mono tracking-tighter truncate w-full">
+                              {st.label}
+                            </span>
+
+                            {/* Tooltip trigger */}
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-slate-800 text-white text-[8px] px-2 py-1 rounded shadow-md opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-150 w-24 z-50">
+                              <p className="font-bold">{st.label}</p>
+                              <p className="text-[7px] text-slate-300 mt-0.5">{st.desc}</p>
+                            </div>
+                          </button>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -1326,10 +1663,10 @@ export default function StudentDashboard({
 
               <div className="grid gap-4 sm:grid-cols-2">
                 {(studyMaterials && studyMaterials.length > 0 ? studyMaterials : [
-                  { id: 'mat1', title: 'Class 10 Math Formula Cheat-Sheet', subject: 'Mathematics', desc: 'Complete algebraic, quadratic, and trigonometric formulas in 2 clean pages.', file: 'math_formulas.pdf', size: '1.2 MB', category: 'NOTES', class: 'Class 10' },
-                  { id: 'mat2', title: 'Chemical Reactions and Equations PDF', subject: 'Science', desc: 'NCERT back exercise solved chemical reactions with balancing shortcuts.', file: 'chemical_equations.pdf', size: '2.5 MB', category: 'NOTES', class: 'Class 10' },
-                  { id: 'mat3', title: 'Active & Passive Voice Rules Guide', subject: 'English', desc: 'English grammar rules with pre-board mock practice questions.', file: 'english_grammar_voice.pdf', size: '800 KB', category: 'NOTES', class: 'Class 10' },
-                  { id: 'mat4', title: 'Class 10 Physics Ray Diagrams', subject: 'Science', desc: 'Hand-drawn mirror and lens ray formation scenarios for board exam reference.', file: 'physics_ray_diagrams.pdf', size: '4.1 MB', category: 'NOTES', class: 'Class 10' }
+                  { id: 'mat1', title: 'Class 10 Math Formula Cheat-Sheet', subject: 'Mathematics', desc: 'Complete algebraic, quadratic, and trigonometric formulas in 2 clean pages.', file: 'math_formulas.pdf', size: '1.2 MB', category: 'NOTES', class: 'Class 10 Board Specialists' },
+                  { id: 'mat2', title: 'Chemical Reactions and Equations PDF', subject: 'Science', desc: 'NCERT back exercise solved chemical reactions with balancing shortcuts.', file: 'chemical_equations.pdf', size: '2.5 MB', category: 'NOTES', class: 'Class 10 Board Specialists' },
+                  { id: 'mat3', title: 'Active & Passive Voice Rules Guide', subject: 'English', desc: 'English grammar rules with pre-board mock practice questions.', file: 'english_grammar_voice.pdf', size: '800 KB', category: 'NOTES', class: 'Class 10 Board Specialists' },
+                  { id: 'mat4', title: 'Class 10 Physics Ray Diagrams', subject: 'Science', desc: 'Hand-drawn mirror and lens ray formation scenarios for board exam reference.', file: 'physics_ray_diagrams.pdf', size: '4.1 MB', category: 'NOTES', class: 'Class 10 Board Specialists' }
                 ] as StudyMaterial[]).map((item, idx) => {
                   const isCached = downloadedMaterials.includes(item.id);
                   return (
@@ -1583,8 +1920,13 @@ export default function StudentDashboard({
                       <h3 className="font-display font-black text-lg text-slate-800">{student.name}</h3>
                       <p className="text-xs text-slate-400 font-mono">Roll No: {student.rollNo}</p>
                       
-                      <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-blue-50 border border-blue-100 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-brand-blue">
-                        {student.class} Student
+                      <div className="mt-2.5 flex flex-col items-center gap-1.5">
+                        <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-200 px-3.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-3xs">
+                          🎓 {student.class}
+                        </div>
+                        <span className="text-[9.5px] font-bold text-slate-400 flex items-center gap-1">
+                          🔒 Registered Class & Fees Locked by Admin
+                        </span>
                       </div>
 
                       <div className="w-full border-t border-slate-100 my-4 pt-4 text-left space-y-3">
@@ -1818,7 +2160,7 @@ export default function StudentDashboard({
               </div>
             </div>
           )}
-        </>
+        </motion.div>
       )}
     </div>
       </div>
@@ -2239,7 +2581,7 @@ export default function StudentDashboard({
                   Settling via: {subConfig.paymentGatewayProvider === 'UPI_QR' ? 'UPI Direct QR' : 
                                subConfig.paymentGatewayProvider === 'RAZORPAY' ? 'Razorpay Node' : 
                                subConfig.paymentGatewayProvider === 'STRIPE' ? 'Stripe Checkout' :
-                               subConfig.paymentGatewayProvider === 'BANK_TRANSFER' ? 'Direct Bank Transfer' : 'Sandbox Demo'}
+                               subConfig.paymentGatewayProvider === 'BANK_TRANSFER' ? 'Direct Bank Transfer' : 'Default Payment Gateway'}
                 </p>
               </div>
             </div>
@@ -2264,7 +2606,7 @@ export default function StudentDashboard({
                 </div>
                 <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 text-[10px] font-mono text-slate-500 text-left space-y-1">
                   <div>• Merchant ID: {subConfig.upiMerchantName || 'SUNSHINE_CLASSES_HD'}</div>
-                  <div>• Gateway Target: {subConfig.paymentGatewayProvider || 'MOCK_SANDBOX'}</div>
+                  <div>• Gateway Target: {subConfig.paymentGatewayProvider || 'INTEGRATED_GATEWAY_DEFAULT'}</div>
                   <div>• Handshake Status: Secure Handshake Authorized...</div>
                 </div>
               </div>

@@ -36,7 +36,8 @@ import {
   FounderMember,
   EmailTemplatesConfig,
   WhatsAppTemplatesConfig,
-  BatchBulletinPost
+  BatchBulletinPost,
+  DepartedStudent
 } from './types';
 
 import {
@@ -87,7 +88,7 @@ import { db } from './lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { interpolateWhatsAppTemplate, sendWhatsAppMessage } from './lib/whatsappService';
 
-import { LogIn, Shield, Users, BookOpen, UserCheck, Key, LogOut, X, Sun, Moon, Eye, EyeOff, Cloud, CloudOff, RefreshCw } from 'lucide-react';
+import { LogIn, Shield, Users, BookOpen, UserCheck, Key, LogOut, X, Sun, Moon, Eye, EyeOff, Cloud, CloudOff, RefreshCw, Bell, BellRing, Check, CheckCheck, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export function simpleSecureHash(password: string): string {
@@ -130,6 +131,7 @@ export default function App() {
 
   // State for the stunning brand introduction splash screen/preloader
   const [showSplash, setShowSplash] = useState(true);
+  const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -196,16 +198,22 @@ export default function App() {
     const raw = getOrSeedLocal('users', SEED_USERS);
     let changed = false;
     let migrated = raw.map(u => {
-      if (u.username === 'admin' && (u.name.includes('Shubham') || u.email === 'admin@sunshine.com')) {
-        changed = true;
-        return {
-          ...u,
-          name: 'Priyanshu Gupta (Founder)',
-          email: 'guptapriyansu@gmail.com',
-          phone: '9876543210'
-        };
+      let updatedUser = { ...u };
+      let uChanged = false;
+      if (updatedUser.username === 'admin' && (updatedUser.name.includes('Shubham') || updatedUser.email === 'admin@sunshine.com')) {
+        updatedUser.name = 'Priyanshu Gupta (Founder)';
+        updatedUser.email = 'sunshineclassespihani@gmail.com';
+        updatedUser.phone = '9876543210';
+        uChanged = true;
       }
-      return u;
+      if (updatedUser.email === 'guptapriyansu@gmail.com' || updatedUser.email === 'sarcasticrk09@gmail.com') {
+        updatedUser.email = 'sunshineclassespihani@gmail.com';
+        uChanged = true;
+      }
+      if (uChanged) {
+        changed = true;
+      }
+      return updatedUser;
     });
     if (!migrated.some(u => u.username === 'rajeev')) {
       changed = true;
@@ -288,6 +296,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<AppNotification[]>(() => getOrSeedLocal('notifications', SEED_NOTIFICATIONS));
   const [inquiries, setInquiries] = useState<Inquiry[]>(() => getOrSeedLocal('inquiries', SEED_INQUIRIES));
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => getOrSeedLocal('audit_logs', SEED_AUDIT_LOGS));
+  const [departedStudents, setDepartedStudents] = useState<DepartedStudent[]>(() => getOrSeedLocal('departed_students', []));
 
   // Subscription-Based Billing States
   const [batches, setBatches] = useState<Batch[]>(() => getOrSeedLocal('batches', SEED_BATCHES));
@@ -391,6 +400,10 @@ export default function App() {
       case 'inquiries':
         setInquiries(data);
         syncState('inquiries', data);
+        break;
+      case 'departed_students':
+        setDepartedStudents(data);
+        syncState('departed_students', data);
         break;
       default:
         console.warn(`[Diagnostics] Unrecognized healing collection key: ${key}`);
@@ -869,16 +882,22 @@ export default function App() {
     // Migrate loadedUsers and loadedFounders on startup to ensure database aligns
     let usersMigrated = false;
     let migratedLoadedUsers = loadedUsers.map(u => {
-      if (u.username === 'admin' && (u.name.includes('Shubham') || u.email === 'admin@sunshine.com')) {
-        usersMigrated = true;
-        return {
-          ...u,
-          name: 'Priyanshu Gupta (Founder)',
-          email: 'guptapriyansu@gmail.com',
-          phone: '9876543210'
-        };
+      let updatedUser = { ...u };
+      let uChanged = false;
+      if (updatedUser.username === 'admin' && (updatedUser.name.includes('Shubham') || updatedUser.email === 'admin@sunshine.com')) {
+        updatedUser.name = 'Priyanshu Gupta (Founder)';
+        updatedUser.email = 'sunshineclassespihani@gmail.com';
+        updatedUser.phone = '9876543210';
+        uChanged = true;
       }
-      return u;
+      if (updatedUser.email === 'guptapriyansu@gmail.com' || updatedUser.email === 'sarcasticrk09@gmail.com') {
+        updatedUser.email = 'sunshineclassespihani@gmail.com';
+        uChanged = true;
+      }
+      if (uChanged) {
+        usersMigrated = true;
+      }
+      return updatedUser;
     });
     if (!migratedLoadedUsers.some(u => u.username === 'rajeev')) {
       usersMigrated = true;
@@ -1599,6 +1618,29 @@ export default function App() {
     syncState('notifications', updated);
   };
 
+  const handleMarkNotificationRead = (id: string) => {
+    const updated = notifications.map((n) => (n.id === id ? { ...n, isRead: true } : n));
+    setNotifications(updated);
+    syncState('notifications', updated);
+  };
+
+  const handleMarkAllNotificationsRead = () => {
+    if (!currentUser) return;
+    const userRole = currentUser.role;
+    const updated = notifications.map((n) => {
+      const isApplicable =
+        userRole === 'ADMIN' ||
+        n.targetRole === 'ALL' ||
+        n.targetRole === userRole;
+      if (isApplicable) {
+        return { ...n, isRead: true };
+      }
+      return n;
+    });
+    setNotifications(updated);
+    syncState('notifications', updated);
+  };
+
   const handleAddStudentAdmin = (std: Omit<Student, 'id' | 'rollNo' | 'attendancePercentage'>) => {
     const nextRoll = 1000 + students.length + 1;
     const newStd: Student = {
@@ -1845,6 +1887,125 @@ export default function App() {
     syncState('audit_logs', updatedAudits);
   };
 
+  const handleClearTestData = () => {
+    // 1. Clear students
+    setStudents([]);
+    syncState('students', []);
+
+    // 2. Clear admissions
+    setAdmissions([]);
+    syncState('admissions', []);
+
+    // 3. Clear attendance
+    setAttendance([]);
+    syncState('attendance', []);
+
+    // 4. Clear fee statuses
+    setFeeStatuses([]);
+    syncState('fee_statuses', []);
+
+    // 5. Clear fee receipts
+    setFeeReceipts([]);
+    syncState('fee_receipts', []);
+
+    // 6. Clear tests
+    setTests([]);
+    syncState('tests', []);
+
+    // 7. Clear student marks
+    setStudentMarks([]);
+    syncState('student_marks', []);
+
+    // 8. Clear homework & submissions
+    setHomework([]);
+    syncState('homework', []);
+    setSubmissions([]);
+    syncState('submissions', []);
+
+    // 9. Clear inquiries
+    setInquiries([]);
+    syncState('inquiries', []);
+
+    // 10. Clear subscriptions
+    setSubscriptions([]);
+    syncState('student_subscriptions', []);
+
+    // 11. Clear subPayments & subReceipts
+    setSubPayments([]);
+    syncState('payments', []);
+    setSubReceipts([]);
+    syncState('receipts', []);
+
+    // 12. Clear subNotifications
+    setSubNotifications([]);
+    syncState('payment_notifications', []);
+
+    // 13. Clear batches (so they can be freshly provisioned during import)
+    setBatches([]);
+    syncState('batches', []);
+
+    // 14. Keep only Admin and Teacher users, remove Student users
+    const filteredUsers = users.filter(u => u.role !== 'STUDENT');
+    setUsers(filteredUsers);
+    syncState('users', filteredUsers);
+
+    // 15. Push a clean-slate audit log
+    const newLog: AuditLog = {
+      id: `log-${Date.now()}`,
+      userId: currentUser?.id || 'admin',
+      username: currentUser?.username || 'admin',
+      action: 'CLEAR_TEST_DATA',
+      details: 'Purged all test student portfolios, batches, fee records, and subscriptions to establish a clean production environment.',
+      timestamp: new Date().toISOString()
+    };
+    const updatedAudits = [newLog, ...auditLogs];
+    setAuditLogs(updatedAudits);
+    syncState('audit_logs', updatedAudits);
+  };
+
+  const handleForceUpdateUserEmails = () => {
+    // 1. Force update all administrative user profiles
+    const updatedUsers = users.map(u => {
+      if (u.email === 'sarcasticrk09@gmail.com' || u.email === 'guptapriyansu@gmail.com' || u.email === 'admin@sunshine.com') {
+        return { ...u, email: 'sunshineclassespihani@gmail.com' };
+      }
+      if ((u.role === 'ADMIN' || u.role === 'TEACHER') && (u.username === 'admin' || u.username === 'teacher')) {
+        return { ...u, email: 'sunshineclassespihani@gmail.com' };
+      }
+      return u;
+    });
+    setUsers(updatedUsers);
+    syncState('users', updatedUsers);
+
+    // 2. Force update current logged-in user if their email matches
+    if (currentUser && (currentUser.email === 'sarcasticrk09@gmail.com' || currentUser.email === 'guptapriyansu@gmail.com' || currentUser.email === 'admin@sunshine.com' || ((currentUser.role === 'ADMIN' || currentUser.role === 'TEACHER') && (currentUser.username === 'admin' || currentUser.username === 'teacher')))) {
+      setCurrentUser({ ...currentUser, email: 'sunshineclassespihani@gmail.com' });
+    }
+
+    // 3. Force update teachers collection
+    const updatedTeachers = teachers.map(t => {
+      if (t.email === 'sarcasticrk09@gmail.com' || t.email === 'guptapriyansu@gmail.com' || t.username === 'teacher') {
+        return { ...t, email: 'sunshineclassespihani@gmail.com' };
+      }
+      return t;
+    });
+    setTeachers(updatedTeachers);
+    syncState('teachers', updatedTeachers);
+
+    // 4. Log the action
+    const newLog: AuditLog = {
+      id: `AUD-EMAIL-FORCE-${Date.now()}`,
+      userId: currentUser?.id || 'admin',
+      username: currentUser?.username || 'admin',
+      action: 'FORCE_UPDATE_EMAILS',
+      details: "Triggered master scrubbing script to force-update all administrative user and staff emails from older domains to 'sunshineclassespihani@gmail.com' in local cache and Cloud Firestore.",
+      timestamp: new Date().toISOString()
+    };
+    const updatedAudits = [newLog, ...auditLogs];
+    setAuditLogs(updatedAudits);
+    syncState('audit_logs', updatedAudits);
+  };
+
   const handleTriggerBackup = () => {
     const updatedLogs = [{
       id: `L-${Date.now()}`,
@@ -2061,7 +2222,7 @@ export default function App() {
         }
       }
     } else {
-      alert(`Account with username "${trimmedUsername}" is not registered under the selected role tab (${authRole}). Please verify your selected Tab or use one of the Quick Auto-Fill buttons!`);
+      alert(`Account with username "${trimmedUsername}" is not registered under the selected portal tab (${authRole}). Please verify your credentials and try again.`);
     }
   };
 
@@ -2225,6 +2386,180 @@ export default function App() {
                   <div className="text-right">
                     <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">Logged as: {currentUser.name}</span>
                     <span className="text-[10px] text-slate-400 dark:text-slate-400 font-bold uppercase tracking-wider block">Role: {currentUser.role}</span>
+                  </div>
+
+                  {/* Notifications Badge & Dropdown */}
+                  <div className="relative">
+                    <button
+                      id="btn-header-notifications"
+                      onClick={() => setShowNotificationsDropdown(!showNotificationsDropdown)}
+                      className={`relative p-2 rounded-xl border border-slate-150 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-all cursor-pointer flex items-center justify-center`}
+                      title="System Notifications"
+                    >
+                      {notifications.filter(n => {
+                        if (!currentUser) return false;
+                        const userRole = currentUser.role;
+                        if (userRole === 'ADMIN') return true;
+                        return n.targetRole === 'ALL' || n.targetRole === userRole;
+                      }).filter(n => !n.isRead).length > 0 ? (
+                        <BellRing className="h-4.5 w-4.5 text-indigo-600 dark:text-indigo-400 animate-bounce" />
+                      ) : (
+                        <Bell className="h-4.5 w-4.5" />
+                      )}
+                      
+                      {(() => {
+                        const count = notifications.filter(n => {
+                          if (!currentUser) return false;
+                          const userRole = currentUser.role;
+                          if (userRole === 'ADMIN') return true;
+                          return n.targetRole === 'ALL' || n.targetRole === userRole;
+                        }).filter(n => !n.isRead).length;
+                        return count > 0 ? (
+                          <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-rose-600 text-[10px] font-black text-white ring-2 ring-white dark:ring-slate-900 animate-pulse">
+                            {count}
+                          </span>
+                        ) : null;
+                      })()}
+                    </button>
+
+                    <AnimatePresence>
+                      {showNotificationsDropdown && (
+                        <>
+                          {/* Overlay click-away layer */}
+                          <div 
+                            className="fixed inset-0 z-40" 
+                            onClick={() => setShowNotificationsDropdown(false)} 
+                          />
+                          
+                          {/* Dropdown Panel */}
+                          <motion.div
+                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl z-50 overflow-hidden"
+                          >
+                            {/* Header */}
+                            <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Bell className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                                <span className="font-display font-bold text-sm text-slate-800 dark:text-slate-100">
+                                  Notifications
+                                </span>
+                                {(() => {
+                                  const count = notifications.filter(n => {
+                                    if (!currentUser) return false;
+                                    const userRole = currentUser.role;
+                                    if (userRole === 'ADMIN') return true;
+                                    return n.targetRole === 'ALL' || n.targetRole === userRole;
+                                  }).filter(n => !n.isRead).length;
+                                  return count > 0 ? (
+                                    <span className="bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
+                                      {count} New
+                                    </span>
+                                  ) : null;
+                                })()}
+                              </div>
+                              {notifications.filter(n => {
+                                if (!currentUser) return false;
+                                const userRole = currentUser.role;
+                                if (userRole === 'ADMIN') return true;
+                                return n.targetRole === 'ALL' || n.targetRole === userRole;
+                              }).filter(n => !n.isRead).length > 0 && (
+                                <button
+                                  onClick={() => {
+                                    handleMarkAllNotificationsRead();
+                                  }}
+                                  className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition-all cursor-pointer flex items-center gap-1"
+                                >
+                                  <CheckCheck className="h-3.5 w-3.5" /> Mark all read
+                                </button>
+                              )}
+                            </div>
+
+                            {/* List Content */}
+                            <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                              {(() => {
+                                const userNotifs = notifications.filter(n => {
+                                  if (!currentUser) return false;
+                                  const userRole = currentUser.role;
+                                  if (userRole === 'ADMIN') return true;
+                                  return n.targetRole === 'ALL' || n.targetRole === userRole;
+                                });
+                                return userNotifs.length === 0 ? (
+                                  <div className="p-8 text-center text-slate-400 dark:text-slate-500 text-xs">
+                                    No system notifications yet.
+                                  </div>
+                                ) : (
+                                  userNotifs.map((notif) => {
+                                    // Category styles
+                                    let catBg = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-350';
+                                    if (notif.category === 'FEE') {
+                                      catBg = 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400';
+                                    } else if (notif.category === 'EXAM') {
+                                      catBg = 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-400';
+                                    } else if (notif.category === 'ANNOUNCEMENT') {
+                                      catBg = 'bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-400';
+                                    } else if (notif.category === 'HOLIDAY') {
+                                      catBg = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400';
+                                    }
+
+                                    return (
+                                      <div
+                                        key={notif.id}
+                                        onClick={() => {
+                                          if (!notif.isRead) {
+                                            handleMarkNotificationRead(notif.id);
+                                          }
+                                        }}
+                                        className={`p-3.5 transition-all text-left relative cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                                          !notif.isRead 
+                                            ? 'bg-indigo-50/20 dark:bg-indigo-950/5 border-l-2 border-indigo-600 dark:border-indigo-500' 
+                                            : 'opacity-80'
+                                        }`}
+                                      >
+                                        <div className="flex items-start gap-2.5">
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                                              <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md flex items-center gap-1 ${catBg}`}>
+                                                {notif.category === 'FEE' && <AlertCircle size={10} className="text-amber-600 dark:text-amber-400 animate-bounce" />}
+                                                {notif.category}
+                                              </span>
+                                              {notif.category === 'FEE' && (
+                                                <span className="text-[9px] font-extrabold text-amber-700 dark:text-amber-400 bg-amber-100/50 dark:bg-amber-950/20 px-1.5 py-0.5 rounded flex items-center gap-0.5 animate-pulse">
+                                                  🚨 Urgent
+                                                </span>
+                                              )}
+                                              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold ml-auto">
+                                                {notif.date}
+                                              </span>
+                                            </div>
+                                            <h4 className={`font-bold text-xs leading-tight mb-0.5 transition-colors ${
+                                              !notif.isRead 
+                                                ? 'text-slate-900 dark:text-slate-100 font-extrabold' 
+                                                : 'text-slate-700 dark:text-slate-300'
+                                            }`}>
+                                              {notif.title}
+                                            </h4>
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed break-words">
+                                              {notif.content}
+                                            </p>
+                                          </div>
+
+                                          {!notif.isRead && (
+                                            <span className="flex h-2 w-2 shrink-0 rounded-full bg-indigo-600 dark:bg-indigo-400 mt-1.5" />
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                );
+                              })()}
+                            </div>
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>
                   </div>
 
                   <button
@@ -2394,6 +2729,9 @@ export default function App() {
                 onApproveAdmission={handleApproveAdmission}
                 onRejectAdmission={handleRejectAdmission}
                 onBulkImport={handleBulkImport}
+                onClearTestData={handleClearTestData}
+                onForceUpdateUserEmails={handleForceUpdateUserEmails}
+                departedStudents={departedStudents}
               />
             )}
           </motion.div>
@@ -2407,17 +2745,19 @@ export default function App() {
       <AnimatePresence>
         {showLoginModal && (
           <motion.div
+            id="login-modal-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm p-4 md:p-6 flex items-start md:items-center justify-center"
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 backdrop-blur-md p-4 md:p-6 flex items-start md:items-center justify-center"
           >
             <motion.div
-              initial={{ scale: 0.95, y: 15, opacity: 0 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.95, y: 15, opacity: 0 }}
-              transition={{ delay: 0.05, duration: 0.25, ease: 'easeOut' }}
+              id="login-modal-container"
+              initial={{ y: 50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 50, opacity: 0 }}
+              transition={{ type: 'spring', damping: 26, stiffness: 260 }}
               onClick={(e) => e.stopPropagation()}
               className="w-full max-w-4xl rounded-3xl bg-white shadow-2xl relative overflow-hidden flex flex-col md:flex-row my-auto md:my-8 border border-slate-100"
             >
