@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type UserRole = 'ADMIN' | 'TEACHER' | 'RECEPTIONIST' | 'STUDENT';
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'TEACHER' | 'RECEPTIONIST' | 'STUDENT';
 
 export interface User {
   id: string;
@@ -207,6 +207,11 @@ export interface SubscriptionConfig {
   enableNetBankingMethod?: boolean;
   enableBankTransferMethod?: boolean;
   enableAutomatedFeeAlerts?: boolean;
+  cloudinaryCloudName?: string;
+  cloudinaryUploadPreset?: string;
+  cloudinaryApiKey?: string;
+  cloudinaryApiSecret?: string;
+  cloudinaryMaxFileSize?: number; // in MB
 }
 
 export interface Attendance {

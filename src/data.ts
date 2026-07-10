@@ -584,7 +584,7 @@ export const SEED_STUDENTS: Student[] = [
 ];
 
 export const SEED_USERS: User[] = [
-  { id: 'u1', username: 'admin', name: 'Priyanshu Gupta (Founder)', email: 'sunshineclasses@example.com', role: 'ADMIN', phone: '9999900000' },
+  { id: 'u1', username: 'admin', name: 'Priyanshu Gupta (Founder)', email: 'sunshineclasses@example.com', role: 'SUPER_ADMIN', phone: '9999900000' },
   { id: 'u2', username: 'teacher', name: 'Priyanshu Gupta', email: 'sunshineclasses@example.com', role: 'TEACHER', phone: '9999900000' },
   { id: 'u3', username: 'reception', name: 'Neha Sharma', email: 'reception@example.com', role: 'RECEPTIONIST', phone: '9999900002' },
   { id: 'u4', username: 'student', name: 'Rahul Verma', email: 'rahul@example.com', role: 'STUDENT', phone: '9999900001' },

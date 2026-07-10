@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { Student, Attendance, FeeStatus, FeeReceipt, Test, StudentMark, Homework, HomeworkSubmission, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, TimetableEntry, StudyMaterial, BatchBulletinPost } from '../types';
 import SunshineLogo from './SunshineLogo';
+import { CloudinaryUpload } from './CloudinaryUpload';
 
 interface StudentDashboardProps {
   student: Student;
@@ -93,6 +94,7 @@ export default function StudentDashboard({
   const [selectedReceipt, setSelectedReceipt] = useState<FeeReceipt | null>(null);
   const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null);
   const [hwAnswerText, setHwAnswerText] = useState('');
+  const [hwFileUrl, setHwFileUrl] = useState('');
   const [bulletinInputText, setBulletinInputText] = useState('');
   const [isSubmitHwOpen, setIsSubmitHwOpen] = useState(false);
   const [idCardOpen, setIdCardOpen] = useState(false);
@@ -396,6 +398,7 @@ export default function StudentDashboard({
   const handleOpenHwSubmit = (hw: Homework) => {
     setSelectedHomework(hw);
     setHwAnswerText('');
+    setHwFileUrl('');
     setIsSubmitHwOpen(true);
   };
 
@@ -410,11 +413,13 @@ export default function StudentDashboard({
       class: student.class,
       submissionDate: new Date().toISOString().split('T')[0],
       textAnswer: hwAnswerText,
+      fileUrl: hwFileUrl || undefined,
       status: 'SUBMITTED'
     });
 
     setIsSubmitHwOpen(false);
     setSelectedHomework(null);
+    setHwFileUrl('');
   };
 
   // SVG Chart generator for test results
@@ -2045,91 +2050,21 @@ export default function StudentDashboard({
                           Official Profile Passport Photo <span className="text-red-500">*</span>
                         </label>
                         
-                        <div 
-                          className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all ${
-                            dragActive 
-                              ? 'border-brand-blue bg-blue-50/40' 
-                              : profilePhotoUrl 
-                                ? 'border-green-200 bg-green-50/10' 
-                                : 'border-slate-200 bg-slate-50 hover:bg-slate-100/50'
-                          }`}
-                          onDragEnter={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setDragActive(true);
-                          }}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setDragActive(true);
-                          }}
-                          onDragLeave={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setDragActive(false);
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setDragActive(false);
-                            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                              const file = e.dataTransfer.files[0];
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                setProfilePhotoUrl(reader.result as string);
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                        >
-                          <input
-                            type="file"
-                            id="profile-photo-picker"
-                            accept="image/*"
-                            onChange={(e) => {
-                              if (e.target.files && e.target.files[0]) {
-                                const file = e.target.files[0];
-                                const reader = new FileReader();
-                                reader.onloadend = () => {
-                                  setProfilePhotoUrl(reader.result as string);
-                                };
-                                reader.readAsDataURL(file);
-                              }
-                            }}
-                            className="hidden"
+                        <div className="space-y-1">
+                          <CloudinaryUpload
+                            id="profile-photo-picker-cloudinary"
+                            folder="students"
+                            cloudName={subConfig.cloudinaryCloudName}
+                            uploadPreset={subConfig.cloudinaryUploadPreset}
+                            apiKey={subConfig.cloudinaryApiKey}
+                            apiSecret={subConfig.cloudinaryApiSecret}
+                            maxSizeMB={subConfig.cloudinaryMaxFileSize}
+                            initialUrl={profilePhotoUrl}
+                            onUploadSuccess={(url) => setProfilePhotoUrl(url)}
+                            onFileDeleted={() => setProfilePhotoUrl('')}
+                            allowedTypes={['jpg', 'jpeg', 'png', 'webp']}
+                            label="Student Photograph Profile Preview"
                           />
-
-                          {profilePhotoUrl ? (
-                            <div className="space-y-3 flex flex-col items-center">
-                              <img
-                                src={profilePhotoUrl}
-                                alt="Uploaded preview"
-                                className="h-20 w-20 rounded-full object-cover border-2 border-green-500 shadow"
-                                referrerPolicy="no-referrer"
-                              />
-                              <div>
-                                <p className="text-xs font-bold text-green-700">Photo successfully uploaded!</p>
-                                <button
-                                  type="button"
-                                  onClick={() => setProfilePhotoUrl('')}
-                                  className="text-[10px] font-bold text-red-500 hover:underline mt-1 block mx-auto cursor-pointer"
-                                >
-                                  Remove & Re-upload
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <label htmlFor="profile-photo-picker" className="cursor-pointer space-y-2 block w-full">
-                              <div className="mx-auto h-10 w-10 text-slate-400 bg-white shadow-xs border border-slate-100 flex items-center justify-center rounded-xl">
-                                <Camera size={20} className="text-brand-blue" />
-                              </div>
-                              <div>
-                                <span className="text-xs font-bold text-brand-blue hover:underline">Click to upload photo</span>
-                                <span className="text-xs text-slate-500"> or drag and drop file here</span>
-                              </div>
-                              <p className="text-[9px] text-slate-400 font-medium">Supports JPG, PNG, WEBP files up to 5MB.</p>
-                            </label>
-                          )}
                         </div>
                       </div>
 
@@ -2188,12 +2123,20 @@ export default function StudentDashboard({
                 ></textarea>
               </div>
 
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-700">Attach Photograph of Copy / Document (Optional)</label>
-                <input
-                  id="input-hw-file"
-                  type="file"
-                  className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-brand-blue hover:file:bg-blue-100"
+              <div className="space-y-1">
+                <CloudinaryUpload
+                  id="student-homework-upload-cloudinary"
+                  folder="assignments"
+                  cloudName={subConfig.cloudinaryCloudName}
+                  uploadPreset={subConfig.cloudinaryUploadPreset}
+                  apiKey={subConfig.cloudinaryApiKey}
+                  apiSecret={subConfig.cloudinaryApiSecret}
+                  maxSizeMB={subConfig.cloudinaryMaxFileSize}
+                  initialUrl={hwFileUrl}
+                  onUploadSuccess={(url) => setHwFileUrl(url)}
+                  onFileDeleted={() => setHwFileUrl('')}
+                  allowedTypes={['jpg', 'jpeg', 'png', 'webp', 'pdf', 'docx', 'xlsx']}
+                  label="Attach Photograph of Copy / Document (Optional)"
                 />
               </div>
 

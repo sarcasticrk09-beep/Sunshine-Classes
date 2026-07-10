@@ -1,0 +1,23 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Firebase user registration document matching UID.",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["super_admin", "admin", "reception", "teacher", "student"] },
+        "active": { "type": "boolean" }
+      },
+      "required": ["username", "name", "email", "role", "active"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Registered active users ledger by Firebase Auth UID."
+    }
+  }
+}

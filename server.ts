@@ -429,6 +429,52 @@ How can I help you towards your academic success today? Feel free to ask!`;
     }
   });
 
+  // 1.6 Secure Cloudinary Asset Destruction Proxy API
+  app.post("/api/delete-cloudinary", async (req, res) => {
+    const { publicId, cloudName, apiKey, apiSecret } = req.body;
+
+    if (!publicId || !cloudName || !apiKey || !apiSecret) {
+      return res.status(400).json({ error: "Required parameters (publicId, cloudName, apiKey, apiSecret) are missing." });
+    }
+
+    try {
+      const timestamp = Math.round(new Date().getTime() / 1000);
+      
+      // Compute the signature. For destroying assets, we sign parameters: "public_id=<publicId>&timestamp=<timestamp>"
+      const crypto = await import("crypto");
+      const stringToSign = `public_id=${publicId}&timestamp=${timestamp}${apiSecret}`;
+      const signature = crypto.createHash("sha1").update(stringToSign).digest("hex");
+
+      const url = `https://api.cloudinary.com/v1_1/${cloudName}/image/destroy`;
+      
+      const payload = new URLSearchParams();
+      payload.append("public_id", publicId);
+      payload.append("timestamp", String(timestamp));
+      payload.append("api_key", apiKey);
+      payload.append("signature", signature);
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: payload.toString()
+      });
+
+      const resData = await response.json();
+      const wasDeleted = resData.result === "ok";
+
+      return res.json({
+        success: wasDeleted,
+        log: `Cloudinary API returned result: ${resData.result || "error"}. Response details: ${JSON.stringify(resData)}`
+      });
+
+    } catch (err: any) {
+      console.error("[Cloudinary Secure Deletion Error]:", err);
+      return res.status(500).json({ error: "Internal processing failure: " + err.message });
+    }
+  });
+
   // 1.7 Real outbound WhatsApp dispatch API
   app.post("/api/send-whatsapp", async (req, res) => {
     const { 

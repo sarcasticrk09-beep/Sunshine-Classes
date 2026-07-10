@@ -25,11 +25,13 @@ import {
   ChevronDown,
   Check,
   AlertTriangle,
-  Clock
+  Clock,
+  MessageSquare
 } from 'lucide-react';
 import { Admission, Student, FeeStatus, FeeReceipt, Inquiry, Batch, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig } from '../types';
 import { getFeeForClass } from '../data';
 import SunshineLogo from './SunshineLogo';
+import { WhatsAppCommunication } from './WhatsAppCommunication';
 
 interface ReceptionDashboardProps {
   students: Student[];
@@ -68,7 +70,7 @@ export default function ReceptionDashboard({
   subConfig,
   onPaySubscription
 }: ReceptionDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'admissions' | 'inquiries' | 'fees' | 'search'>('admissions');
+  const [activeTab, setActiveTab] = useState<'admissions' | 'inquiries' | 'fees' | 'search' | 'whatsapp'>('admissions');
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -729,7 +731,8 @@ export default function ReceptionDashboard({
               { id: 'admissions', label: `Admissions Desk (${pendingAdmissionsCount})`, icon: <Users size={16} /> },
               { id: 'inquiries', label: 'Lead & Inquiries log', icon: <Phone size={16} /> },
               { id: 'fees', label: 'Collect Monthly Fees', icon: <CreditCard size={16} /> },
-              { id: 'search', label: 'Search Students Directory', icon: <Search size={16} /> }
+              { id: 'search', label: 'Search Students Directory', icon: <Search size={16} /> },
+              { id: 'whatsapp', label: 'WhatsApp Chat Console', icon: <MessageSquare size={16} /> }
             ] as const;
 
             const activeTabObj = tabsList.find(t => t.id === activeTab);
@@ -1400,6 +1403,18 @@ export default function ReceptionDashboard({
                 )}
               </div>
             </div>
+          )}
+
+          {activeTab === 'whatsapp' && (
+            <WhatsAppCommunication 
+              currentUser={{
+                id: 'reception',
+                username: 'reception',
+                name: 'Reception Desk',
+                role: 'RECEPTIONIST'
+              }}
+              studentsList={students}
+            />
           )}
           </motion.div>
         </div>

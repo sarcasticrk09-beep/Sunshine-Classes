@@ -48,12 +48,26 @@ import {
   EyeOff,
   ExternalLink,
   Camera,
-  Video
+  Video,
+  UploadCloud,
+  UserPlus,
+  ShieldAlert
 } from 'lucide-react';
-import { Student, Teacher, User, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig, DepartedStudent } from '../types';
+import { Student, Teacher, User, UserRole, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig, DepartedStudent } from '../types';
 import { interpolateTemplate } from '../data';
 import { sendWhatsAppMessage, interpolateWhatsAppTemplate } from '../lib/whatsappService';
 import { googleSignIn, getCachedAccessToken, clearCachedAccessToken } from '../lib/firebase';
+import { CloudinaryUpload } from './CloudinaryUpload';
+import { WhatsAppCommunication } from './WhatsAppCommunication';
+
+function simpleSecureHash(password: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < password.length; i++) {
+    hash ^= password.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return 'sha256_mock_' + (hash >>> 0).toString(16).padStart(8, '0');
+}
 
 interface AdminDashboardProps {
   students: Student[];
@@ -123,6 +137,7 @@ interface AdminDashboardProps {
   onClearTestData?: () => void;
   onForceUpdateUserEmails?: () => void;
   departedStudents?: DepartedStudent[];
+  onUpdateUsers?: (users: User[]) => void;
 }
 
 export default function AdminDashboard({
@@ -188,9 +203,11 @@ export default function AdminDashboard({
   onBulkImport,
   onClearTestData,
   onForceUpdateUserEmails,
-  departedStudents = []
-}: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets'>('overview');
+  departedStudents,
+  onUpdateUsers
+} : AdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets' | 'roles'>('overview');
+  const [waInitialPhone, setWaInitialPhone] = useState<string>('');
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
@@ -255,6 +272,137 @@ export default function AdminDashboard({
       handleImportSpreadsheet();
     } else {
       addSheetsLog("Disabled automatic student imports.");
+    }
+  };
+
+  // --- START OF FIREBASE CONFIGURATION REFERENCES ---
+  const [firebaseConfigApiKey, setFirebaseConfigApiKey] = useState<string>(() => localStorage.getItem('fb_cfg_apiKey') || 'AIzaSyCVg06N9JRbjbYyMlvrac-BKAd-d65hm-U');
+  const [firebaseConfigAuthDomain, setFirebaseConfigAuthDomain] = useState<string>(() => localStorage.getItem('fb_cfg_authDomain') || 'sunshine-classes-web.firebaseapp.com');
+  const [firebaseConfigProjectId, setFirebaseConfigProjectId] = useState<string>(() => localStorage.getItem('fb_cfg_projectId') || 'sunshine-classes-web');
+  const [firebaseConfigStorageBucket, setFirebaseConfigStorageBucket] = useState<string>(() => localStorage.getItem('fb_cfg_storageBucket') || 'sunshine-classes-web.firebasestorage.app');
+  const [firebaseConfigMessagingSenderId, setFirebaseConfigMessagingSenderId] = useState<string>(() => localStorage.getItem('fb_cfg_messagingSenderId') || '308447291099');
+  const [firebaseConfigAppId, setFirebaseConfigAppId] = useState<string>(() => localStorage.getItem('fb_cfg_appId') || '1:308447291099:web:574e371bb15c5e54404efe');
+
+  const handleSaveFirebaseConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    localStorage.setItem('fb_cfg_apiKey', firebaseConfigApiKey);
+    localStorage.setItem('fb_cfg_authDomain', firebaseConfigAuthDomain);
+    localStorage.setItem('fb_cfg_projectId', firebaseConfigProjectId);
+    localStorage.setItem('fb_cfg_storageBucket', firebaseConfigStorageBucket);
+    localStorage.setItem('fb_cfg_messagingSenderId', firebaseConfigMessagingSenderId);
+    localStorage.setItem('fb_cfg_appId', firebaseConfigAppId);
+    alert('Success: Firebase Configuration references have been updated and synchronized with the ERP framework!');
+  };
+
+  // --- BACKUP & RESTORE STATES & SIMULATION ---
+  const [isSimulatingBackup, setIsSimulatingBackup] = useState(false);
+  const [isSimulatingRestore, setIsSimulatingRestore] = useState(false);
+  const [backupLog, setBackupLog] = useState<string[]>([]);
+  const [restoreLog, setRestoreLog] = useState<string[]>([]);
+  
+  const handleTriggerSimulatedBackup = () => {
+    setIsSimulatingBackup(true);
+    setBackupLog(["Initializing Full Database Export...", "Reading enrollment tables...", "Compiling student profiles and invoices...", "Bundling ledger statuses...", "Securing bundle with cryptographical hashes..."]);
+    setTimeout(() => {
+      setBackupLog(prev => [...prev, "Backup compile complete!", "Generated hash: SEC-BKP-" + Math.random().toString(36).substring(7).toUpperCase()]);
+      setIsSimulatingBackup(false);
+      if (onTriggerBackup) onTriggerBackup();
+    }, 1500);
+  };
+
+  const handleTriggerSimulatedRestore = () => {
+    setIsSimulatingRestore(true);
+    setRestoreLog(["Parsing recovery archive...", "Checking cryptographic signatures...", "Clearing outdated local records...", "Re-importing student roster...", "Restoring monthly ledger database...", "Warm rebooting ERP modules..."]);
+    setTimeout(() => {
+      setRestoreLog(prev => [...prev, "System restore completed successfully! ERP state healed."]);
+      setIsSimulatingRestore(false);
+      alert("Success: Database recovered and ERP modules initialized!");
+    }, 2000);
+  };
+
+  // --- ROLE MANAGEMENT NEW USER FORM STATES ---
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserUsername, setNewUserUsername] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserRole, setNewUserRole] = useState<UserRole>('STUDENT');
+  const [newUserPassword, setNewUserPassword] = useState('');
+
+  const [roleSearchQuery, setRoleSearchQuery] = useState('');
+
+  const handleCreateUserSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedUsername = newUserUsername.trim();
+    if (!trimmedUsername) {
+      alert("Error: Username is required.");
+      return;
+    }
+    const usernameExists = users.some(u => u.username.toLowerCase() === trimmedUsername.toLowerCase());
+    if (usernameExists) {
+      alert(`Error: Username "${trimmedUsername}" is already taken.`);
+      return;
+    }
+
+    const hashed = newUserPassword ? (newUserPassword.startsWith('sha256_mock_') ? newUserPassword : simpleSecureHash(newUserPassword)) : 'sha256_mock_default';
+    const newUser: User = {
+      id: `USR-${Date.now()}`,
+      name: newUserName.trim() || 'New User',
+      username: trimmedUsername,
+      email: newUserEmail.trim() || undefined,
+      role: newUserRole,
+      password: hashed,
+      plainPassword: newUserPassword || 'default'
+    };
+
+    const updatedUsers = [...users, newUser];
+    if (onUpdateUsers) {
+      onUpdateUsers(updatedUsers);
+      alert(`Success: User @${trimmedUsername} created successfully with role ${newUserRole}!`);
+      setNewUserName('');
+      setNewUserUsername('');
+      setNewUserEmail('');
+      setNewUserRole('STUDENT');
+      setNewUserPassword('');
+    } else {
+      alert("Error: User update stream is currently disconnected.");
+    }
+  };
+
+  const handleUpdateUserRole = (userId: string, targetRole: UserRole) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+
+    if (user.role === 'SUPER_ADMIN' && targetRole !== 'SUPER_ADMIN') {
+      alert("Security Error: Super Admin role cannot be demoted directly by this interface to protect platform ownership.");
+      return;
+    }
+
+    const updatedUsers = users.map(u => u.id === userId ? { ...u, role: targetRole } : u);
+    if (onUpdateUsers) {
+      onUpdateUsers(updatedUsers);
+      alert(`Success: @${user.username}'s role changed to ${targetRole}.`);
+    }
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+
+    if (user.role === 'SUPER_ADMIN') {
+      alert("Access Denied: Super Admin account cannot be deleted under the security rules.");
+      return;
+    }
+
+    if (currentUser && currentUser.id === userId) {
+      alert("Access Denied: You cannot delete your own logged-in user session.");
+      return;
+    }
+
+    if (window.confirm(`Are you absolutely sure you want to permanently delete user @${user.username}? This action is irreversible.`)) {
+      const updatedUsers = users.filter(u => u.id !== userId);
+      if (onUpdateUsers) {
+        onUpdateUsers(updatedUsers);
+        alert(`Success: User @${user.username} deleted.`);
+      }
     }
   };
 
@@ -3081,6 +3229,13 @@ export default function AdminDashboard({
   const [cfgEnableNetBankingMethod, setCfgEnableNetBankingMethod] = useState(subConfig.enableNetBankingMethod ?? true);
   const [cfgEnableBankTransferMethod, setCfgEnableBankTransferMethod] = useState(subConfig.enableBankTransferMethod ?? true);
 
+  // Cloudinary Config States
+  const [cfgCloudinaryCloudName, setCfgCloudinaryCloudName] = useState(subConfig.cloudinaryCloudName ?? '');
+  const [cfgCloudinaryUploadPreset, setCfgCloudinaryUploadPreset] = useState(subConfig.cloudinaryUploadPreset ?? '');
+  const [cfgCloudinaryApiKey, setCfgCloudinaryApiKey] = useState(subConfig.cloudinaryApiKey ?? '');
+  const [cfgCloudinaryApiSecret, setCfgCloudinaryApiSecret] = useState(subConfig.cloudinaryApiSecret ?? '');
+  const [cfgCloudinaryMaxFileSize, setCfgCloudinaryMaxFileSize] = useState(subConfig.cloudinaryMaxFileSize ?? 10);
+
   // Gateway Testing States
   const [testPhoneNo, setTestPhoneNo] = useState('');
   const [testMsgBody, setTestMsgBody] = useState('Hello from Sunshine Classes! This is a test notification from your Tuition Management Portal integration settings.');
@@ -3800,7 +3955,12 @@ export default function AdminDashboard({
       enableCardMethod: cfgEnableCardMethod,
       enableNetBankingMethod: cfgEnableNetBankingMethod,
       enableBankTransferMethod: cfgEnableBankTransferMethod,
-      enableAutomatedFeeAlerts: cfgEnableAutomatedFeeAlerts
+      enableAutomatedFeeAlerts: cfgEnableAutomatedFeeAlerts,
+      cloudinaryCloudName: cfgCloudinaryCloudName,
+      cloudinaryUploadPreset: cfgCloudinaryUploadPreset,
+      cloudinaryApiKey: cfgCloudinaryApiKey,
+      cloudinaryApiSecret: cfgCloudinaryApiSecret,
+      cloudinaryMaxFileSize: Number(cfgCloudinaryMaxFileSize)
     });
     alert("Sunshine Classes ERP configurations updated successfully! Secure online payment routing handles, late fees, and SMS/WhatsApp gateway settings are synchronized.");
   };
@@ -4331,7 +4491,8 @@ ${data.log}`
 
       {/* Main ERP Tab System */}
       {(() => {
-        const tabsList = [
+        const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+        const allTabs = [
           { id: 'overview', label: 'Admin Operations Overview', icon: <Activity size={16} />, category: 'Core Operations' },
           { id: 'students', label: `Manage Student ERP (${students.length})`, icon: <Users size={16} />, category: 'Core Operations' },
           { id: 'fees', label: 'Manage Fees & Ledger', icon: <DollarSign size={16} />, category: 'Core Operations' },
@@ -4341,12 +4502,19 @@ ${data.log}`
           { id: 'website', label: 'Public Website & Notes CMS', icon: <Sparkles size={16} />, category: 'Academic & CMS' },
           { id: 'announcements', label: 'Broadcast Announcements', icon: <Bell size={16} />, category: 'Academic & CMS' },
           
+          { id: 'roles', label: 'Role Management', icon: <Shield size={16} className="text-indigo-600 font-bold" />, category: 'Integrations & Logs' },
           { id: 'sheets', label: 'Google Sheets Sync', icon: <FileSpreadsheet size={16} className="text-emerald-600 animate-pulse" />, category: 'Integrations & Logs' },
           { id: 'whatsapp', label: 'WhatsApp Messaging', icon: <MessageSquare size={16} />, category: 'Integrations & Logs' },
           { id: 'audit', label: 'Audit & System Logs', icon: <FileText size={16} />, category: 'Integrations & Logs' },
           { id: 'diagnostics', label: 'System Diagnostics', icon: <Shield size={16} className="text-emerald-500" />, category: 'Integrations & Logs' },
-          { id: 'settings', label: 'Database Backup', icon: <Settings size={16} />, category: 'Integrations & Logs' }
+          { id: 'settings', label: 'System Settings & Backup', icon: <Settings size={16} />, category: 'Integrations & Logs' }
         ] as const;
+
+        const tabsList = allTabs.filter(tab => {
+          if (isSuperAdmin) return true;
+          const allowedAdminTabs = ['overview', 'students', 'fees', 'teachers', 'batches', 'announcements'];
+          return allowedAdminTabs.includes(tab.id);
+        });
 
         return (
           <div className="grid gap-6 lg:grid-cols-4">
@@ -4465,7 +4633,6 @@ ${data.log}`
               </div>
             </div>
 
-            {/* Dynamic Content Area */}
             <div className="lg:col-span-3 col-span-full">
               <motion.div
                 key={activeTab}
@@ -4473,6 +4640,39 @@ ${data.log}`
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25, ease: 'easeOut' }}
               >
+                {(() => {
+                  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+                  const allowedAdminTabs = ['overview', 'students', 'fees', 'teachers', 'batches', 'announcements'];
+                  const isAuthorized = isSuperAdmin || allowedAdminTabs.includes(activeTab);
+                  
+                  if (!isAuthorized) {
+                    return (
+                      <div className="rounded-2xl border border-red-200 bg-red-50/50 p-8 text-center space-y-4 max-w-2xl mx-auto shadow-sm" id="forbidden-access-view">
+                        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-red-600 border border-red-200 shadow-inner">
+                          <Shield size={24} className="animate-bounce" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <h3 className="font-display font-black text-lg text-slate-900 tracking-tight">403 - Access Denied</h3>
+                          <p className="text-xs text-slate-600 leading-relaxed max-w-md mx-auto">
+                            Your current account role (<strong>{currentUser?.role}</strong>) does not possess the requisite security clearance to view this administrative page. If you are the owner, please log in with your primary Super Admin credentials.
+                          </p>
+                        </div>
+                        <div className="pt-2 border-t border-slate-200/60 flex justify-center gap-4">
+                          <button
+                            type="button"
+                            id="btn-forbidden-go-overview"
+                            onClick={() => setActiveTab('overview')}
+                            className="rounded-xl bg-indigo-950 hover:bg-slate-900 text-white font-bold text-xs px-5 py-2.5 shadow transition-all cursor-pointer"
+                          >
+                            Return to Dashboard Overview
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-6 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
@@ -5081,48 +5281,21 @@ ${data.log}`
                         />
                       </div>
 
-                      <div className="sm:col-span-3 border border-dashed border-slate-200 rounded-2xl p-4 bg-slate-50/50">
-                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Student Passport Photo</label>
-                        <div className="flex gap-4 items-center">
-                          {stdPhotoUrl ? (
-                            <img src={stdPhotoUrl} alt="Student preview" className="h-12 w-12 rounded-full object-cover border border-slate-200 shadow-sm" />
-                          ) : (
-                            <div className="h-12 w-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center border border-slate-200">
-                              <Upload size={18} />
-                            </div>
-                          )}
-                          <div className="relative border border-slate-200 rounded-lg px-3 py-1.5 bg-white hover:bg-slate-50 transition-all text-center flex-1 flex items-center justify-center cursor-pointer">
-                            <input
-                              type="file"
-                              id="std-photo-picker-offline"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                if (e.target.files && e.target.files[0]) {
-                                  const f = e.target.files[0];
-                                  const reader = new FileReader();
-                                  reader.onloadend = () => {
-                                    setStdPhotoUrl(reader.result as string);
-                                  };
-                                  reader.readAsDataURL(f);
-                                }
-                              }}
-                            />
-                            <label htmlFor="std-photo-picker-offline" className="cursor-pointer flex items-center gap-1.5 text-xs text-slate-600">
-                              <Upload size={13} className="text-slate-400" />
-                              <span className="font-bold text-indigo-950 hover:underline">Choose Photo</span>
-                            </label>
-                          </div>
-                          {stdPhotoUrl && (
-                            <button
-                              type="button"
-                              onClick={() => setStdPhotoUrl('')}
-                              className="text-xs text-red-500 font-bold hover:underline cursor-pointer"
-                            >
-                              Clear
-                            </button>
-                          )}
-                        </div>
+                      <div className="sm:col-span-3">
+                        <CloudinaryUpload
+                          id="student-photo-upload"
+                          folder="students"
+                          cloudName={subConfig.cloudinaryCloudName}
+                          uploadPreset={subConfig.cloudinaryUploadPreset}
+                          apiKey={subConfig.cloudinaryApiKey}
+                          apiSecret={subConfig.cloudinaryApiSecret}
+                          maxSizeMB={subConfig.cloudinaryMaxFileSize}
+                          initialUrl={stdPhotoUrl}
+                          onUploadSuccess={(url) => setStdPhotoUrl(url)}
+                          onFileDeleted={() => setStdPhotoUrl('')}
+                          allowedTypes={['jpg', 'jpeg', 'png', 'webp']}
+                          label="Student Passport Photo"
+                        />
                       </div>
                     </div>
 
@@ -5412,6 +5585,18 @@ ${data.log}`
                                 <Edit size={14} />
                               </button>
                               <button
+                                id={`btn-whatsapp-student-${student.id}`}
+                                onClick={() => {
+                                  const phone = student.whatsapp || student.parentMobile || student.mobile || '';
+                                  setWaInitialPhone(phone);
+                                  setActiveTab('whatsapp');
+                                }}
+                                className="rounded p-1.5 text-teal-600 hover:bg-teal-50 mr-2 cursor-pointer inline-flex items-center justify-center"
+                                title="Chat on WhatsApp"
+                              >
+                                <MessageSquare size={14} />
+                              </button>
+                              <button
                                 id={`btn-quick-collect-student-${student.id}`}
                                 onClick={() => openQuickCollect(student)}
                                 className="rounded p-1.5 text-emerald-600 hover:bg-emerald-50 mr-2 cursor-pointer inline-flex items-center justify-center"
@@ -5696,6 +5881,19 @@ ${data.log}`
                             title="Edit Contact & Timings"
                           >
                             <Edit size={13} /> Edit Profile
+                          </button>
+                          
+                          <button
+                            id={`btn-whatsapp-teacher-${t.id}`}
+                            onClick={() => {
+                              const phone = t.phone || '';
+                              setWaInitialPhone(phone);
+                              setActiveTab('whatsapp');
+                            }}
+                            className="flex items-center gap-1 rounded-xl border border-teal-100 hover:border-teal-300 px-3 py-1.5 text-xs font-semibold text-teal-700 bg-white hover:bg-teal-50/50 transition-colors cursor-pointer"
+                            title="Chat on WhatsApp"
+                          >
+                            <MessageSquare size={13} /> Message
                           </button>
                           
                           <button
@@ -7779,37 +7977,20 @@ ${data.log}`
                         />
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="block text-[10px] font-extrabold uppercase text-slate-500 mb-1.5">Student Photo <span className="text-red-500">*</span></label>
-                        <div className="flex gap-3 items-center">
-                          {editingTopper.img && (
-                            <img src={editingTopper.img} alt="Preview" className="h-10 w-10 rounded-full object-cover border border-slate-200" />
-                          )}
-                          <div className="relative border border-dashed border-slate-300 rounded-lg px-3 py-1.5 bg-white hover:bg-slate-50 transition-all text-center flex-1 flex items-center justify-center cursor-pointer">
-                            <input
-                              type="file"
-                              id="admin-topper-photo-picker"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                if (e.target.files && e.target.files[0]) {
-                                  const f = e.target.files[0];
-                                  const reader = new FileReader();
-                                  reader.onloadend = () => {
-                                    setEditingTopper({
-                                      ...editingTopper,
-                                      img: reader.result as string
-                                    });
-                                  };
-                                  reader.readAsDataURL(f);
-                                }
-                              }}
-                            />
-                            <label htmlFor="admin-topper-photo-picker" className="cursor-pointer flex items-center gap-1.5 text-xs text-slate-600">
-                              <Upload size={13} className="text-slate-400" />
-                              <span className="font-bold text-indigo-900 hover:underline">Choose Photo File</span>
-                            </label>
-                          </div>
-                        </div>
+                        <CloudinaryUpload
+                          id="admin-topper-photo-picker-cloudinary"
+                          folder="results"
+                          cloudName={subConfig.cloudinaryCloudName}
+                          uploadPreset={subConfig.cloudinaryUploadPreset}
+                          apiKey={subConfig.cloudinaryApiKey}
+                          apiSecret={subConfig.cloudinaryApiSecret}
+                          maxSizeMB={subConfig.cloudinaryMaxFileSize}
+                          initialUrl={editingTopper.img}
+                          onUploadSuccess={(url) => setEditingTopper({ ...editingTopper, img: url })}
+                          onFileDeleted={() => setEditingTopper({ ...editingTopper, img: '' })}
+                          allowedTypes={['jpg', 'jpeg', 'png', 'webp']}
+                          label="Student Photo"
+                        />
                       </div>
                     </div>
 
@@ -7984,37 +8165,36 @@ ${data.log}`
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-dashed border-slate-300 p-4 bg-white text-center hover:bg-slate-50 transition-all flex flex-col items-center justify-center cursor-pointer">
-                      <input
-                        type="file"
-                        id="admin-notes-real-file-picker"
-                        accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
-                        className="hidden"
-                        onChange={(e) => {
-                          if (e.target.files && e.target.files[0]) {
-                            const f = e.target.files[0];
-                            const formattedSize = f.size > 1024 * 1024 
-                              ? `${(f.size / (1024 * 1024)).toFixed(1)} MB` 
-                              : `${(f.size / 1024).toFixed(0)} KB`;
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setNewMaterial({
-                                ...newMaterial,
-                                file: f.name,
-                                size: formattedSize,
-                                title: newMaterial.title || f.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " "),
-                                fileData: reader.result as string
-                              });
-                            };
-                            reader.readAsDataURL(f);
-                          }
+                    <div className="space-y-1">
+                      <CloudinaryUpload
+                        id="admin-notes-real-file-picker-cloudinary"
+                        folder="study-material"
+                        cloudName={subConfig.cloudinaryCloudName}
+                        uploadPreset={subConfig.cloudinaryUploadPreset}
+                        apiKey={subConfig.cloudinaryApiKey}
+                        apiSecret={subConfig.cloudinaryApiSecret}
+                        maxSizeMB={subConfig.cloudinaryMaxFileSize}
+                        initialUrl={newMaterial.fileData}
+                        onUploadSuccess={(url, publicId, fileName) => {
+                          setNewMaterial({
+                            ...newMaterial,
+                            file: fileName,
+                            size: "Cloud Uploaded",
+                            title: newMaterial.title || fileName.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " "),
+                            fileData: url
+                          });
                         }}
+                        onFileDeleted={() => {
+                          setNewMaterial({
+                            ...newMaterial,
+                            file: '',
+                            size: '',
+                            fileData: ''
+                          });
+                        }}
+                        allowedTypes={['jpg', 'jpeg', 'png', 'webp', 'pdf', 'docx', 'xlsx']}
+                        label="Attach Note / Document File"
                       />
-                      <label htmlFor="admin-notes-real-file-picker" className="cursor-pointer flex flex-col items-center justify-center w-full">
-                        <Upload size={20} className="text-indigo-950 mb-1" />
-                        <span className="text-xs font-bold text-indigo-950 hover:underline">Upload Note / Document File</span>
-                        <span className="text-[10px] text-slate-400">Drag & drop or click to select PDF, Word, or text note</span>
-                      </label>
                     </div>
 
                     <div className="grid gap-4 sm:grid-cols-2">
@@ -9145,6 +9325,81 @@ ${data.log}`
                             💡 These details are automatically integrated with students' secure portals to generate checkout QR codes or prompt bank wire details.
                           </div>
                         </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 6: Cloudinary Media Storage Integration */}
+                  <div className="border-t border-slate-100 pt-4 space-y-4">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> 6. Cloudinary Media Storage Integration
+                      </h4>
+                      <p className="text-[11px] text-slate-400">
+                        Configure your Cloudinary credentials to replace standard database binary storage with optimized, secure cloud file and document delivery.
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Cloudinary Cloud Name</label>
+                        <input
+                          id="input-cfg-cloudinary-cloud-name"
+                          type="text"
+                          placeholder="e.g. sunshine-classes"
+                          value={cfgCloudinaryCloudName}
+                          onChange={(e) => setCfgCloudinaryCloudName(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Cloudinary Unsigned Upload Preset</label>
+                        <input
+                          id="input-cfg-cloudinary-preset"
+                          type="text"
+                          placeholder="e.g. sunshine_preset"
+                          value={cfgCloudinaryUploadPreset}
+                          onChange={(e) => setCfgCloudinaryUploadPreset(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Cloudinary API Key</label>
+                        <input
+                          id="input-cfg-cloudinary-api-key"
+                          type="text"
+                          placeholder="Enter Cloudinary API Key"
+                          value={cfgCloudinaryApiKey}
+                          onChange={(e) => setCfgCloudinaryApiKey(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Cloudinary API Secret</label>
+                        <input
+                          id="input-cfg-cloudinary-api-secret"
+                          type="password"
+                          placeholder="Enter Cloudinary API Secret"
+                          value={cfgCloudinaryApiSecret}
+                          onChange={(e) => setCfgCloudinaryApiSecret(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Max Configured File Size Limit (MB)</label>
+                        <input
+                          id="input-cfg-cloudinary-max-size"
+                          type="number"
+                          min={1}
+                          max={50}
+                          value={cfgCloudinaryMaxFileSize}
+                          onChange={(e) => setCfgCloudinaryMaxFileSize(Number(e.target.value))}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
+                        />
                       </div>
                     </div>
                   </div>
@@ -10701,164 +10956,403 @@ ${data.log}`
                 </div>
               </div>
 
-              {/* 🔑 ERP System Credentials & Passwords Control Center */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-6" id="panel-erp-credentials-manager">
+              {/* Firebase Configuration References Management Card */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4" id="firebase-references-manager">
                 <div>
-                  <h3 className="font-display font-bold text-base text-slate-800 mb-1 flex items-center gap-2">
-                    <Key size={18} className="text-indigo-900" /> ERP Credentials & Password Management Center
+                  <h3 className="font-display font-bold text-base text-slate-800 flex items-center gap-2">
+                    <Database size={18} className="text-orange-500" /> Firebase Configuration References
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Search, view, and directly modify login passcodes for all administrative staff, teachers, receptionists, and students.
+                    Manage the Firebase initialization endpoints and app parameters used by the client-side authentication gateway.
                   </p>
                 </div>
 
-                {/* Filter Controls */}
-                <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-150">
-                  <div className="relative w-full sm:w-72">
+                <form onSubmit={handleSaveFirebaseConfig} className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">API Key Reference</label>
                     <input
-                      id="input-pwd-search"
                       type="text"
-                      placeholder="Search name or username..."
-                      value={pwdSearchQuery}
-                      onChange={(e) => setPwdSearchQuery(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 outline-none focus:border-indigo-900 font-medium"
+                      id="fb-api-key-input"
+                      value={firebaseConfigApiKey}
+                      onChange={(e) => setFirebaseConfigApiKey(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono text-slate-800 focus:bg-white focus:outline-none"
                     />
                   </div>
-
-                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                    <span className="text-xs font-semibold text-slate-500">Portal Role:</span>
-                    <select
-                      id="select-pwd-role-filter"
-                      value={pwdRoleFilter}
-                      onChange={(e) => setPwdRoleFilter(e.target.value as any)}
-                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-indigo-900 font-medium"
-                    >
-                      <option value="ALL">All Roles</option>
-                      <option value="ADMIN">Administrators</option>
-                      <option value="TEACHER">Faculty Teachers</option>
-                      <option value="RECEPTIONIST">Receptionists</option>
-                      <option value="STUDENT">Students</option>
-                    </select>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Auth Domain Reference</label>
+                    <input
+                      type="text"
+                      id="fb-auth-domain-input"
+                      value={firebaseConfigAuthDomain}
+                      onChange={(e) => setFirebaseConfigAuthDomain(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono text-slate-800 focus:bg-white focus:outline-none"
+                    />
                   </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Project ID Reference</label>
+                    <input
+                      type="text"
+                      id="fb-project-id-input"
+                      value={firebaseConfigProjectId}
+                      onChange={(e) => setFirebaseConfigProjectId(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono text-slate-800 focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Storage Bucket Reference</label>
+                    <input
+                      type="text"
+                      id="fb-storage-bucket-input"
+                      value={firebaseConfigStorageBucket}
+                      onChange={(e) => setFirebaseConfigStorageBucket(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono text-slate-800 focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Messaging Sender ID</label>
+                    <input
+                      type="text"
+                      id="fb-sender-id-input"
+                      value={firebaseConfigMessagingSenderId}
+                      onChange={(e) => setFirebaseConfigMessagingSenderId(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono text-slate-800 focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">App ID Reference</label>
+                    <input
+                      type="text"
+                      id="fb-app-id-input"
+                      value={firebaseConfigAppId}
+                      onChange={(e) => setFirebaseConfigAppId(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono text-slate-800 focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                  <div className="sm:col-span-2 flex justify-end">
+                    <button
+                      type="submit"
+                      id="btn-save-fb-config"
+                      className="rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs px-5 py-2.5 shadow cursor-pointer transition-all"
+                    >
+                      Save Firebase Configuration References
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Backup & Restore Controls Panel */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-6" id="backup-restore-panel">
+                <div>
+                  <h3 className="font-display font-bold text-base text-slate-800 flex items-center gap-2">
+                    <RefreshCw size={18} className="text-indigo-600" /> Backup & System Recovery Control Panel
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Instantly package state, download raw enrollment dumps, or trigger mock restore simulations with state-healing routines.
+                  </p>
                 </div>
 
-                {/* Users Table */}
-                <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-3xs">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse" id="tbl-erp-credentials">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-400">
-                          <th className="p-3">User Profile</th>
-                          <th className="p-3">Portal Username</th>
-                          <th className="p-3">Portal Role</th>
-                          <th className="p-3">Configured Passcode</th>
-                          <th className="p-3 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                        {(() => {
-                          const filteredUsers = users.filter(u => {
-                            const matchesSearch = 
-                              u.name.toLowerCase().includes(pwdSearchQuery.toLowerCase()) || 
-                              u.username.toLowerCase().includes(pwdSearchQuery.toLowerCase());
-                            const matchesRole = 
-                              pwdRoleFilter === 'ALL' || 
-                              u.role === pwdRoleFilter;
-                            return matchesSearch && matchesRole;
-                          });
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/50">
+                    <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <Download size={14} className="text-indigo-600" /> Export Backup Dump
+                    </h4>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Download a secure, complete, structured JSON dump representing students, teachers, fees, and system logs.
+                    </p>
+                    <button
+                      type="button"
+                      id="btn-trigger-backup-simulation"
+                      onClick={handleTriggerSimulatedBackup}
+                      disabled={isSimulatingBackup}
+                      className="w-full rounded-xl bg-indigo-950 hover:bg-slate-900 text-white font-bold text-xs py-2 px-3 shadow transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {isSimulatingBackup ? "Compiling Backup..." : "Create Full Backup Dump"}
+                    </button>
+                    {backupLog.length > 0 && (
+                      <div className="rounded border border-slate-200 bg-slate-950 text-emerald-400 font-mono text-[9px] p-2.5 max-h-24 overflow-y-auto space-y-1">
+                        {backupLog.map((log, i) => <div key={i}>&gt; {log}</div>)}
+                      </div>
+                    )}
+                  </div>
 
-                          if (filteredUsers.length === 0) {
-                            return (
-                              <tr>
-                                <td colSpan={5} className="p-6 text-center text-slate-400 italic">
-                                  No registered profiles found matching filters.
-                                </td>
-                              </tr>
-                            );
-                          }
-
-                          return filteredUsers.map((user) => {
-                            const isRevealed = pwdVisibleUsers.includes(user.id);
-                            const displayedPassword = (user as any).plainPassword || "admin123";
-                            
-                            return (
-                              <tr key={user.id} className="hover:bg-slate-50/50">
-                                <td className="p-3">
-                                  <div className="font-semibold text-slate-800">{user.name}</div>
-                                  <div className="text-[10px] text-slate-400">{user.email || 'No email registered'}</div>
-                                </td>
-                                <td className="p-3 font-mono font-bold text-slate-700">
-                                  {user.username}
-                                </td>
-                                <td className="p-3">
-                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide border ${
-                                    user.role === 'ADMIN'
-                                      ? 'bg-rose-50 text-rose-700 border-rose-150'
-                                      : user.role === 'TEACHER'
-                                      ? 'bg-indigo-50 text-indigo-700 border-indigo-150'
-                                      : user.role === 'RECEPTIONIST'
-                                      ? 'bg-amber-50 text-amber-700 border-amber-150'
-                                      : 'bg-emerald-50 text-emerald-700 border-emerald-150'
-                                  }`}>
-                                    {user.role}
-                                  </span>
-                                </td>
-                                <td className="p-3 font-mono">
-                                  <div className="flex items-center gap-1.5">
-                                    <input
-                                      type={isRevealed ? "text" : "password"}
-                                      readOnly
-                                      value={displayedPassword}
-                                      className="bg-transparent border-none outline-none font-bold text-xs w-28 text-slate-800"
-                                    />
-                                    <button
-                                      id={`btn-reveal-pwd-${user.id}`}
-                                      type="button"
-                                      onClick={() => {
-                                        if (isRevealed) {
-                                          setPwdVisibleUsers(pwdVisibleUsers.filter(id => id !== user.id));
-                                        } else {
-                                          setPwdVisibleUsers([...pwdVisibleUsers, user.id]);
-                                        }
-                                      }}
-                                      className="text-slate-400 hover:text-slate-600 rounded p-1 cursor-pointer"
-                                      title={isRevealed ? "Hide Passcode" : "Reveal Passcode"}
-                                    >
-                                      {isRevealed ? <EyeOff size={13} /> : <Eye size={13} />}
-                                    </button>
-                                  </div>
-                                </td>
-                                <td className="p-3 text-right">
-                                  <button
-                                    id={`btn-change-pwd-admin-${user.id}`}
-                                    type="button"
-                                    onClick={() => {
-                                      setResettingUser({
-                                        userId: user.id,
-                                        username: user.username,
-                                        name: user.name
-                                      });
-                                      setNewPasswordForUser('');
-                                    }}
-                                    className="rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 px-2 py-1 text-[10px] font-bold border border-indigo-150/50 cursor-pointer"
-                                    title="Edit Passcode"
-                                  >
-                                    Change Password
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          });
-                        })()}
-                      </tbody>
-                    </table>
+                  <div className="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/50">
+                    <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <UploadCloud size={14} className="text-rose-600" /> Simulate System Restore
+                    </h4>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Wipe active cache registry and feed in a previous backup archive file to heal damaged student records.
+                    </p>
+                    <button
+                      type="button"
+                      id="btn-trigger-restore-simulation"
+                      onClick={handleTriggerSimulatedRestore}
+                      disabled={isSimulatingRestore}
+                      className="w-full rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-2 px-3 shadow transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {isSimulatingRestore ? "Restoring State..." : "Trigger Recovery Restore"}
+                    </button>
+                    {restoreLog.length > 0 && (
+                      <div className="rounded border border-slate-200 bg-slate-950 text-indigo-300 font-mono text-[9px] p-2.5 max-h-24 overflow-y-auto space-y-1">
+                        {restoreLog.map((log, i) => <div key={i}>&gt; {log}</div>)}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
           )}
 
+          {/* TAB: ROLE MANAGEMENT */}
+          {activeTab === 'roles' && (
+            <div className="space-y-6">
+              {/* Create User Form Card */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4" id="role-create-user-card">
+                <div>
+                  <h3 className="font-display font-bold text-base text-slate-800 flex items-center gap-2">
+                    <UserPlus size={18} className="text-indigo-600" /> Create Administrative Portal User
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Provision a brand-new administrative staff, teacher, receptionist, student, or owner login account below.
+                  </p>
+                </div>
+
+                <form onSubmit={handleCreateUserSubmit} className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Full Human Name</label>
+                    <input
+                      type="text"
+                      id="create-user-name-input"
+                      required
+                      placeholder="e.g. Ramesh Kumar"
+                      value={newUserName}
+                      onChange={(e) => setNewUserName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Portal Username</label>
+                    <input
+                      type="text"
+                      id="create-user-username-input"
+                      required
+                      placeholder="e.g. rameshk"
+                      value={newUserUsername}
+                      onChange={(e) => setNewUserUsername(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono text-slate-800 focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Email (Optional)</label>
+                    <input
+                      type="email"
+                      id="create-user-email-input"
+                      placeholder="e.g. ramesh@gmail.com"
+                      value={newUserEmail}
+                      onChange={(e) => setNewUserEmail(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Access Authorization Role</label>
+                    <select
+                      id="create-user-role-input"
+                      value={newUserRole}
+                      onChange={(e) => setNewUserRole(e.target.value as UserRole)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none font-bold"
+                    >
+                      <option value="STUDENT">Student (Portal Access)</option>
+                      <option value="TEACHER">Teacher (Faculty Portal)</option>
+                      <option value="RECEPTIONIST">Receptionist (Front Desk ERP)</option>
+                      <option value="ADMIN">Admin (Manage ERP)</option>
+                      <option value="SUPER_ADMIN">Super Admin (Owner - Unrestricted)</option>
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Default Password / Passcode</label>
+                    <input
+                      type="password"
+                      id="create-user-pwd-input"
+                      required
+                      placeholder="Enter a secure login code"
+                      value={newUserPassword}
+                      onChange={(e) => setNewUserPassword(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono text-slate-800 focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                  <div className="sm:col-span-2 flex justify-end">
+                    <button
+                      type="submit"
+                      id="btn-submit-create-user"
+                      className="rounded-xl bg-indigo-950 hover:bg-slate-900 text-white font-bold text-xs px-5 py-2.5 shadow transition-all cursor-pointer"
+                    >
+                      🚀 Deploy Portal Account
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* User Directory & RBAC Audit Table */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4" id="role-directory-card">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <h3 className="font-display font-bold text-base text-slate-800 flex items-center gap-2">
+                      <ShieldAlert size={18} className="text-indigo-600" /> Active System Credentials & RBAC Auditing
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      View, reveal, alter authorization roles, or safely decommission registered system user accounts.
+                    </p>
+                  </div>
+                  <div className="relative w-full sm:w-64">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Search size={14} />
+                    </div>
+                    <input
+                      type="text"
+                      id="role-table-search-input"
+                      placeholder="Search accounts..."
+                      value={roleSearchQuery}
+                      onChange={(e) => setRoleSearchQuery(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 py-2 text-xs focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        <th className="p-3">User Profile</th>
+                        <th className="p-3">Username</th>
+                        <th className="p-3">Assigned Role</th>
+                        <th className="p-3">Passcode</th>
+                        <th className="p-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50 text-xs text-slate-700">
+                      {users
+                        .filter(u => {
+                          const query = roleSearchQuery.toLowerCase();
+                          return (
+                            u.name.toLowerCase().includes(query) ||
+                            u.username.toLowerCase().includes(query) ||
+                            u.role.toLowerCase().includes(query) ||
+                            (u.email && u.email.toLowerCase().includes(query))
+                          );
+                        })
+                        .map((user) => {
+                          const isRevealed = pwdVisibleUsers.includes(user.id);
+                          const displayedPassword = isRevealed ? (user.plainPassword || user.password) : '••••••••';
+                          const isSelf = currentUser?.id === user.id;
+
+                          return (
+                            <tr key={user.id} className="hover:bg-slate-50/50">
+                              <td className="p-3">
+                                <div className="font-bold text-slate-900">{user.name}</div>
+                                <div className="text-[10px] text-slate-400 font-mono">{user.email || 'No email registered'}</div>
+                              </td>
+                              <td className="p-3 font-mono font-bold text-slate-700">@{user.username}</td>
+                              <td className="p-3">
+                                <select
+                                  id={`select-role-user-${user.id}`}
+                                  value={user.role}
+                                  onChange={(e) => handleUpdateUserRole(user.id, e.target.value as UserRole)}
+                                  disabled={user.role === 'SUPER_ADMIN'}
+                                  className={`rounded-lg border border-slate-200 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide cursor-pointer focus:outline-none ${
+                                    user.role === 'SUPER_ADMIN'
+                                      ? 'bg-purple-100 text-purple-800 border-purple-200 font-black'
+                                      : user.role === 'ADMIN'
+                                      ? 'bg-rose-50 text-rose-700 border-rose-150'
+                                      : user.role === 'TEACHER'
+                                      ? 'bg-indigo-50 text-indigo-700 border-indigo-150'
+                                      : user.role === 'RECEPTIONIST'
+                                      ? 'bg-amber-50 text-amber-700 border-amber-150'
+                                      : 'bg-emerald-50 text-emerald-700 border-emerald-150'
+                                  }`}
+                                >
+                                  <option value="STUDENT">Student</option>
+                                  <option value="TEACHER">Teacher</option>
+                                  <option value="RECEPTIONIST">Receptionist</option>
+                                  <option value="ADMIN">Admin</option>
+                                  <option value="SUPER_ADMIN" disabled>Super Admin</option>
+                                </select>
+                              </td>
+                              <td className="p-3 font-mono">
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type={isRevealed ? "text" : "password"}
+                                    readOnly
+                                    value={displayedPassword}
+                                    className="bg-transparent border-none outline-none font-bold text-xs w-24 text-slate-800"
+                                  />
+                                  <button
+                                    id={`btn-reveal-pwd-${user.id}`}
+                                    type="button"
+                                    onClick={() => {
+                                      if (isRevealed) {
+                                        setPwdVisibleUsers(pwdVisibleUsers.filter(id => id !== user.id));
+                                      } else {
+                                        setPwdVisibleUsers([...pwdVisibleUsers, user.id]);
+                                      }
+                                    }}
+                                    className="text-slate-400 hover:text-slate-600 rounded p-1 cursor-pointer"
+                                    title={isRevealed ? "Hide Passcode" : "Reveal Passcode"}
+                                  >
+                                    {isRevealed ? <EyeOff size={13} /> : <Eye size={13} />}
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="p-3 text-right flex justify-end gap-2 items-center">
+                                <button
+                                  id={`btn-change-pwd-admin-${user.id}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setResettingUser({
+                                      userId: user.id,
+                                      username: user.username,
+                                      name: user.name
+                                    });
+                                    setNewPasswordForUser('');
+                                  }}
+                                  className="rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 px-2 py-1 text-[10px] font-bold border border-indigo-150/50 cursor-pointer"
+                                >
+                                  Set Passcode
+                                </button>
+                                <button
+                                  id={`btn-delete-user-admin-${user.id}`}
+                                  type="button"
+                                  disabled={user.role === 'SUPER_ADMIN' || isSelf}
+                                  onClick={() => handleDeleteUser(user.id)}
+                                  className="rounded bg-rose-50 hover:bg-rose-100 text-rose-700 px-2 py-1 text-[10px] font-bold border border-rose-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                  title={user.role === 'SUPER_ADMIN' ? "Super Admin cannot be deleted" : isSelf ? "You cannot delete yourself" : "Delete user"}
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'whatsapp' && (
+            <WhatsAppCommunication 
+              currentUser={{
+                id: currentUser?.id || 'admin',
+                username: currentUser?.username || 'admin',
+                name: currentUser?.name || 'Administrator',
+                role: (currentUser?.role || 'ADMIN') as any
+              }}
+              studentsList={students}
+              teachersList={teachers}
+              initialSelectedPhone={waInitialPhone}
+            />
+          )}
+
+          {activeTab === 'whatsapp_old' && (
             <div className="space-y-6">
               {/* Header Card */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

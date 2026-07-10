@@ -37,8 +37,9 @@ import {
   Menu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Course, BlogPost, Testimonial, Topper, StudyMaterial, GalleryItem, Admission, Student, FounderMember } from '../types';
+import { Course, BlogPost, Testimonial, Topper, StudyMaterial, GalleryItem, Admission, Student, FounderMember, SubscriptionConfig } from '../types';
 import SunshineLogo from './SunshineLogo';
+import { CloudinaryUpload } from './CloudinaryUpload';
 
 const WhatsAppIcon = ({ className = "w-5 h-5", size = 20 }: { className?: string; size?: number }) => (
   <svg 
@@ -83,6 +84,7 @@ interface LandingPageProps {
   founders?: FounderMember[];
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  subConfig: SubscriptionConfig;
 }
 
 export default function LandingPage({
@@ -99,7 +101,8 @@ export default function LandingPage({
   students = [],
   founders = [],
   theme,
-  onToggleTheme
+  onToggleTheme,
+  subConfig
 }: LandingPageProps) {
   const [activeSection, setActiveSection] = useState<'home' | 'about' | 'courses' | 'admissions' | 'results' | 'resources' | 'gallery' | 'contact'>('home');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -795,47 +798,20 @@ export default function LandingPage({
 
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="sm:col-span-2">
-                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Student Photo (Optional)</label>
-                        <div className="flex gap-4 items-center">
-                          {admPhotoUrl ? (
-                            <img src={admPhotoUrl} alt="Student preview" className="h-14 w-14 rounded-full object-cover border border-slate-200" />
-                          ) : (
-                            <div className="h-14 w-14 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center border border-slate-200">
-                              <Upload size={20} />
-                            </div>
-                          )}
-                          <div className="relative border border-slate-200 dark:border-slate-800 rounded-lg px-3.5 py-2 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all text-center flex-1 flex items-center justify-center cursor-pointer">
-                            <input
-                              type="file"
-                              id="adm-photo-picker-main"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                if (e.target.files && e.target.files[0]) {
-                                  const f = e.target.files[0];
-                                  const reader = new FileReader();
-                                  reader.onloadend = () => {
-                                    setAdmPhotoUrl(reader.result as string);
-                                  };
-                                  reader.readAsDataURL(f);
-                                }
-                              }}
-                            />
-                            <label htmlFor="adm-photo-picker-main" className="cursor-pointer flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
-                              <Upload size={14} className="text-slate-400" />
-                              <span className="font-bold text-brand-blue hover:underline">Choose Photo</span>
-                            </label>
-                          </div>
-                          {admPhotoUrl && (
-                            <button
-                              type="button"
-                              onClick={() => setAdmPhotoUrl('')}
-                              className="text-xs text-red-500 font-bold hover:underline cursor-pointer"
-                            >
-                              Clear
-                            </button>
-                          )}
-                        </div>
+                        <CloudinaryUpload
+                          id="adm-photo-picker-main-cloudinary"
+                          folder="students"
+                          cloudName={subConfig.cloudinaryCloudName}
+                          uploadPreset={subConfig.cloudinaryUploadPreset}
+                          apiKey={subConfig.cloudinaryApiKey}
+                          apiSecret={subConfig.cloudinaryApiSecret}
+                          maxSizeMB={subConfig.cloudinaryMaxFileSize}
+                          initialUrl={admPhotoUrl}
+                          onUploadSuccess={(url) => setAdmPhotoUrl(url)}
+                          onFileDeleted={() => setAdmPhotoUrl('')}
+                          allowedTypes={['jpg', 'jpeg', 'png', 'webp']}
+                          label="Student Passport Photo (Optional)"
+                        />
                       </div>
 
                       <div>
