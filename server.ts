@@ -17,16 +17,16 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
 
 const firebaseConfig = {
-  projectId: "maximal-music-shh41",
-  appId: "1:996750335749:web:fead7d5fdea73b78cfe16c",
-  apiKey: "AIzaSyCPZA9lz7YSQ4kkqD6JxDyyxAaQrO3kqyo",
-  authDomain: "maximal-music-shh41.firebaseapp.com",
-  storageBucket: "maximal-music-shh41.firebasestorage.app",
-  messagingSenderId: "996750335749"
+  projectId: "sunshine-classes-web",
+  appId: "1:308447291099:web:574e371bb15c5e54404efe",
+  apiKey: "AIzaSyCVg06N9JRbjbYyMlvrac-BKAd-d65hm-U",
+  authDomain: "sunshine-classes-web.firebaseapp.com",
+  storageBucket: "sunshine-classes-web.firebasestorage.app",
+  messagingSenderId: "308447291099"
 };
 
 const fbApp = initializeApp(firebaseConfig, "sunshine-classes-server");
-const db = getFirestore(fbApp, "ai-studio-sunshineclassesm-168e58b1-1a00-4a10-99f9-ce106aba5a90");
+const db = getFirestore(fbApp);
 
 async function startServer() {
   const app = express();

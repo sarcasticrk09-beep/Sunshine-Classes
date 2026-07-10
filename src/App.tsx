@@ -160,10 +160,19 @@ export default function App() {
   }, [theme]);
 
   // Authentication & View states
+  const [rememberMe, setRememberMe] = useState(() => {
+    return localStorage.getItem('sunshine_remember_me') === 'true';
+  });
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [authUsername, setAuthUsername] = useState('');
+  const [authUsername, setAuthUsername] = useState(() => {
+    const remember = localStorage.getItem('sunshine_remember_me') === 'true';
+    return remember ? localStorage.getItem('sunshine_remember_username') || '' : '';
+  });
   const [authPassword, setAuthPassword] = useState('');
-  const [authRole, setAuthRole] = useState<UserRole>('STUDENT');
+  const [authRole, setAuthRole] = useState<UserRole>(() => {
+    const remember = localStorage.getItem('sunshine_remember_me') === 'true';
+    return (remember ? localStorage.getItem('sunshine_remember_role') as UserRole : null) || 'STUDENT';
+  });
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [changePasswordCurrent, setChangePasswordCurrent] = useState('');
@@ -204,6 +213,15 @@ export default function App() {
       setShowResetNewPassword(false);
       setResetExpiryTime(0);
       setIsSendingReset(false);
+    } else {
+      const remember = localStorage.getItem('sunshine_remember_me') === 'true';
+      if (remember) {
+        setAuthUsername(localStorage.getItem('sunshine_remember_username') || '');
+        setAuthRole((localStorage.getItem('sunshine_remember_role') as UserRole) || 'STUDENT');
+      } else {
+        setAuthUsername('');
+        setAuthRole('STUDENT');
+      }
     }
   }, [showLoginModal]);
 
@@ -2242,6 +2260,17 @@ export default function App() {
         setAuditLogs(updatedAudits);
         syncState('audit_logs', updatedAudits);
 
+        // Handle Remember Me logic
+        if (rememberMe) {
+          localStorage.setItem('sunshine_remember_me', 'true');
+          localStorage.setItem('sunshine_remember_username', matched.username);
+          localStorage.setItem('sunshine_remember_role', authRole);
+        } else {
+          localStorage.setItem('sunshine_remember_me', 'false');
+          localStorage.removeItem('sunshine_remember_username');
+          localStorage.removeItem('sunshine_remember_role');
+        }
+
         setCurrentUser(matched);
         setShowLoginModal(false);
         setAuthUsername('');
@@ -3178,6 +3207,23 @@ export default function App() {
                           {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
                       </div>
+                    </div>
+
+                    {/* Remember Me Checkbox */}
+                    <div className="flex items-center py-0.5 select-none">
+                      <input
+                        id="auth-input-remember-me"
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-brand-blue focus:ring-brand-blue cursor-pointer accent-brand-blue"
+                      />
+                      <label
+                        htmlFor="auth-input-remember-me"
+                        className="ml-2 text-xs text-slate-600 font-bold cursor-pointer hover:text-slate-800 transition-colors"
+                      >
+                        Remember Me on this device
+                      </label>
                     </div>
 
                     {/* Enterprise Privacy Status indicator */}

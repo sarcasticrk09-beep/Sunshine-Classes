@@ -12,13 +12,12 @@ import {
 
 // Config parsed from firebase-applet-config.json
 const firebaseConfig = {
-  projectId: "maximal-music-shh41",
-  appId: "1:996750335749:web:fead7d5fdea73b78cfe16c",
-  apiKey: "AIzaSyCPZA9lz7YSQ4kkqD6JxDyyxAaQrO3kqyo",
-  authDomain: "maximal-music-shh41.firebaseapp.com",
-  firestoreDatabaseId: "ai-studio-sunshineclassesm-168e58b1-1a00-4a10-99f9-ce106aba5a90",
-  storageBucket: "maximal-music-shh41.firebasestorage.app",
-  messagingSenderId: "996750335749"
+  projectId: "sunshine-classes-web",
+  appId: "1:308447291099:web:574e371bb15c5e54404efe",
+  apiKey: "AIzaSyCVg06N9JRbjbYyMlvrac-BKAd-d65hm-U",
+  authDomain: "sunshine-classes-web.firebaseapp.com",
+  storageBucket: "sunshine-classes-web.firebasestorage.app",
+  messagingSenderId: "308447291099"
 };
 
 // Silence Firestore's built-in SDK logging
@@ -59,7 +58,7 @@ console.error = function (...args) {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = getFirestore(app);
 
 import { getAuth, GoogleAuthProvider, signInWithPopup, User } from "firebase/auth";
 export const auth = getAuth(app);
