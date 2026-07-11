@@ -25,9 +25,11 @@ import {
   Download,
   FileSpreadsheet,
   MessageSquare,
-  Send
+  Send,
+  X
 } from 'lucide-react';
-import { Teacher, Student, Attendance, Homework, HomeworkSubmission, Test, StudentMark, TimetableEntry, BatchBulletinPost } from '../types';
+import { Teacher, Student, Attendance, Homework, HomeworkSubmission, Test, StudentMark, TimetableEntry, BatchBulletinPost, SubscriptionConfig } from '../types';
+import { CloudinaryUpload } from './CloudinaryUpload';
 
 interface TeacherDashboardProps {
   teacher: Teacher;
@@ -47,6 +49,7 @@ interface TeacherDashboardProps {
   batchBulletins: BatchBulletinPost[];
   onAddBatchBulletinPost: (batchId: string, batchName: string, content: string) => void;
   onDeleteBatchBulletinPost: (postId: string) => void;
+  subConfig: SubscriptionConfig;
 }
 
 export default function TeacherDashboard({
@@ -66,7 +69,8 @@ export default function TeacherDashboard({
   onUpdateTimetable,
   batchBulletins,
   onAddBatchBulletinPost,
-  onDeleteBatchBulletinPost
+  onDeleteBatchBulletinPost,
+  subConfig
 }: TeacherDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'homework-assign' | 'homework-review' | 'test-marks' | 'schedule' | 'bulletin'>('overview');
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
@@ -82,6 +86,9 @@ export default function TeacherDashboard({
   const [hwSubject, setHwSubject] = useState('Mathematics');
   const [hwClass, setHwClass] = useState('Class 10 Board Specialists');
   const [hwDueDate, setHwDueDate] = useState('');
+  const [hwFileUrl, setHwFileUrl] = useState('');
+  const [viewerFileUrl, setViewerFileUrl] = useState<string | null>(null);
+  const [viewerFileTitle, setViewerFileTitle] = useState<string>('');
 
   // Batch Bulletin States
   const [bulletinInputText, setBulletinInputText] = useState('');
@@ -235,12 +242,14 @@ export default function TeacherDashboard({
       class: hwClass,
       subject: hwSubject,
       dueDate: hwDueDate,
-      date: new Date().toISOString().split('T')[0]
+      date: new Date().toISOString().split('T')[0],
+      fileUrl: hwFileUrl || undefined
     });
 
     setHwTitle('');
     setHwDesc('');
     setHwDueDate('');
+    setHwFileUrl('');
     alert("New homework uploaded and sent to board students.");
   };
 
@@ -818,6 +827,23 @@ export default function TeacherDashboard({
                   ></textarea>
                 </div>
 
+                <div className="space-y-1">
+                  <CloudinaryUpload
+                    id="teacher-homework-upload-cloudinary"
+                    folder="assignments"
+                    cloudName={subConfig.cloudinaryCloudName}
+                    uploadPreset={subConfig.cloudinaryUploadPreset}
+                    apiKey={subConfig.cloudinaryApiKey}
+                    apiSecret={subConfig.cloudinaryApiSecret}
+                    maxSizeMB={subConfig.cloudinaryMaxFileSize}
+                    initialUrl={hwFileUrl}
+                    onUploadSuccess={(url) => setHwFileUrl(url)}
+                    onFileDeleted={() => setHwFileUrl('')}
+                    allowedTypes={['jpg', 'jpeg', 'png', 'webp', 'pdf', 'docx', 'xlsx']}
+                    label="Attach Question Paper / PDF / Image (Optional)"
+                  />
+                </div>
+
                 <div className="flex justify-end pt-2">
                   <button
                     id="btn-hw-assign-submit"
@@ -838,89 +864,190 @@ export default function TeacherDashboard({
               <p className="text-xs text-slate-500 mb-6">Review student homework answers, give numerical/grading feedback, and add supportive guidelines remarks.</p>
 
               <div className="space-y-4">
-                {relevantSubmissions.map((sub) => (
-                  <div key={sub.id} className="rounded-xl border border-slate-100 p-4 bg-slate-50/40">
-                    <div className="flex justify-between items-start gap-4 flex-col sm:flex-row">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="text-[10px] font-black uppercase text-brand-blue">{sub.class} Student</span>
-                          <span className={`inline-block px-2 py-0.5 rounded text-[8px] font-bold uppercase ${
-                            sub.status === 'REVIEWED' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-brand-orange animate-pulse'
-                          }`}>
-                            {sub.status}
-                          </span>
+                {relevantSubmissions.map((sub) => {
+                  const origHw = homeworkList.find((h) => h.id === sub.homeworkId);
+                  return (
+                    <div key={sub.id} className="rounded-xl border border-slate-100 p-4 bg-slate-50/40">
+                      <div className="flex justify-between items-start gap-4 flex-col sm:flex-row">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-[10px] font-black uppercase text-brand-blue">{sub.class} Student</span>
+                            <span className={`inline-block px-2 py-0.5 rounded text-[8px] font-bold uppercase ${
+                              sub.status === 'REVIEWED' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-brand-orange animate-pulse'
+                            }`}>
+                              {sub.status}
+                            </span>
+                          </div>
+                          <h4 className="text-xs font-bold text-slate-800">Submitted by: {sub.studentName}</h4>
+                          <p className="text-[10px] text-slate-400">Date: {sub.submissionDate}</p>
+
+                          {origHw && (
+                            <div className="mt-2.5 mb-3 p-3 bg-indigo-50/40 rounded-xl border border-indigo-100 max-w-2xl">
+                              <span className="text-[9px] font-bold text-indigo-700 uppercase block mb-1">📋 Original Homework Assignment:</span>
+                              <h5 className="text-xs font-bold text-slate-800">{origHw.title}</h5>
+                              <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">{origHw.description}</p>
+                              {origHw.fileUrl && (
+                                <div className="mt-2 p-2 bg-white rounded-lg border border-indigo-100 max-w-md">
+                                  <span className="text-[9px] font-bold text-indigo-600 uppercase block mb-1">Attached Question Sheet:</span>
+                                  {origHw.fileUrl.match(/\.(jpg|jpeg|png|webp|gif)/i) || origHw.fileUrl.startsWith('data:image/') ? (
+                                    <div className="space-y-1">
+                                      <img
+                                        src={origHw.fileUrl}
+                                        alt="Homework Question Attachment Preview"
+                                        className="max-h-24 rounded border border-slate-100 object-contain bg-slate-50"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                      <div className="flex flex-wrap gap-2.5 mt-1.5">
+                                        <button
+                                          id={`btn-view-orig-hw-preview-${sub.id}`}
+                                          type="button"
+                                          onClick={() => {
+                                            setViewerFileUrl(origHw.fileUrl!);
+                                            setViewerFileTitle(`Original Assignment: ${origHw.title}`);
+                                          }}
+                                          className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-all"
+                                        >
+                                          👁 View Directly
+                                        </button>
+                                        <a
+                                          href={origHw.fileUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 hover:underline pt-0.5"
+                                        >
+                                          Open Photo ↗
+                                        </a>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <FileText size={14} className="text-indigo-600" />
+                                      <div>
+                                        <span className="block text-[10px] font-semibold text-slate-700">Question Attachment File</span>
+                                        <div className="flex flex-wrap gap-2.5 mt-1">
+                                          <button
+                                            id={`btn-view-orig-hw-pdf-${sub.id}`}
+                                            type="button"
+                                            onClick={() => {
+                                              setViewerFileUrl(origHw.fileUrl!);
+                                              setViewerFileTitle(`Original Assignment: ${origHw.title}`);
+                                            }}
+                                            className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-all"
+                                          >
+                                            👁 View Directly
+                                          </button>
+                                          <a
+                                            href={origHw.fileUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 hover:underline pt-0.5"
+                                          >
+                                            Open PDF ↗
+                                          </a>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {sub.textAnswer && (
+                            <div className="mt-3 rounded-lg border border-slate-100 bg-white p-3 text-xs text-slate-600 font-sans whitespace-pre-wrap">
+                              <span className="text-[9px] font-bold text-slate-400 block uppercase mb-1">Student Answer Details:</span>
+                              {sub.textAnswer}
+                            </div>
+                          )}
+
+                          {sub.fileUrl && (
+                            <div className="mt-3 rounded-lg border border-slate-150 bg-slate-50 p-3 text-xs text-slate-700">
+                              <span className="text-[9px] font-bold text-slate-400 block uppercase mb-1.5">Attached Homework Document:</span>
+                              {sub.fileUrl.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp)/) ? (
+                                <div className="space-y-2">
+                                  <img 
+                                    src={sub.fileUrl} 
+                                    alt="Submitted Homework Preview" 
+                                    referrerPolicy="no-referrer"
+                                    className="max-h-60 rounded-lg border border-slate-200 object-contain hover:scale-[1.01] transition-transform" 
+                                  />
+                                  <div className="flex flex-wrap gap-2.5 mt-1.5">
+                                    <button
+                                      id={`btn-view-sub-preview-${sub.id}`}
+                                      type="button"
+                                      onClick={() => {
+                                        setViewerFileUrl(sub.fileUrl!);
+                                        setViewerFileTitle(`Student Submission: ${sub.studentName}`);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-blue text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all cursor-pointer"
+                                    >
+                                      👁 View in Browser
+                                    </button>
+                                    <a 
+                                      href={sub.fileUrl} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer" 
+                                      className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-blue hover:underline pt-1"
+                                    >
+                                      Open Image in New Tab
+                                    </a>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2.5 bg-red-50 text-red-600 rounded-xl border border-red-100">
+                                    <FileText size={20} />
+                                  </div>
+                                  <div>
+                                    <span className="block text-xs font-bold text-slate-800 mb-1">PDF Homework Submission</span>
+                                    <div className="flex flex-wrap gap-2.5">
+                                      <button
+                                        id={`btn-view-sub-pdf-${sub.id}`}
+                                        type="button"
+                                        onClick={() => {
+                                          setViewerFileUrl(sub.fileUrl!);
+                                          setViewerFileTitle(`Student Submission: ${sub.studentName}`);
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-blue text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all cursor-pointer"
+                                      >
+                                        👁 View in Browser
+                                      </button>
+                                      <a 
+                                        href={sub.fileUrl} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer" 
+                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-blue hover:underline pt-1"
+                                      >
+                                        View PDF / Download Document
+                                      </a>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <h4 className="text-xs font-bold text-slate-800">Submitted by: {sub.studentName}</h4>
-                        <p className="text-[10px] text-slate-400">Date: {sub.submissionDate}</p>
 
-                        {sub.textAnswer && (
-                          <div className="mt-3 rounded-lg border border-slate-100 bg-white p-3 text-xs text-slate-600 font-sans whitespace-pre-wrap">
-                            <span className="text-[9px] font-bold text-slate-400 block uppercase mb-1">Student Answer Details:</span>
-                            {sub.textAnswer}
-                          </div>
-                        )}
-
-                        {sub.fileUrl && (
-                          <div className="mt-3 rounded-lg border border-slate-150 bg-slate-50 p-3 text-xs text-slate-700">
-                            <span className="text-[9px] font-bold text-slate-400 block uppercase mb-1.5">Attached Homework Document:</span>
-                            {sub.fileUrl.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp)/) ? (
-                              <div className="space-y-2">
-                                <img 
-                                  src={sub.fileUrl} 
-                                  alt="Submitted Homework Preview" 
-                                  referrerPolicy="no-referrer"
-                                  className="max-h-60 rounded-lg border border-slate-200 object-contain hover:scale-[1.01] transition-transform" 
-                                />
-                                <a 
-                                  href={sub.fileUrl} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer" 
-                                  className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-blue hover:underline"
-                                >
-                                  Open Image in New Tab
-                                </a>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-red-50 text-red-600 rounded-xl border border-red-100">
-                                  <FileText size={20} />
-                                </div>
-                                <div>
-                                  <span className="block text-xs font-bold text-slate-800">PDF Homework Submission</span>
-                                  <a 
-                                    href={sub.fileUrl} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer" 
-                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-blue hover:underline mt-0.5"
-                                  >
-                                    View PDF / Download Document
-                                  </a>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex-shrink-0">
-                        {sub.status === 'SUBMITTED' ? (
-                          <button
-                            id={`btn-hw-review-${sub.id}`}
-                            onClick={() => handleReviewHomework(sub.id)}
-                            className="rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow"
-                          >
-                            Grade Copy
-                          </button>
-                        ) : (
-                          <div className="text-right text-xs">
-                            <span className="font-bold text-slate-700 block">Grade: {sub.score}</span>
-                            <span className="text-[10px] text-slate-400 italic block">"{sub.remarks}"</span>
-                          </div>
-                        )}
+                        <div className="flex-shrink-0">
+                          {sub.status === 'SUBMITTED' ? (
+                            <button
+                              id={`btn-hw-review-${sub.id}`}
+                              onClick={() => handleReviewHomework(sub.id)}
+                              className="rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow"
+                            >
+                              Grade Copy
+                            </button>
+                          ) : (
+                            <div className="text-right text-xs">
+                              <span className="font-bold text-slate-700 block">Grade: {sub.score}</span>
+                              <span className="text-[10px] text-slate-400 italic block">"{sub.remarks}"</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {relevantSubmissions.length === 0 && (
                   <p className="text-xs text-slate-500 text-center py-6">No assignments have been submitted yet.</p>
                 )}
@@ -1602,6 +1729,58 @@ export default function TeacherDashboard({
           </motion.div>
         </div>
       </div>
+
+      {/* MODAL 5: MODAL-BASED DOCUMENT VIEWER FOR ATTACHED PDF / IMAGES */}
+      {viewerFileUrl && (
+        <div id="modal-teacher-doc-viewer-overlay" className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 text-left">
+          <div id="modal-teacher-doc-viewer-content" className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col h-[90vh] border border-slate-100">
+            <div id="teacher-doc-viewer-header" className="flex items-center justify-between border-b border-slate-150 px-6 py-4 bg-slate-50">
+              <div className="min-w-0 pr-4">
+                <h3 id="teacher-doc-viewer-title" className="font-display font-black text-sm text-slate-800 truncate">{viewerFileTitle || 'Document Viewer'}</h3>
+                <p id="teacher-doc-viewer-subtitle" className="text-[10px] text-slate-400 font-mono select-all truncate max-w-lg mt-0.5" title={viewerFileUrl}>{viewerFileUrl}</p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <a
+                  id="btn-teacher-doc-viewer-download"
+                  href={viewerFileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition-all shadow-sm"
+                >
+                  Download File ↗
+                </a>
+                <button
+                  id="btn-teacher-doc-viewer-close"
+                  onClick={() => { setViewerFileUrl(null); setViewerFileTitle(''); }}
+                  className="rounded-xl bg-slate-200 hover:bg-slate-300 p-2 text-slate-700 transition-all cursor-pointer flex items-center justify-center"
+                  title="Close Document"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            
+            <div id="teacher-doc-viewer-body" className="flex-1 bg-slate-900/5 p-4 overflow-auto flex items-center justify-center relative min-h-[300px]">
+              {viewerFileUrl.match(/\.(jpg|jpeg|png|webp|gif)/i) || viewerFileUrl.startsWith('data:image/') ? (
+                <img
+                  id="img-teacher-doc-viewer-rendering"
+                  src={viewerFileUrl}
+                  alt="Rendered Document Attachment"
+                  className="max-w-full max-h-full object-contain shadow-lg rounded-lg bg-white"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <iframe
+                  id="iframe-teacher-doc-viewer-rendering"
+                  src={viewerFileUrl}
+                  title="Document Attachment Viewer"
+                  className="w-full h-full rounded-lg border-0 bg-white shadow-inner"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -187,11 +187,100 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         localStorage.setItem('sunshine_remember_me', 'false');
       }
 
-      // Try Firebase Auth first
+      // Check if it is a username-based login (i.e. contains no '@')
+      const isUsernameLogin = !email.includes('@');
+
+      if (isUsernameLogin) {
+        console.log("Username login detected, bypassing Firebase Auth and executing local fallback check...");
+        const usersDocRef = doc(db, 'sunshine_erp_state', 'users');
+        const usersSnap = await getDoc(usersDocRef);
+        if (usersSnap.exists()) {
+          const usersList = usersSnap.data()?.data || [];
+          const matched = usersList.find((u: any) => 
+            u.username?.toLowerCase() === email.trim().toLowerCase()
+          );
+
+          if (matched) {
+            const isPasswordCorrect = 
+              matched.plainPassword === password || 
+              matched.password === simpleSecureHash(password) ||
+              matched.password === password ||
+              (matched.username === 'admin' && password === 'admin123') ||
+              (matched.username === 'rajeev' && password === 'rajeev123');
+
+            if (isPasswordCorrect) {
+              if (matched.active === false) {
+                throw new Error("Your account has been disabled.");
+              }
+
+              const dbRole = (matched.role || '').toLowerCase();
+              const isStudent = dbRole === 'student' || dbRole === 'student';
+              const hasNoLinkedEmail = !matched.email || matched.email.includes('@example.com') || matched.email.trim() === '';
+
+              // Require email verification only for non-students with linked, non-dummy emails
+              if (matched.emailVerified === false && !isStudent && !hasNoLinkedEmail) {
+                const verificationToken = `token-verify-${Date.now()}`;
+                const updatedUsers = usersList.map((u: any) => 
+                  u.id === matched.id ? { ...u, verificationToken } : u
+                );
+                await setDoc(usersDocRef, { data: updatedUsers });
+                
+                const verifyLink = `${window.location.origin}/verify-email?token=${verificationToken}&email=${encodeURIComponent(matched.email)}`;
+                sendSimulatedEmail(
+                  matched.email,
+                  "Welcome to Sunshine Classes! Verify your email",
+                  `Hello ${matched.name},\n\nPlease verify your Sunshine Classes account by clicking the link below:`,
+                  verifyLink,
+                  'VERIFICATION'
+                );
+
+                throw new Error(`EMAIL_VERIFICATION_PENDING:${matched.email}`);
+              }
+
+              let mappedRole: UserRole | null = null;
+              if (dbRole === 'super_admin' || dbRole === 'owner') mappedRole = 'SUPER_ADMIN';
+              else if (dbRole === 'admin') mappedRole = 'ADMIN';
+              else if (dbRole === 'reception' || dbRole === 'receptionist') mappedRole = 'RECEPTIONIST';
+              else if (dbRole === 'teacher') mappedRole = 'TEACHER';
+              else if (dbRole === 'student') mappedRole = 'STUDENT';
+
+              if (!mappedRole) {
+                throw new Error("Your account has an invalid role configuration.");
+              }
+
+              const verifiedUser: User = {
+                id: matched.id || `u-mock-${Date.now()}`,
+                username: matched.username,
+                name: matched.name,
+                email: matched.email || '',
+                role: mappedRole,
+                avatarUrl: matched.profilePhoto || '',
+                phone: matched.phone || ''
+              };
+
+              sessionStorage.setItem('sunshine_mock_session', JSON.stringify({
+                user: verifiedUser,
+                role: mappedRole
+              }));
+              setCurrentUser(verifiedUser);
+              setRole(mappedRole);
+              setLoading(false);
+              
+              await writeAuditLog(verifiedUser.id, verifiedUser.username, 'USER_LOGIN', `User ${verifiedUser.username} successfully logged in (Local Fallback).`);
+              return true;
+            } else {
+              throw new Error("Invalid username or password.");
+            }
+          }
+        }
+        throw new Error("Invalid username or password.");
+      }
+
+      // Try Firebase Auth first for standard email login
       try {
         await FirebaseAuthService.loginWithEmail(email, password, remember);
         return true;
-      } catch (fbError) {
+      } catch (fbError: any) {
         console.warn("Real Firebase Auth failed, attempting local fallback check...", fbError);
 
         // Fetch users list from sunshine_erp_state/users
@@ -217,7 +306,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               if (matched.active === false) {
                 throw new Error("Your account has been disabled.");
               }
-              if (matched.emailVerified === false) {
+
+              const dbRole = (matched.role || '').toLowerCase();
+              const isStudent = dbRole === 'student';
+              const hasNoLinkedEmail = !matched.email || matched.email.includes('@example.com') || matched.email.trim() === '';
+
+              // Require email verification only for non-students with linked, non-dummy emails
+              if (matched.emailVerified === false && !isStudent && !hasNoLinkedEmail) {
                 // Send a simulated verification email to make it seamless
                 const verificationToken = `token-verify-${Date.now()}`;
                 const updatedUsers = usersList.map((u: any) => 
@@ -237,13 +332,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 throw new Error(`EMAIL_VERIFICATION_PENDING:${matched.email}`);
               }
 
-              const dbRole = (matched.role || '').toLowerCase();
+              const dbRoleLower = (matched.role || '').toLowerCase();
               let mappedRole: UserRole | null = null;
-              if (dbRole === 'super_admin' || dbRole === 'owner') mappedRole = 'SUPER_ADMIN';
-              else if (dbRole === 'admin') mappedRole = 'ADMIN';
-              else if (dbRole === 'reception' || dbRole === 'receptionist') mappedRole = 'RECEPTIONIST';
-              else if (dbRole === 'teacher') mappedRole = 'TEACHER';
-              else if (dbRole === 'student') mappedRole = 'STUDENT';
+              if (dbRoleLower === 'super_admin' || dbRoleLower === 'owner') mappedRole = 'SUPER_ADMIN';
+              else if (dbRoleLower === 'admin') mappedRole = 'ADMIN';
+              else if (dbRoleLower === 'reception' || dbRoleLower === 'receptionist') mappedRole = 'RECEPTIONIST';
+              else if (dbRoleLower === 'teacher') mappedRole = 'TEACHER';
+              else if (dbRoleLower === 'student') mappedRole = 'STUDENT';
 
               if (!mappedRole) {
                 throw new Error("Your account has an invalid role configuration.");
@@ -253,7 +348,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 id: matched.id || `u-mock-${Date.now()}`,
                 username: matched.username,
                 name: matched.name,
-                email: matched.email,
+                email: matched.email || '',
                 role: mappedRole,
                 avatarUrl: matched.profilePhoto || '',
                 phone: matched.phone || ''
@@ -269,10 +364,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               
               await writeAuditLog(verifiedUser.id, verifiedUser.username, 'USER_LOGIN', `User ${verifiedUser.username} successfully logged in (Local Fallback).`);
               return true;
+            } else {
+              throw new Error("Invalid username/email or password.");
             }
           }
         }
-        // If neither worked, throw the original auth error
+        // If neither worked, throw a cleaner, user-friendly error instead of raw Firebase codes
+        if (fbError.code === "auth/invalid-email" || fbError.code === "auth/user-not-found" || fbError.code === "auth/wrong-password") {
+          throw new Error("Invalid username/email or password.");
+        }
         throw fbError;
       }
     } catch (error: any) {

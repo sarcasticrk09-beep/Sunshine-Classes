@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../auth/useAuth';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Sun, Eye, EyeOff, Shield, RefreshCw, AlertCircle, Key, Mail, CheckCircle2, Award, User, UserCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 import SunshineLogo from '../components/SunshineLogo';
@@ -10,6 +11,8 @@ interface LoginProps {
 
 export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
   const { login, googleLogin, googleLoading, currentUser, changePassword } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
@@ -186,9 +189,11 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
         {/* Header */}
         <div className="flex flex-col items-center text-center mb-8">
           <SunshineLogo size={42} showText={false} />
-          <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight mt-3">Sunshine Classes</h2>
+          <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight mt-3">
+            {location.pathname === '/student/login' ? 'Student Portal' : location.pathname === '/admin/login' ? 'Admin Portal' : 'Sunshine Classes'}
+          </h2>
           <p className="text-xs text-slate-400 font-extrabold uppercase tracking-widest mt-0.5">
-            Excellence in Education
+            {location.pathname === '/student/login' ? 'Student ERP Login' : location.pathname === '/admin/login' ? 'Admin ERP Login' : 'Excellence in Education'}
           </p>
         </div>
 
@@ -236,8 +241,7 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
                 className="text-[11px] font-bold text-brand-blue hover:text-blue-700 hover:underline"
                 onClick={(e) => {
                   e.preventDefault();
-                  window.history.pushState({}, "", "/forgot-password");
-                  window.dispatchEvent(new Event('popstate'));
+                  navigate('/forgot-password');
                 }}
               >
                 Forgot Password?
@@ -293,7 +297,13 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
               <button
                 id="btn-back-website"
                 type="button"
-                onClick={onBackToWebsite}
+                onClick={() => {
+                  if (onBackToWebsite) {
+                    onBackToWebsite();
+                  } else {
+                    navigate('/');
+                  }
+                }}
                 className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
               >
                 Website Home

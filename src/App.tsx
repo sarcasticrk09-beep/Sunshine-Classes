@@ -76,6 +76,8 @@ import {
   interpolateTemplate
 } from './data';
 
+import { migrateExistingData, generateFeeRecords } from './lib/feeUtils';
+
 import LandingPage from './components/LandingPage';
 import StudentDashboard from './components/StudentDashboard';
 import TeacherDashboard from './components/TeacherDashboard';
@@ -88,6 +90,8 @@ import { Login } from './pages/Login';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { VerifyEmail } from './pages/VerifyEmail';
 import { MailSimulatorWidget } from './components/MailSimulatorWidget';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { FeesPage } from './pages/FeesPage';
 
 import { db, auth, googleSignIn } from './lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -129,16 +133,9 @@ const pendingSyncs: { [key: string]: any } = {};
 let syncTimeoutId: any = null;
 
 export default function App() {
-  // Pathname Routing State
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
-
-  useEffect(() => {
-    const handleLocationChange = () => {
-      setCurrentPath(window.location.pathname);
-    };
-    window.addEventListener('popstate', handleLocationChange);
-    return () => window.removeEventListener('popstate', handleLocationChange);
-  }, []);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const currentPath = location.pathname;
 
   // Theme Management
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -181,11 +178,20 @@ export default function App() {
 
   // Redirect if logged in and trying to access auth pages
   useEffect(() => {
-    if (currentUser && (currentPath === '/login' || currentPath === '/forgot-password')) {
-      window.history.pushState({}, "", "/");
-      setCurrentPath("/");
+    if (currentUser && (currentPath === '/login' || currentPath === '/forgot-password' || currentPath === '/student/login' || currentPath === '/admin/login')) {
+      if (currentUser.role === 'STUDENT') {
+        navigate('/student/dashboard');
+      } else if (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') {
+        navigate('/admin/dashboard');
+      } else if (currentUser.role === 'TEACHER') {
+        navigate('/teacher/dashboard');
+      } else if (currentUser.role === 'RECEPTIONIST') {
+        navigate('/receptionist/dashboard');
+      } else {
+        navigate('/');
+      }
     }
-  }, [currentUser, currentPath]);
+  }, [currentUser, currentPath, navigate]);
   const [rememberMe, setRememberMe] = useState(() => {
     return localStorage.getItem('sunshine_remember_me') === 'true';
   });
@@ -456,10 +462,14 @@ export default function App() {
         setUsers(data);
         syncState('users', data);
         break;
-      case 'students':
-        setStudents(data);
-        syncState('students', data);
+      case 'students': {
+        const { migratedStudents, migratedFeeStatuses } = migrateExistingData(data, feeStatuses);
+        setStudents(migratedStudents);
+        syncState('students', migratedStudents);
+        setFeeStatuses(migratedFeeStatuses);
+        syncState('fee_statuses', migratedFeeStatuses);
         break;
+      }
       case 'teachers':
         setTeachers(data);
         syncState('teachers', data);
@@ -1086,12 +1096,29 @@ export default function App() {
       syncState('founders', migratedLoadedFounders);
     }
 
-    setStudents(loadedStudents);
+    const { migratedStudents, migratedFeeStatuses } = migrateExistingData(loadedStudents, loadedFeeStatuses);
+    let dataChanged = false;
+    if (migratedStudents.length !== loadedStudents.length || migratedFeeStatuses.length !== loadedFeeStatuses.length) {
+      dataChanged = true;
+    } else {
+      const loadedHasStartMonth = loadedStudents.every(s => s.feeStartMonth);
+      const migratedHasStartMonth = migratedStudents.every(s => s.feeStartMonth);
+      if (!loadedHasStartMonth && migratedHasStartMonth) {
+        dataChanged = true;
+      }
+    }
+
+    if (dataChanged) {
+      syncState('students', migratedStudents);
+      syncState('fee_statuses', migratedFeeStatuses);
+    }
+
+    setStudents(migratedStudents);
     setTeachers(loadedTeachers);
     setUsers(migratedLoadedUsers);
     setAdmissions(loadedAdmissions);
     setAttendance(loadedAttendance);
-    setFeeStatuses(loadedFeeStatuses);
+    setFeeStatuses(migratedFeeStatuses);
     setFeeReceipts(loadedFeeReceipts);
     setTests(loadedTests);
     setStudentMarks(loadedStudentMarks);
@@ -1780,6 +1807,12 @@ export default function App() {
     const updated = [...students, newStd];
     setStudents(updated);
     syncState('students', updated);
+
+    // Automatic Fee Generation: Beginning only from Fee Starts From
+    const newFeeRecords = generateFeeRecords(newStd, 12);
+    const updatedFeeStatuses = [...feeStatuses, ...newFeeRecords];
+    setFeeStatuses(updatedFeeStatuses);
+    syncState('fee_statuses', updatedFeeStatuses);
 
     // Register User Profile with hashed default password
     const generatedUsername = std.name.toLowerCase().replace(/\s+/g, '');
@@ -2472,14 +2505,14 @@ export default function App() {
     let email = trimmedUsername;
     let matchedLocal = users.find(
       (u) =>
-        u.username.toLowerCase() === trimmedUsername.toLowerCase() &&
+        (u.username.toLowerCase() === trimmedUsername.toLowerCase() || (u.email && u.email.toLowerCase() === trimmedUsername.toLowerCase())) &&
         (u.role === authRole ||
           (authRole === 'ADMIN' && u.role === 'SUPER_ADMIN') ||
           (authRole === 'SUPER_ADMIN' && u.role === 'ADMIN'))
     );
 
     if (!matchedLocal) {
-      matchedLocal = users.find(u => u.username.toLowerCase() === trimmedUsername.toLowerCase());
+      matchedLocal = users.find(u => u.username.toLowerCase() === trimmedUsername.toLowerCase() || (u.email && u.email.toLowerCase() === trimmedUsername.toLowerCase()));
     }
 
     if (matchedLocal && matchedLocal.email) {
@@ -2778,6 +2811,257 @@ export default function App() {
     );
   }
 
+  const renderDashboardHeader = () => {
+    if (!currentUser) return null;
+    return (
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 py-3 px-4 shadow-sm transition-colors">
+        <div className="mx-auto max-w-7xl flex justify-between items-center flex-wrap gap-4">
+          <div className="flex items-center gap-2">
+            <button 
+              id="header-erp-logo-btn"
+              onClick={() => navigate('/')} 
+              className="bg-transparent border-0 cursor-pointer p-0 text-left"
+            >
+              <SunshineLogo size={36} showText={true} textSubTitle="Digital ERP Terminal" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {/* Cloud Connection Status Badge */}
+            <div 
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-extrabold tracking-wider uppercase transition-all duration-300 ${
+                cloudOnline 
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30' 
+                  : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30'
+              }`}
+              title={cloudOnline ? 'Successfully connected & synchronizing with Sunshine Cloud Database' : 'Cloud connection unavailable. Running in offline fallback mode with local caching.'}
+            >
+              {cloudOnline ? (
+                <Cloud className="h-3 w-3 text-emerald-500 animate-pulse" />
+              ) : (
+                <CloudOff className="h-3 w-3 text-amber-500" />
+              )}
+              {cloudOnline ? 'Cloud Sync' : 'Offline Mode'}
+            </div>
+
+            <div className="text-right">
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">Logged as: {currentUser.name}</span>
+              <span className="text-[10px] text-slate-400 dark:text-slate-400 font-bold uppercase tracking-wider block">Role: {currentUser.role}</span>
+            </div>
+
+            {/* Notifications Badge & Dropdown */}
+            <div className="relative">
+              <button
+                id="btn-header-notifications"
+                onClick={() => setShowNotificationsDropdown(!showNotificationsDropdown)}
+                className={`relative p-2 rounded-xl border border-slate-150 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-all cursor-pointer flex items-center justify-center`}
+                title="System Notifications"
+              >
+                {notifications.filter(n => {
+                  if (!currentUser) return false;
+                  const userRole = currentUser.role;
+                  if (userRole === 'ADMIN') return true;
+                  return n.targetRole === 'ALL' || n.targetRole === userRole;
+                }).filter(n => !n.isRead).length > 0 ? (
+                  <BellRing className="h-4.5 w-4.5 text-indigo-600 dark:text-indigo-400 animate-bounce" />
+                ) : (
+                  <Bell className="h-4.5 w-4.5" />
+                )}
+                
+                {(() => {
+                  const count = notifications.filter(n => {
+                    if (!currentUser) return false;
+                    const userRole = currentUser.role;
+                    if (userRole === 'ADMIN') return true;
+                    return n.targetRole === 'ALL' || n.targetRole === userRole;
+                  }).filter(n => !n.isRead).length;
+                  return count > 0 ? (
+                    <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-rose-600 text-[10px] font-black text-white ring-2 ring-white dark:ring-slate-900 animate-pulse">
+                      {count}
+                    </span>
+                  ) : null;
+                })()}
+              </button>
+
+              <AnimatePresence>
+                {showNotificationsDropdown && (
+                  <>
+                    {/* Overlay click-away layer */}
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowNotificationsDropdown(false)} 
+                    />
+                    
+                    {/* Dropdown Panel */}
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl z-50 overflow-hidden"
+                    >
+                      {/* Header */}
+                      <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Bell className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                          <span className="font-display font-bold text-sm text-slate-800 dark:text-slate-100">
+                            Notifications
+                          </span>
+                          {(() => {
+                            const count = notifications.filter(n => {
+                              if (!currentUser) return false;
+                              const userRole = currentUser.role;
+                              if (userRole === 'ADMIN') return true;
+                              return n.targetRole === 'ALL' || n.targetRole === userRole;
+                            }).filter(n => !n.isRead).length;
+                            return count > 0 ? (
+                              <span className="bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
+                                {count} New
+                              </span>
+                            ) : null;
+                          })()}
+                        </div>
+                        {notifications.filter(n => {
+                          if (!currentUser) return false;
+                          const userRole = currentUser.role;
+                          if (userRole === 'ADMIN') return true;
+                          return n.targetRole === 'ALL' || n.targetRole === userRole;
+                        }).filter(n => !n.isRead).length > 0 && (
+                          <button
+                            onClick={() => {
+                              handleMarkAllNotificationsRead();
+                            }}
+                            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition-all cursor-pointer flex items-center gap-1"
+                          >
+                            <CheckCheck className="h-3.5 w-3.5" /> Mark all read
+                          </button>
+                        )}
+                      </div>
+
+                      {/* List Content */}
+                      <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                        {(() => {
+                          const userNotifs = notifications.filter(n => {
+                            if (!currentUser) return false;
+                            const userRole = currentUser.role;
+                            if (userRole === 'ADMIN') return true;
+                            return n.targetRole === 'ALL' || n.targetRole === userRole;
+                          });
+                          return userNotifs.length === 0 ? (
+                            <div className="p-8 text-center text-slate-400 dark:text-slate-500 text-xs">
+                              No system notifications yet.
+                            </div>
+                          ) : (
+                            userNotifs.map((notif) => {
+                              const isEmailNotif = notif.id.startsWith('NOTIF-EMAIL-');
+                              return (
+                                <div 
+                                  key={notif.id} 
+                                  className={`p-4 transition-colors ${
+                                    notif.isRead 
+                                      ? 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850/50' 
+                                      : 'bg-indigo-50/20 dark:bg-indigo-950/10 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20'
+                                  }`}
+                                >
+                                  <div className="flex justify-between items-start gap-2">
+                                    <h4 className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                                      {notif.title}
+                                    </h4>
+                                    <span className="text-[9px] text-slate-400 font-mono shrink-0">
+                                      {notif.date}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                                    {isEmailNotif ? (
+                                      <>
+                                        {notif.content.split('Click here to view the receipt:')[0]}
+                                        <a 
+                                          href={notif.content.split('Click here to view the receipt:')[1]?.trim()} 
+                                          target="_blank" 
+                                          rel="noopener noreferrer"
+                                          className="text-indigo-600 dark:text-indigo-400 underline font-bold"
+                                        >
+                                          Click here to view the receipt
+                                        </a>
+                                      </>
+                                    ) : notif.content}
+                                  </p>
+                                  {!notif.isRead && (
+                                    <button
+                                      onClick={() => handleMarkNotificationRead(notif.id)}
+                                      className="mt-2 text-[9px] font-black text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                    >
+                                      Mark read
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })
+                          );
+                        })()}
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <button
+              id="btn-toggle-theme-private"
+              onClick={toggleTheme}
+              className="flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-300 hover:text-brand-orange dark:hover:text-brand-orange bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-950/50 border border-slate-150 dark:border-slate-700 rounded-xl px-3 py-1.5 transition-all cursor-pointer font-display"
+              title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            >
+              {theme === 'light' ? <Moon size={13} /> : <Sun size={13} />}
+              {theme === 'light' ? 'Dark' : 'Light'}
+            </button>
+
+            <button
+              id="btn-erp-change-password-trigger"
+              onClick={() => {
+                setChangePasswordCurrent('');
+                setChangePasswordNew('');
+                setChangePasswordConfirm('');
+                setShowChangePasswordModal(true);
+              }}
+              className="flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-300 hover:text-brand-orange bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 border border-slate-150 dark:border-slate-700 rounded-xl px-3 py-1.5 transition-all cursor-pointer font-display"
+            >
+              <Key size={13} /> Change Password
+            </button>
+
+            <button
+              id="btn-erp-logout"
+              onClick={handleLogout}
+              className="flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-300 hover:text-brand-red bg-slate-50 dark:bg-slate-800 hover:bg-red-50 border border-slate-150 dark:border-slate-700 rounded-xl px-3 py-1.5 transition-all"
+            >
+              <LogOut size={13} /> Log Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const landingPageElement = (
+    <LandingPage
+      courses={SEED_COURSES}
+      blogs={blogs}
+      testimonials={testimonials}
+      toppers={toppers}
+      onAddReview={handleAddReview}
+      studyMaterials={studyMaterials}
+      gallery={gallery}
+      onNavigateToERP={() => navigate('/login')}
+      onAddAdmission={handleAddAdmission}
+      admissions={admissions}
+      students={students}
+      theme={theme}
+      onToggleTheme={toggleTheme}
+      founders={founders}
+      subConfig={subConfig}
+    />
+  );
+
   return (
     <>
       <AnimatePresence mode="wait">
@@ -2839,426 +3123,239 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 relative flex flex-col justify-between max-w-full overflow-x-hidden transition-colors duration-300">
       {/* Primary ERP / Website Display Controller */}
       <div className="flex-1">
-        {!currentUser ? (
-          /* Pathname-based Public Routing */
-          currentPath === '/login' ? (
-            <Login onBackToWebsite={() => {
-              window.history.pushState({}, "", "/");
-              setCurrentPath("/");
-            }} />
-          ) : currentPath === '/forgot-password' ? (
-            <ForgotPassword />
-          ) : currentPath === '/verify-email' ? (
-            <VerifyEmail />
-          ) : (
-            <LandingPage
-              courses={SEED_COURSES}
-              blogs={blogs}
-              testimonials={testimonials}
-              toppers={toppers}
-              onAddReview={handleAddReview}
-              studyMaterials={studyMaterials}
-              gallery={gallery}
-              onNavigateToERP={() => {
-                window.history.pushState({}, "", "/login");
-                setCurrentPath("/login");
-              }}
-              onAddAdmission={handleAddAdmission}
-              admissions={admissions}
-              students={students}
-              theme={theme}
-              onToggleTheme={toggleTheme}
-              founders={founders}
-              subConfig={subConfig}
-            />
-          )
-        ) : (
-          /* Logged In Dashboard Frame */
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="bg-slate-100 dark:bg-slate-950 min-h-screen transition-colors"
-          >
-            {/* Logged in custom navigation header */}
-            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 py-3 px-4 shadow-sm transition-colors">
-              <div className="mx-auto max-w-7xl flex justify-between items-center flex-wrap gap-4">
-                <div className="flex items-center gap-2">
-                  <SunshineLogo size={36} showText={true} textSubTitle="Digital ERP Terminal" />
+        <Routes>
+          {/* Public Website Routes */}
+          <Route path="/" element={landingPageElement} />
+          <Route path="/about" element={landingPageElement} />
+          <Route path="/courses" element={landingPageElement} />
+          <Route path="/enroll" element={landingPageElement} />
+          <Route path="/results" element={landingPageElement} />
+          <Route path="/resources" element={landingPageElement} />
+          <Route path="/gallery" element={landingPageElement} />
+          <Route path="/contact" element={landingPageElement} />
+
+          {/* Fees Public Portal */}
+          <Route
+            path="/fees"
+            element={
+              <FeesPage
+                students={students}
+                feeStatuses={feeStatuses}
+                feeReceipts={feeReceipts}
+                onCollectFee={handleCollectFee}
+                theme={theme}
+                onToggleTheme={toggleTheme}
+              />
+            }
+          />
+
+          {/* Authentication Pages */}
+          <Route path="/login" element={<Login onBackToWebsite={() => navigate('/')} />} />
+          <Route path="/student/login" element={<Login onBackToWebsite={() => navigate('/')} />} />
+          <Route path="/admin/login" element={<Login onBackToWebsite={() => navigate('/')} />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
+
+          {/* Authenticated Dashboard Routes */}
+          <Route
+            path="/student/dashboard"
+            element={
+              !currentUser ? (
+                <Navigate to="/student/login" replace />
+              ) : currentUser.role !== 'STUDENT' ? (
+                <Navigate to="/login" replace />
+              ) : (
+                <div className="bg-slate-100 dark:bg-slate-950 min-h-screen transition-colors">
+                  {renderDashboardHeader()}
+                  {currentStudentContext ? (
+                    <StudentDashboard
+                      student={currentStudentContext}
+                      attendanceList={attendance}
+                      feeStatuses={feeStatuses}
+                      feeReceipts={feeReceipts}
+                      tests={tests}
+                      studentMarks={studentMarks}
+                      homeworkList={homework}
+                      submissions={submissions}
+                      notifications={notifications}
+                      onAddSubmission={handleAddHomeworkSubmission}
+                      onUpdateStudent={handleUpdateStudent}
+                      subscriptions={subscriptions}
+                      subPayments={subPayments}
+                      subReceipts={subReceipts}
+                      subNotifications={subNotifications}
+                      subConfig={subConfig}
+                      onPaySubscription={handlePaySubscription}
+                      onCollectFee={handleCollectFee}
+                      timetableList={timetable}
+                      studyMaterials={studyMaterials}
+                      batchBulletins={batchBulletins}
+                      onAddBatchBulletinPost={handleAddBatchBulletinPost}
+                      onDeleteBatchBulletinPost={handleDeleteBatchBulletinPost}
+                      onMarkBulletinAsRead={handleMarkBulletinAsRead}
+                    />
+                  ) : (
+                    <div className="p-8 text-center text-xs text-slate-500 font-bold">Loading Student Context Profile...</div>
+                  )}
                 </div>
+              )
+            }
+          />
 
-                <div className="flex items-center gap-4">
-                  {/* Cloud Connection Status Badge */}
-                  <div 
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-extrabold tracking-wider uppercase transition-all duration-300 ${
-                      cloudOnline 
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30' 
-                        : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30'
-                    }`}
-                    title={cloudOnline ? 'Successfully connected & synchronizing with Sunshine Cloud Database' : 'Cloud connection unavailable. Running in offline fallback mode with local caching.'}
-                  >
-                    {cloudOnline ? (
-                      <Cloud className="h-3 w-3 text-emerald-500 animate-pulse" />
-                    ) : (
-                      <CloudOff className="h-3 w-3 text-amber-500" />
-                    )}
-                    {cloudOnline ? 'Cloud Sync' : 'Offline Mode'}
-                  </div>
-
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">Logged as: {currentUser.name}</span>
-                    <span className="text-[10px] text-slate-400 dark:text-slate-400 font-bold uppercase tracking-wider block">Role: {currentUser.role}</span>
-                  </div>
-
-                  {/* Notifications Badge & Dropdown */}
-                  <div className="relative">
-                    <button
-                      id="btn-header-notifications"
-                      onClick={() => setShowNotificationsDropdown(!showNotificationsDropdown)}
-                      className={`relative p-2 rounded-xl border border-slate-150 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-all cursor-pointer flex items-center justify-center`}
-                      title="System Notifications"
-                    >
-                      {notifications.filter(n => {
-                        if (!currentUser) return false;
-                        const userRole = currentUser.role;
-                        if (userRole === 'ADMIN') return true;
-                        return n.targetRole === 'ALL' || n.targetRole === userRole;
-                      }).filter(n => !n.isRead).length > 0 ? (
-                        <BellRing className="h-4.5 w-4.5 text-indigo-600 dark:text-indigo-400 animate-bounce" />
-                      ) : (
-                        <Bell className="h-4.5 w-4.5" />
-                      )}
-                      
-                      {(() => {
-                        const count = notifications.filter(n => {
-                          if (!currentUser) return false;
-                          const userRole = currentUser.role;
-                          if (userRole === 'ADMIN') return true;
-                          return n.targetRole === 'ALL' || n.targetRole === userRole;
-                        }).filter(n => !n.isRead).length;
-                        return count > 0 ? (
-                          <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-rose-600 text-[10px] font-black text-white ring-2 ring-white dark:ring-slate-900 animate-pulse">
-                            {count}
-                          </span>
-                        ) : null;
-                      })()}
-                    </button>
-
-                    <AnimatePresence>
-                      {showNotificationsDropdown && (
-                        <>
-                          {/* Overlay click-away layer */}
-                          <div 
-                            className="fixed inset-0 z-40" 
-                            onClick={() => setShowNotificationsDropdown(false)} 
-                          />
-                          
-                          {/* Dropdown Panel */}
-                          <motion.div
-                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                            transition={{ duration: 0.15 }}
-                            className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl z-50 overflow-hidden"
-                          >
-                            {/* Header */}
-                            <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Bell className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                                <span className="font-display font-bold text-sm text-slate-800 dark:text-slate-100">
-                                  Notifications
-                                </span>
-                                {(() => {
-                                  const count = notifications.filter(n => {
-                                    if (!currentUser) return false;
-                                    const userRole = currentUser.role;
-                                    if (userRole === 'ADMIN') return true;
-                                    return n.targetRole === 'ALL' || n.targetRole === userRole;
-                                  }).filter(n => !n.isRead).length;
-                                  return count > 0 ? (
-                                    <span className="bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
-                                      {count} New
-                                    </span>
-                                  ) : null;
-                                })()}
-                              </div>
-                              {notifications.filter(n => {
-                                if (!currentUser) return false;
-                                const userRole = currentUser.role;
-                                if (userRole === 'ADMIN') return true;
-                                return n.targetRole === 'ALL' || n.targetRole === userRole;
-                              }).filter(n => !n.isRead).length > 0 && (
-                                <button
-                                  onClick={() => {
-                                    handleMarkAllNotificationsRead();
-                                  }}
-                                  className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition-all cursor-pointer flex items-center gap-1"
-                                >
-                                  <CheckCheck className="h-3.5 w-3.5" /> Mark all read
-                                </button>
-                              )}
-                            </div>
-
-                            {/* List Content */}
-                            <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                              {(() => {
-                                const userNotifs = notifications.filter(n => {
-                                  if (!currentUser) return false;
-                                  const userRole = currentUser.role;
-                                  if (userRole === 'ADMIN') return true;
-                                  return n.targetRole === 'ALL' || n.targetRole === userRole;
-                                });
-                                return userNotifs.length === 0 ? (
-                                  <div className="p-8 text-center text-slate-400 dark:text-slate-500 text-xs">
-                                    No system notifications yet.
-                                  </div>
-                                ) : (
-                                  userNotifs.map((notif) => {
-                                    // Category styles
-                                    let catBg = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-350';
-                                    if (notif.category === 'FEE') {
-                                      catBg = 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400';
-                                    } else if (notif.category === 'EXAM') {
-                                      catBg = 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-400';
-                                    } else if (notif.category === 'ANNOUNCEMENT') {
-                                      catBg = 'bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-400';
-                                    } else if (notif.category === 'HOLIDAY') {
-                                      catBg = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400';
-                                    }
-
-                                    return (
-                                      <div
-                                        key={notif.id}
-                                        onClick={() => {
-                                          if (!notif.isRead) {
-                                            handleMarkNotificationRead(notif.id);
-                                          }
-                                        }}
-                                        className={`p-3.5 transition-all text-left relative cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-                                          !notif.isRead 
-                                            ? 'bg-indigo-50/20 dark:bg-indigo-950/5 border-l-2 border-indigo-600 dark:border-indigo-500' 
-                                            : 'opacity-80'
-                                        }`}
-                                      >
-                                        <div className="flex items-start gap-2.5">
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                                              <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md flex items-center gap-1 ${catBg}`}>
-                                                {notif.category === 'FEE' && <AlertCircle size={10} className="text-amber-600 dark:text-amber-400 animate-bounce" />}
-                                                {notif.category}
-                                              </span>
-                                              {notif.category === 'FEE' && (
-                                                <span className="text-[9px] font-extrabold text-amber-700 dark:text-amber-400 bg-amber-100/50 dark:bg-amber-950/20 px-1.5 py-0.5 rounded flex items-center gap-0.5 animate-pulse">
-                                                  🚨 Urgent
-                                                </span>
-                                              )}
-                                              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold ml-auto">
-                                                {notif.date}
-                                              </span>
-                                            </div>
-                                            <h4 className={`font-bold text-xs leading-tight mb-0.5 transition-colors ${
-                                              !notif.isRead 
-                                                ? 'text-slate-900 dark:text-slate-100 font-extrabold' 
-                                                : 'text-slate-700 dark:text-slate-300'
-                                            }`}>
-                                              {notif.title}
-                                            </h4>
-                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed break-words">
-                                              {notif.content}
-                                            </p>
-                                          </div>
-
-                                          {!notif.isRead && (
-                                            <span className="flex h-2 w-2 shrink-0 rounded-full bg-indigo-600 dark:bg-indigo-400 mt-1.5" />
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })
-                                );
-                              })()}
-                            </div>
-                          </motion.div>
-                        </>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  <button
-                    id="btn-toggle-theme-private"
-                    onClick={toggleTheme}
-                    className="flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-300 hover:text-brand-orange dark:hover:text-brand-orange bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-950/50 border border-slate-150 dark:border-slate-700 rounded-xl px-3 py-1.5 transition-all cursor-pointer font-display"
-                    title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
-                  >
-                    {theme === 'light' ? <Moon size={13} /> : <Sun size={13} />}
-                    {theme === 'light' ? 'Dark' : 'Light'}
-                  </button>
-
-                  <button
-                    id="btn-erp-change-password-trigger"
-                    onClick={() => {
-                      setChangePasswordCurrent('');
-                      setChangePasswordNew('');
-                      setChangePasswordConfirm('');
-                      setShowChangePasswordModal(true);
-                    }}
-                    className="flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-300 hover:text-brand-orange bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 border border-slate-150 dark:border-slate-700 rounded-xl px-3 py-1.5 transition-all cursor-pointer font-display"
-                  >
-                    <Key size={13} /> Change Password
-                  </button>
-
-                  <button
-                    id="btn-erp-logout"
-                    onClick={handleLogout}
-                    className="flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-300 hover:text-brand-red bg-slate-50 dark:bg-slate-800 hover:bg-red-50 border border-slate-150 dark:border-slate-700 rounded-xl px-3 py-1.5 transition-all"
-                  >
-                    <LogOut size={13} /> Log Out
-                  </button>
+          <Route
+            path="/teacher/dashboard"
+            element={
+              !currentUser ? (
+                <Navigate to="/login" replace />
+              ) : currentUser.role !== 'TEACHER' ? (
+                <Navigate to="/login" replace />
+              ) : (
+                <div className="bg-slate-100 dark:bg-slate-950 min-h-screen transition-colors">
+                  {renderDashboardHeader()}
+                  {currentTeacherContext ? (
+                    <TeacherDashboard
+                      teacher={currentTeacherContext}
+                      students={students}
+                      attendanceList={attendance}
+                      homeworkList={homework}
+                      submissions={submissions}
+                      tests={tests}
+                      studentMarks={studentMarks}
+                      onAddAttendance={handleAddAttendance}
+                      onAddHomework={handleAddHomework}
+                      onAddTest={handleAddTest}
+                      onAddMarks={handleAddMarks}
+                      onReviewSubmission={handleReviewSubmission}
+                      timetableList={timetable}
+                      onUpdateTimetable={handleUpdateTimetable}
+                      batchBulletins={batchBulletins}
+                      onAddBatchBulletinPost={handleAddBatchBulletinPost}
+                      onDeleteBatchBulletinPost={handleDeleteBatchBulletinPost}
+                      subConfig={subConfig}
+                    />
+                  ) : (
+                    <div className="p-8 text-center text-xs text-slate-500 font-bold">Loading Teacher Context Profile...</div>
+                  )}
                 </div>
-              </div>
-            </div>
+              )
+            }
+          />
 
-            {/* Dashboards Routing */}
-            {currentUser.role === 'STUDENT' && currentStudentContext && (
-              <StudentDashboard
-                student={currentStudentContext}
-                attendanceList={attendance}
-                feeStatuses={feeStatuses}
-                feeReceipts={feeReceipts}
-                tests={tests}
-                studentMarks={studentMarks}
-                homeworkList={homework}
-                submissions={submissions}
-                notifications={notifications}
-                onAddSubmission={handleAddHomeworkSubmission}
-                onUpdateStudent={handleUpdateStudent}
-                subscriptions={subscriptions}
-                subPayments={subPayments}
-                subReceipts={subReceipts}
-                subNotifications={subNotifications}
-                subConfig={subConfig}
-                onPaySubscription={handlePaySubscription}
-                onCollectFee={handleCollectFee}
-                timetableList={timetable}
-                studyMaterials={studyMaterials}
-                batchBulletins={batchBulletins}
-                onAddBatchBulletinPost={handleAddBatchBulletinPost}
-                onDeleteBatchBulletinPost={handleDeleteBatchBulletinPost}
-                onMarkBulletinAsRead={handleMarkBulletinAsRead}
-              />
-            )}
+          <Route
+            path="/receptionist/dashboard"
+            element={
+              !currentUser ? (
+                <Navigate to="/login" replace />
+              ) : currentUser.role !== 'RECEPTIONIST' ? (
+                <Navigate to="/login" replace />
+              ) : (
+                <div className="bg-slate-100 dark:bg-slate-950 min-h-screen transition-colors">
+                  {renderDashboardHeader()}
+                  <ReceptionDashboard
+                    students={students}
+                    admissions={admissions}
+                    feeStatuses={feeStatuses}
+                    feeReceipts={feeReceipts}
+                    inquiries={inquiries}
+                    onApproveAdmission={handleApproveAdmission}
+                    onRejectAdmission={handleRejectAdmission}
+                    onAddInquiry={handleAddInquiry}
+                    onCollectFee={handleCollectFee}
+                    batches={batches}
+                    subscriptions={subscriptions}
+                    subPayments={subPayments}
+                    subReceipts={subReceipts}
+                    subNotifications={subNotifications}
+                    subConfig={subConfig}
+                    onPaySubscription={handlePaySubscription}
+                  />
+                </div>
+              )
+            }
+          />
 
-            {currentUser.role === 'TEACHER' && currentTeacherContext && (
-              <TeacherDashboard
-                teacher={currentTeacherContext}
-                students={students}
-                attendanceList={attendance}
-                homeworkList={homework}
-                submissions={submissions}
-                tests={tests}
-                studentMarks={studentMarks}
-                onAddAttendance={handleAddAttendance}
-                onAddHomework={handleAddHomework}
-                onAddTest={handleAddTest}
-                onAddMarks={handleAddMarks}
-                onReviewSubmission={handleReviewSubmission}
-                timetableList={timetable}
-                onUpdateTimetable={handleUpdateTimetable}
-                batchBulletins={batchBulletins}
-                onAddBatchBulletinPost={handleAddBatchBulletinPost}
-                onDeleteBatchBulletinPost={handleDeleteBatchBulletinPost}
-              />
-            )}
+          <Route
+            path="/admin/dashboard"
+            element={
+              !currentUser ? (
+                <Navigate to="/admin/login" replace />
+              ) : (currentUser.role !== 'ADMIN' && currentUser.role !== 'SUPER_ADMIN') ? (
+                <Navigate to="/login" replace />
+              ) : (
+                <div className="bg-slate-100 dark:bg-slate-950 min-h-screen transition-colors">
+                  {renderDashboardHeader()}
+                  <AdminDashboard
+                    currentUser={currentUser}
+                    students={students}
+                    teachers={teachers}
+                    users={users}
+                    onUpdateUsers={(updatedUsers) => handleHealState('users', updatedUsers)}
+                    courses={SEED_COURSES}
+                    batches={batches}
+                    onUpdateBatches={handleUpdateBatches}
+                    toppers={toppers}
+                    onAddOrEditTopper={handleAddOrEditTopper}
+                    onDeleteTopper={handleDeleteTopper}
+                    studyMaterials={studyMaterials}
+                    onAddStudyMaterial={handleAddStudyMaterial}
+                    onDeleteStudyMaterial={handleDeleteStudyMaterial}
+                    founders={founders}
+                    onAddOrEditFounder={handleAddOrEditFounder}
+                    onDeleteFounder={handleDeleteFounder}
+                    feeStatuses={feeStatuses}
+                    feeReceipts={feeReceipts}
+                    auditLogs={auditLogs}
+                    notifications={notifications}
+                    onAddStudent={handleAddStudentAdmin}
+                    onDeleteStudent={handleDeleteStudent}
+                    onAddTeacher={handleAddTeacherAdmin}
+                    onDeleteTeacher={handleDeleteTeacher}
+                    onUpdateTeacher={handleUpdateTeacher}
+                    onAddNotification={handleAddNotification}
+                    onDeleteNotification={handleDeleteNotification}
+                    onTriggerBackup={handleTriggerBackup}
+                    subscriptions={subscriptions}
+                    subPayments={subPayments}
+                    subReceipts={subReceipts}
+                    subNotifications={subNotifications}
+                    subConfig={subConfig}
+                    onUpdateConfig={handleUpdateSubscriptionConfig}
+                    onPaySubscription={handlePaySubscription}
+                    onCollectFee={handleCollectFee}
+                    onUpdateUserPassword={handleUpdateUserPassword}
+                    strictMode={strictMode}
+                    onToggleStrictMode={handleToggleStrictMode}
+                    admissions={admissions}
+                    attendanceList={attendance}
+                    tests={tests}
+                    studentMarks={studentMarks}
+                    homeworkList={homework}
+                    submissions={submissions}
+                    blogs={blogs}
+                    testimonials={testimonials}
+                    gallery={gallery}
+                    inquiries={inquiries}
+                    timetableList={timetable}
+                    onHealState={handleHealState}
+                    emailTemplates={emailTemplates}
+                    onUpdateEmailTemplates={handleUpdateEmailTemplates}
+                    whatsappTemplates={whatsappTemplates}
+                    onUpdateWhatsappTemplates={handleUpdateWhatsappTemplates}
+                    onApproveAdmission={handleApproveAdmission}
+                    onRejectAdmission={handleRejectAdmission}
+                    onBulkImport={handleBulkImport}
+                    onClearTestData={handleClearTestData}
+                    onForceUpdateUserEmails={handleForceUpdateUserEmails}
+                    departedStudents={departedStudents}
+                  />
+                </div>
+              )
+            }
+          />
 
-            {currentUser.role === 'RECEPTIONIST' && (
-              <ReceptionDashboard
-                students={students}
-                admissions={admissions}
-                feeStatuses={feeStatuses}
-                feeReceipts={feeReceipts}
-                inquiries={inquiries}
-                onApproveAdmission={handleApproveAdmission}
-                onRejectAdmission={handleRejectAdmission}
-                onAddInquiry={handleAddInquiry}
-                onCollectFee={handleCollectFee}
-                batches={batches}
-                subscriptions={subscriptions}
-                subPayments={subPayments}
-                subReceipts={subReceipts}
-                subNotifications={subNotifications}
-                subConfig={subConfig}
-                onPaySubscription={handlePaySubscription}
-              />
-            )}
-
-            {(currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') && (
-              <AdminDashboard
-                currentUser={currentUser}
-                students={students}
-                teachers={teachers}
-                users={users}
-                onUpdateUsers={(updatedUsers) => handleHealState('users', updatedUsers)}
-                courses={SEED_COURSES}
-                batches={batches}
-                onUpdateBatches={handleUpdateBatches}
-                toppers={toppers}
-                onAddOrEditTopper={handleAddOrEditTopper}
-                onDeleteTopper={handleDeleteTopper}
-                studyMaterials={studyMaterials}
-                onAddStudyMaterial={handleAddStudyMaterial}
-                onDeleteStudyMaterial={handleDeleteStudyMaterial}
-                founders={founders}
-                onAddOrEditFounder={handleAddOrEditFounder}
-                onDeleteFounder={handleDeleteFounder}
-                feeStatuses={feeStatuses}
-                feeReceipts={feeReceipts}
-                auditLogs={auditLogs}
-                notifications={notifications}
-                onAddStudent={handleAddStudentAdmin}
-                onDeleteStudent={handleDeleteStudent}
-                onAddTeacher={handleAddTeacherAdmin}
-                onDeleteTeacher={handleDeleteTeacher}
-                onUpdateTeacher={handleUpdateTeacher}
-                onAddNotification={handleAddNotification}
-                onDeleteNotification={handleDeleteNotification}
-                onTriggerBackup={handleTriggerBackup}
-                subscriptions={subscriptions}
-                subPayments={subPayments}
-                subReceipts={subReceipts}
-                subNotifications={subNotifications}
-                subConfig={subConfig}
-                onUpdateConfig={handleUpdateSubscriptionConfig}
-                onPaySubscription={handlePaySubscription}
-                onCollectFee={handleCollectFee}
-                onUpdateUserPassword={handleUpdateUserPassword}
-                strictMode={strictMode}
-                onToggleStrictMode={handleToggleStrictMode}
-                admissions={admissions}
-                attendanceList={attendance}
-                tests={tests}
-                studentMarks={studentMarks}
-                homeworkList={homework}
-                submissions={submissions}
-                blogs={blogs}
-                testimonials={testimonials}
-                gallery={gallery}
-                inquiries={inquiries}
-                timetableList={timetable}
-                onHealState={handleHealState}
-                emailTemplates={emailTemplates}
-                onUpdateEmailTemplates={handleUpdateEmailTemplates}
-                whatsappTemplates={whatsappTemplates}
-                onUpdateWhatsappTemplates={handleUpdateWhatsappTemplates}
-                onApproveAdmission={handleApproveAdmission}
-                onRejectAdmission={handleRejectAdmission}
-                onBulkImport={handleBulkImport}
-                onClearTestData={handleClearTestData}
-                onForceUpdateUserEmails={handleForceUpdateUserEmails}
-                departedStudents={departedStudents}
-              />
-            )}
-          </motion.div>
-        )}
+          {/* Catch-all Routing */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </div>
 
       {/* Floating Chatbot */}

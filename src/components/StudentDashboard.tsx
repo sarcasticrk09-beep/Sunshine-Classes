@@ -30,11 +30,13 @@ import {
   Check,
   Camera,
   Trash2,
-  Send
+  Send,
+  X
 } from 'lucide-react';
 import { Student, Attendance, FeeStatus, FeeReceipt, Test, StudentMark, Homework, HomeworkSubmission, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, TimetableEntry, StudyMaterial, BatchBulletinPost } from '../types';
 import SunshineLogo from './SunshineLogo';
 import { CloudinaryUpload } from './CloudinaryUpload';
+import { getFeeStatusForRecord } from '../lib/feeUtils';
 
 interface StudentDashboardProps {
   student: Student;
@@ -97,6 +99,8 @@ export default function StudentDashboard({
   const [hwFileUrl, setHwFileUrl] = useState('');
   const [bulletinInputText, setBulletinInputText] = useState('');
   const [isSubmitHwOpen, setIsSubmitHwOpen] = useState(false);
+  const [viewerFileUrl, setViewerFileUrl] = useState<string | null>(null);
+  const [viewerFileTitle, setViewerFileTitle] = useState<string>('');
   const [idCardOpen, setIdCardOpen] = useState(false);
 
   // Interactive Sticker Board State
@@ -1613,6 +1617,76 @@ export default function StudentDashboard({
                           </div>
                           <h4 className="text-sm font-bold text-slate-800">{hw.title}</h4>
                           <p className="mt-1 text-xs text-slate-600 leading-relaxed">{hw.description}</p>
+
+                          {hw.fileUrl && (
+                            <div className="mt-3 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 max-w-lg">
+                              <span className="text-[10px] font-bold text-indigo-800 uppercase block mb-1.5">📂 Attached Question Sheet:</span>
+                              {hw.fileUrl.match(/\.(jpg|jpeg|png|webp|gif)/i) || hw.fileUrl.startsWith('data:image/') ? (
+                                <div className="space-y-2">
+                                  <img
+                                    id={`img-question-preview-${hw.id}`}
+                                    src={hw.fileUrl}
+                                    alt="Homework Question Attachment"
+                                    className="max-h-48 rounded-lg border border-slate-200 object-contain shadow-sm bg-white"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  <div className="flex flex-wrap gap-2.5 mt-1.5">
+                                    <button
+                                      id={`btn-view-question-modal-${hw.id}`}
+                                      type="button"
+                                      onClick={() => {
+                                        setViewerFileUrl(hw.fileUrl!);
+                                        setViewerFileTitle(`Question Sheet: ${hw.subject} - ${hw.title}`);
+                                      }}
+                                      className="inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-all"
+                                    >
+                                      👁 View Directly in Browser
+                                    </button>
+                                    <a
+                                      id={`link-question-photo-view-${hw.id}`}
+                                      href={hw.fileUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:underline pt-1"
+                                    >
+                                      Open New Tab ↗
+                                    </a>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <div className="p-2 bg-indigo-100 rounded-lg text-indigo-700">
+                                    <FileText size={18} />
+                                  </div>
+                                  <div>
+                                    <span className="block text-xs font-semibold text-slate-800">Homework Document File</span>
+                                    <div className="flex flex-wrap gap-2.5 mt-1">
+                                      <button
+                                        id={`btn-view-question-modal-pdf-${hw.id}`}
+                                        type="button"
+                                        onClick={() => {
+                                          setViewerFileUrl(hw.fileUrl!);
+                                          setViewerFileTitle(`Question Sheet: ${hw.subject} - ${hw.title}`);
+                                        }}
+                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-all"
+                                      >
+                                        👁 View Directly in Browser
+                                      </button>
+                                      <a
+                                        id={`link-question-pdf-view-${hw.id}`}
+                                        href={hw.fileUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:underline pt-1"
+                                      >
+                                        Download/New Tab ↗
+                                      </a>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                           
                           <div className="mt-3 flex flex-wrap gap-4 text-[10px] font-bold text-slate-400">
                             <span>Teacher: {hw.teacherName}</span>
@@ -1620,7 +1694,7 @@ export default function StudentDashboard({
                             <span className="text-brand-orange">Due Date: {hw.dueDate}</span>
                           </div>
                         </div>
-
+ 
                         <div className="flex-shrink-0">
                           {hw.submission ? (
                             <div className="text-right">
@@ -1640,6 +1714,84 @@ export default function StudentDashboard({
                           )}
                         </div>
                       </div>
+ 
+                      {/* Submitted Solutions Block */}
+                      {hw.submission && (
+                        <div className="mt-4 p-4 rounded-xl border border-slate-150 bg-slate-50/40">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Your Submitted Solutions:</span>
+                          {hw.submission.textAnswer && (
+                            <p className="text-xs text-slate-700 whitespace-pre-line bg-white p-2.5 rounded-lg border border-slate-100 mb-2">{hw.submission.textAnswer}</p>
+                          )}
+                          {hw.submission.fileUrl && (
+                            <div className="mt-2.5 p-2 bg-white rounded-lg border border-slate-150 max-w-md">
+                              {hw.submission.fileUrl.match(/\.(jpg|jpeg|png|webp|gif)/i) || hw.submission.fileUrl.startsWith('data:image/') ? (
+                                <div className="space-y-1.5">
+                                  <img
+                                    id={`img-submitted-preview-${hw.id}`}
+                                    src={hw.submission.fileUrl}
+                                    alt="Your Homework Submission Preview"
+                                    className="max-h-36 rounded-lg object-contain border border-slate-100"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  <div className="flex flex-wrap gap-2.5 mt-1.5">
+                                    <button
+                                      id={`btn-view-submission-modal-${hw.id}`}
+                                      type="button"
+                                      onClick={() => {
+                                        setViewerFileUrl(hw.submission!.fileUrl!);
+                                        setViewerFileTitle(`Your Submission: ${hw.subject} - ${hw.title}`);
+                                      }}
+                                      className="inline-flex items-center gap-1.5 text-[11px] font-bold text-brand-orange bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-lg transition-all"
+                                    >
+                                      👁 View Solutions in Browser
+                                    </button>
+                                    <a
+                                      id={`link-submitted-photo-view-${hw.id}`}
+                                      href={hw.submission.fileUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:underline pt-1"
+                                    >
+                                      Open New Tab ↗
+                                    </a>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <div className="p-1.5 bg-rose-50 text-rose-600 rounded">
+                                    <FileText size={16} />
+                                  </div>
+                                  <div>
+                                    <span className="block text-xs font-semibold text-slate-700">Submitted Document File</span>
+                                    <div className="flex flex-wrap gap-2.5 mt-1">
+                                      <button
+                                        id={`btn-view-submission-modal-pdf-${hw.id}`}
+                                        type="button"
+                                        onClick={() => {
+                                          setViewerFileUrl(hw.submission!.fileUrl!);
+                                          setViewerFileTitle(`Your Submission: ${hw.subject} - ${hw.title}`);
+                                        }}
+                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold text-brand-orange bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-lg transition-all"
+                                      >
+                                        👁 View Solutions in Browser
+                                      </button>
+                                      <a
+                                        id={`link-submitted-pdf-view-${hw.id}`}
+                                        href={hw.submission.fileUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:underline pt-1"
+                                      >
+                                        Download/New Tab ↗
+                                      </a>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Submission review status */}
                       {hw.submission && hw.submission.status === 'REVIEWED' && (
@@ -1968,6 +2120,88 @@ export default function StudentDashboard({
                             <CheckCircle size={14} /> Fully Verified & Complete
                           </div>
                         )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Official Billing & Fee Summary Card */}
+                  <div id="card-student-billing-summary" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+                    <h4 className="font-display font-black text-sm text-slate-800 border-b border-slate-100 pb-2">Official Billing Summary</h4>
+                    <div className="space-y-3 text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-slate-400 font-display">Admission Date:</span>
+                        <span className="text-slate-800 font-bold font-mono">{student.admissionDate || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-slate-400 font-display">Fee Starts From:</span>
+                        <span className="text-slate-800 font-bold">{student.feeStartMonth || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-slate-400 font-display">Monthly Tuition:</span>
+                        <span className="text-indigo-900 font-black font-mono">₹{student.monthlyFee ?? 1200}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-slate-400 font-display">Outstanding Balance:</span>
+                        <span className={`font-black font-mono ${myFees.reduce((sum, f) => sum + f.pendingFee, 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          ₹{myFees.reduce((sum, f) => sum + f.pendingFee, 0)}
+                        </span>
+                      </div>
+                      
+                      {(() => {
+                        // Get current fee status and next due date
+                        const unpaid = myFees.filter(f => f.pendingFee > 0);
+                        const nextDueRecord = unpaid.length > 0 ? unpaid[0] : null;
+                        
+                        // Current status based on overall status
+                        let overallStatus = 'PAID';
+                        let overallBg = 'bg-green-50 text-green-700 border-green-200';
+                        if (unpaid.some(f => getFeeStatusForRecord(f) === 'OVERDUE')) {
+                          overallStatus = 'OVERDUE';
+                          overallBg = 'bg-red-50 text-red-700 border-red-200';
+                        } else if (unpaid.some(f => getFeeStatusForRecord(f) === 'PENDING' || getFeeStatusForRecord(f) === 'PARTIAL')) {
+                          overallStatus = 'PENDING DUES';
+                          overallBg = 'bg-amber-50 text-amber-700 border-amber-200';
+                        }
+                        
+                        return (
+                          <>
+                            <div className="flex justify-between items-center">
+                              <span className="font-semibold text-slate-400 font-display">Current Status:</span>
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${overallBg}`}>
+                                {overallStatus}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="font-semibold text-slate-400 font-display">Next Due Date:</span>
+                              <span className="text-slate-800 font-bold font-mono">{nextDueRecord ? nextDueRecord.dueDate : 'No pending dues'}</span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-3">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-2 font-display">Fee Timeline & Upcoming Cycles</span>
+                      <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                        {myFees.map((f) => {
+                          const status = getFeeStatusForRecord(f);
+                          let statusBg = 'bg-slate-50 text-slate-500';
+                          if (status === 'PAID') statusBg = 'bg-emerald-50 text-emerald-700 border border-emerald-100';
+                          else if (status === 'PARTIAL') statusBg = 'bg-amber-50 text-amber-700 border border-amber-100';
+                          else if (status === 'OVERDUE') statusBg = 'bg-rose-50 text-rose-700 border border-rose-100 animate-pulse';
+                          else if (status === 'PENDING') statusBg = 'bg-orange-50 text-orange-700 border border-orange-100';
+                          else if (status === 'UPCOMING') statusBg = 'bg-blue-50 text-blue-700 border border-blue-100';
+                          
+                          return (
+                            <div key={f.id} id={`timeline-item-${f.id}`} className="flex justify-between items-center text-[11px] p-1.5 rounded-lg border border-slate-100 bg-slate-50/50">
+                              <span className="font-medium text-slate-700 font-display">{f.month}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-500 font-mono">₹{f.totalFee}</span>
+                                <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase ${statusBg}`}>{status}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -3006,16 +3240,58 @@ export default function StudentDashboard({
           </div>
         </div>
       )}
-    </div>
-  );
-}
 
-// Inline X SVG helper
-function X({ size, className }: { size: number; className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </svg>
+      {/* MODAL 5: MODAL-BASED DOCUMENT VIEWER FOR ATTACHED PDF / IMAGES */}
+      {viewerFileUrl && (
+        <div id="modal-doc-viewer-overlay" className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
+          <div id="modal-doc-viewer-content" className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col h-[90vh] border border-slate-100">
+            <div id="doc-viewer-header" className="flex items-center justify-between border-b border-slate-150 px-6 py-4 bg-slate-50">
+              <div className="min-w-0 pr-4">
+                <h3 id="doc-viewer-title" className="font-display font-black text-sm text-slate-800 truncate">{viewerFileTitle || 'Document Viewer'}</h3>
+                <p id="doc-viewer-subtitle" className="text-[10px] text-slate-400 font-mono select-all truncate max-w-lg mt-0.5" title={viewerFileUrl}>{viewerFileUrl}</p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <a
+                  id="btn-doc-viewer-download"
+                  href={viewerFileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition-all shadow-sm"
+                >
+                  Download File ↗
+                </a>
+                <button
+                  id="btn-doc-viewer-close"
+                  onClick={() => { setViewerFileUrl(null); setViewerFileTitle(''); }}
+                  className="rounded-xl bg-slate-200 hover:bg-slate-300 p-2 text-slate-700 transition-all cursor-pointer flex items-center justify-center"
+                  title="Close Document"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            
+            <div id="doc-viewer-body" className="flex-1 bg-slate-900/5 p-4 overflow-auto flex items-center justify-center relative min-h-[300px]">
+              {viewerFileUrl.match(/\.(jpg|jpeg|png|webp|gif)/i) || viewerFileUrl.startsWith('data:image/') ? (
+                <img
+                  id="img-doc-viewer-rendering"
+                  src={viewerFileUrl}
+                  alt="Rendered Document Attachment"
+                  className="max-w-full max-h-full object-contain shadow-lg rounded-lg bg-white"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <iframe
+                  id="iframe-doc-viewer-rendering"
+                  src={viewerFileUrl}
+                  title="Document Attachment Viewer"
+                  className="w-full h-full rounded-lg border-0 bg-white shadow-inner"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

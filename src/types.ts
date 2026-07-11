@@ -39,6 +39,15 @@ export interface Student {
   documentUrl?: string;
   attendancePercentage: number;
   status?: 'ACTIVE' | 'INACTIVE';
+  feeStartMonth?: string; // e.g. "July 2026"
+  monthlyFee?: number;
+  feePlanId?: string;
+  currentBalance?: number;
+  admissionFee?: number;
+  registrationFee?: number;
+  discount?: number;
+  scholarship?: number;
+  dueDay?: number;
 }
 
 export interface DepartedStudent {
@@ -110,6 +119,7 @@ export interface Batch {
   billingCycle: string;
   nextDueDate: string;
   status: 'ACTIVE' | 'DUE' | 'EXPIRED';
+  capacity?: number;
 }
 
 export interface StudentSubscription {
@@ -250,6 +260,21 @@ export interface FeeStatus {
   pendingFee: number;
   status: 'PAID' | 'PARTIAL' | 'PENDING';
   dueDate: string;
+  billingMonth?: string; // e.g. "July"
+  billingYear?: string;  // e.g. "2026"
+  amount?: number;       // maps to totalFee
+  paid?: number;         // maps to paidFee
+  balance?: number;      // maps to pendingFee
+  paymentHistory?: {
+    date: string;
+    amountPaid: number;
+    paymentMethod: string;
+    transactionId?: string;
+    receivedBy: string;
+  }[];
+  receiptIds?: string[];
+  isWaived?: boolean;
+  isSkipped?: boolean;
 }
 
 export interface Test {
@@ -285,6 +310,7 @@ export interface Homework {
   date: string;
   teacherId: string;
   teacherName: string;
+  fileUrl?: string;
 }
 
 export interface HomeworkSubmission {

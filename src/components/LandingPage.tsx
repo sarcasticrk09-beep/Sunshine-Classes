@@ -40,6 +40,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Course, BlogPost, Testimonial, Topper, StudyMaterial, GalleryItem, Admission, Student, FounderMember, SubscriptionConfig } from '../types';
 import SunshineLogo from './SunshineLogo';
 import { CloudinaryUpload } from './CloudinaryUpload';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth/useAuth';
 
 const WhatsAppIcon = ({ className = "w-5 h-5", size = 20 }: { className?: string; size?: number }) => (
   <svg 
@@ -104,7 +106,47 @@ export default function LandingPage({
   onToggleTheme,
   subConfig
 }: LandingPageProps) {
-  const [activeSection, setActiveSection] = useState<'home' | 'about' | 'courses' | 'admissions' | 'results' | 'resources' | 'gallery' | 'contact'>('home');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
+
+  const getSectionFromPath = (pathname: string) => {
+    if (pathname === '/about') return 'about';
+    if (pathname === '/courses') return 'courses';
+    if (pathname === '/enroll' || pathname === '/admissions') return 'admissions';
+    if (pathname === '/results') return 'results';
+    if (pathname === '/resources') return 'resources';
+    if (pathname === '/gallery') return 'gallery';
+    if (pathname === '/contact') return 'contact';
+    return 'home';
+  };
+
+  const activeSection = getSectionFromPath(location.pathname);
+
+  const setActiveSection = (section: 'home' | 'about' | 'courses' | 'admissions' | 'results' | 'resources' | 'gallery' | 'contact') => {
+    if (section === 'home') navigate('/');
+    else if (section === 'admissions') navigate('/enroll');
+    else navigate(`/${section}`);
+  };
+
+  const handleERPClick = () => {
+    if (currentUser) {
+      if (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') {
+        navigate('/admin/dashboard');
+      } else if (currentUser.role === 'STUDENT') {
+        navigate('/student/dashboard');
+      } else if (currentUser.role === 'TEACHER') {
+        navigate('/teacher/dashboard');
+      } else if (currentUser.role === 'RECEPTIONIST') {
+        navigate('/receptionist/dashboard');
+      } else {
+        navigate('/login');
+      }
+    } else {
+      navigate('/login');
+    }
+  };
+
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [galleryFilter, setGalleryFilter] = useState<string>('ALL');
@@ -276,10 +318,10 @@ export default function LandingPage({
             </button>
             <button
               id="btn-trigger-erp"
-              onClick={onNavigateToERP}
+              onClick={handleERPClick}
               className="rounded-xl bg-brand-orange hover:bg-amber-500 text-white px-4 py-2 text-xs font-black shadow-md transition-all flex items-center gap-1"
             >
-              🔑 Student/Teacher ERP Portal
+              🔑 {currentUser ? 'Go to ERP Dashboard' : 'Student/Teacher ERP Portal'}
             </button>
           </div>
 
@@ -364,12 +406,12 @@ export default function LandingPage({
                   <button
                     id="mobile-btn-trigger-erp"
                     onClick={() => {
-                      onNavigateToERP();
+                      handleERPClick();
                       setMobileMenuOpen(false);
                     }}
                     className="flex-1 rounded-xl bg-brand-orange hover:bg-amber-500 text-white py-2.5 px-3 text-xs font-black shadow-md transition-all flex items-center justify-center gap-1.5"
                   >
-                    🔑 ERP Portal
+                    🔑 {currentUser ? 'Dashboard' : 'ERP Portal'}
                   </button>
                 </div>
               </div>

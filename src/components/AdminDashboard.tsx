@@ -60,6 +60,7 @@ import { sendWhatsAppMessage, interpolateWhatsAppTemplate } from '../lib/whatsap
 import { googleSignIn, getCachedAccessToken, clearCachedAccessToken } from '../lib/firebase';
 import { CloudinaryUpload } from './CloudinaryUpload';
 import { WhatsAppCommunication } from './WhatsAppCommunication';
+import { getFeeStatusForRecord, parseMonthYear, formatMonthYear, generateFeeRecords, compareMonths } from '../lib/feeUtils';
 
 function simpleSecureHash(password: string): string {
   let hash = 0x811c9dc5;
@@ -214,6 +215,7 @@ export default function AdminDashboard({
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [adminGlobalSearchQuery, setAdminGlobalSearchQuery] = useState('');
   const [selectedSearchStudentId, setSelectedSearchStudentId] = useState<string | null>(null);
+  const [selectedAuditBatchName, setSelectedAuditBatchName] = useState<string | null>(null);
   const [enrollMethod, setEnrollMethod] = useState<'manual' | 'sheets'>('manual');
 
   const [localUsers, setLocalUsers] = useState<any[]>([]);
@@ -1947,6 +1949,7 @@ export default function AdminDashboard({
   const [batchFormTeacher, setBatchFormTeacher] = useState('');
   const [batchFormFee, setBatchFormFee] = useState(0);
   const [batchFormStatus, setBatchFormStatus] = useState<'ACTIVE' | 'DUE' | 'EXPIRED'>('ACTIVE');
+  const [batchFormCapacity, setBatchFormCapacity] = useState(30);
 
   // State for Admin resetting another user's password
   const [resettingUser, setResettingUser] = useState<{ userId: string; username: string; name: string } | null>(null);
@@ -1982,6 +1985,16 @@ export default function AdminDashboard({
   const [editStdPreferredBatch, setEditStdPreferredBatch] = useState('');
   const [editStdPreferredTiming, setEditStdPreferredTiming] = useState('');
   const [editStdPhotoUrl, setEditStdPhotoUrl] = useState('');
+  
+  // Custom billing fields for Editing Student
+  const [editStdAdmissionDate, setEditStdAdmissionDate] = useState('');
+  const [editStdFeeStartMonth, setEditStdFeeStartMonth] = useState('');
+  const [editStdMonthlyFee, setEditStdMonthlyFee] = useState<number | ''>('');
+  const [editStdAdmissionFee, setEditStdAdmissionFee] = useState(0);
+  const [editStdRegistrationFee, setEditStdRegistrationFee] = useState(0);
+  const [editStdDiscount, setEditStdDiscount] = useState(0);
+  const [editStdScholarship, setEditStdScholarship] = useState(0);
+  const [editStdDueDay, setEditStdDueDay] = useState(10);
 
   // Camera API states
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -2004,6 +2017,15 @@ export default function AdminDashboard({
     setEditStdPreferredBatch(student.preferredBatch || '');
     setEditStdPreferredTiming(student.preferredTiming || '');
     setEditStdPhotoUrl(student.photoUrl || '');
+    
+    setEditStdAdmissionDate(student.admissionDate || new Date().toISOString().split('T')[0]);
+    setEditStdFeeStartMonth(student.feeStartMonth || 'July 2026');
+    setEditStdMonthlyFee(student.monthlyFee !== undefined ? student.monthlyFee : 1200);
+    setEditStdAdmissionFee(student.admissionFee || 0);
+    setEditStdRegistrationFee(student.registrationFee || 0);
+    setEditStdDiscount(student.discount || 0);
+    setEditStdScholarship(student.scholarship || 0);
+    setEditStdDueDay(student.dueDay || 10);
     
     setIsCameraActive(false);
     setCameraError('');
@@ -2074,13 +2096,21 @@ export default function AdminDashboard({
       rollNo: editStdRollNo,
       preferredBatch: editStdPreferredBatch,
       preferredTiming: editStdPreferredTiming,
-      photoUrl: editStdPhotoUrl
+      photoUrl: editStdPhotoUrl,
+      admissionDate: editStdAdmissionDate,
+      feeStartMonth: editStdFeeStartMonth,
+      monthlyFee: Number(editStdMonthlyFee),
+      admissionFee: Number(editStdAdmissionFee),
+      registrationFee: Number(editStdRegistrationFee),
+      discount: Number(editStdDiscount),
+      scholarship: Number(editStdScholarship),
+      dueDay: Number(editStdDueDay)
     };
 
     const updatedStudents = students.map(s => s.id === editingStudent.id ? updatedStudent : s);
     onHealState('students', updatedStudents);
 
-    alert(`Student "${editStdName}" profile updated successfully.`);
+    alert(`Student "${editStdName}" profile and billing details updated successfully.`);
     setEditingStudent(null);
     stopCamera();
   };
@@ -2963,6 +2993,41 @@ export default function AdminDashboard({
   const [stdTiming, setStdTiming] = useState('04:00 PM - 06:30 PM');
   const [stdPhotoUrl, setStdPhotoUrl] = useState('');
 
+  // New Admission Billing Model States
+  const [stdAdmissionDate, setStdAdmissionDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [stdFeeStartMonth, setStdFeeStartMonth] = useState(() => {
+    const today = new Date();
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return `${monthNames[today.getMonth()]} ${today.getFullYear()}`;
+  });
+  const [stdMonthlyFee, setStdMonthlyFee] = useState(1200);
+  const [stdAdmissionFee, setStdAdmissionFee] = useState(0);
+  const [stdRegistrationFee, setStdRegistrationFee] = useState(0);
+  const [stdDiscount, setStdDiscount] = useState(0);
+  const [stdScholarship, setStdScholarship] = useState(0);
+  const [stdDueDay, setStdDueDay] = useState(10);
+
+  // Billing Controller Modal States
+  const [billingCtrlStudent, setBillingCtrlStudent] = useState<Student | null>(null);
+  const [billingCtrlRecord, setBillingCtrlRecord] = useState<FeeStatus | null>(null);
+
+  // Billing Controller Form States (Global Section)
+  const [ctrlFeeStartMonth, setCtrlFeeStartMonth] = useState('');
+  const [ctrlMonthlyFee, setCtrlMonthlyFee] = useState(1200);
+  const [ctrlDiscount, setCtrlDiscount] = useState(0);
+  const [ctrlScholarship, setCtrlScholarship] = useState(0);
+  const [ctrlDueDay, setCtrlDueDay] = useState(10);
+
+  // Billing Controller Form States (Cycle Month Section)
+  const [ctrlCycleTotalFee, setCtrlCycleTotalFee] = useState(0);
+  const [ctrlCycleIsWaived, setCtrlCycleIsWaived] = useState(false);
+  const [ctrlCycleIsSkipped, setCtrlCycleIsSkipped] = useState(false);
+  const [ctrlCycleDiscount, setCtrlCycleDiscount] = useState(0);
+  const [ctrlCycleScholarship, setCtrlCycleScholarship] = useState(0);
+
   // Add Teacher Form States
   const [tchName, setTchName] = useState('');
   const [tchEmail, setTchEmail] = useState('');
@@ -3037,6 +3102,340 @@ export default function AdminDashboard({
     try {
       localStorage.setItem('sunshine_bulk_notif_history', JSON.stringify(history));
     } catch (e) {}
+  };
+
+  // Single-Student Fee Reminder Modal States
+  const [activeReminderFee, setActiveReminderFee] = useState<FeeStatus | null>(null);
+  const [reminderModalType, setReminderModalType] = useState<'WHATSAPP' | 'EMAIL'>('WHATSAPP');
+  const [reminderModalSubject, setReminderModalSubject] = useState('');
+  const [reminderModalEmailBody, setReminderModalEmailBody] = useState('');
+  const [reminderModalWAMessage, setReminderModalWAMessage] = useState('');
+  const [reminderModalEmail, setReminderModalEmail] = useState('');
+  const [reminderModalPhone, setReminderModalPhone] = useState('');
+  const [isSendingReminderEmail, setIsSendingReminderEmail] = useState(false);
+
+  // Expandable Fee Status Rows
+  const [expandedFeeRecordIds, setExpandedFeeRecordIds] = useState<Record<string, boolean>>({});
+
+  const handleOpenReminderModal = (statusEntry: FeeStatus) => {
+    const student = students.find(s => s.id === statusEntry.studentId);
+    const matchedSub = subscriptions.find(sub => sub.studentId === statusEntry.studentId);
+    const dueDate = matchedSub ? matchedSub.nextDueDate : `10-${statusEntry.month}-2026`;
+    const email = student?.email || '';
+    const phone = student?.whatsapp || student?.parentMobile || student?.mobile || '';
+
+    // Prefill Email values
+    const emailVars = {
+      studentName: statusEntry.studentName,
+      className: statusEntry.class,
+      month: statusEntry.month,
+      amount: statusEntry.pendingFee,
+      dueDate: dueDate
+    };
+    const customSubject = interpolateTemplate(emailTemplates?.reminderSubject || 'Fee Payment Reminder: {{month}}', emailVars);
+    const customHtml = interpolateTemplate(emailTemplates?.reminderBody || 'Dear Parent, fee is pending...', emailVars);
+
+    // Prefill WhatsApp values
+    const waMsg = reminderTemplate
+      .replace('[AMOUNT]', statusEntry.pendingFee.toString())
+      .replace('[STUDENT_NAME]', statusEntry.studentName)
+      .replace('[CLASS]', statusEntry.class)
+      .replace('[MONTH]', statusEntry.month);
+
+    setActiveReminderFee(statusEntry);
+    setReminderModalType(phone ? 'WHATSAPP' : 'EMAIL');
+    setReminderModalSubject(customSubject);
+    setReminderModalEmailBody(customHtml);
+    setReminderModalWAMessage(waMsg);
+    setReminderModalEmail(email);
+    setReminderModalPhone(phone);
+  };
+
+  const handleSendReminderModal = () => {
+    if (!activeReminderFee) return;
+
+    if (reminderModalType === 'WHATSAPP') {
+      if (!reminderModalPhone) {
+        alert("Please provide a phone number for WhatsApp reminder.");
+        return;
+      }
+      let cleanPhone = reminderModalPhone.replace(/\D/g, '');
+      if (cleanPhone.startsWith('0')) {
+        cleanPhone = cleanPhone.slice(1);
+      }
+      if (cleanPhone.length === 10) {
+        cleanPhone = '91' + cleanPhone;
+      }
+
+      const waLink = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(reminderModalWAMessage)}`;
+      
+      // Track the log locally
+      const newLog = {
+        id: 'wa-log-' + Date.now(),
+        studentName: activeReminderFee.studentName,
+        message: reminderModalWAMessage,
+        date: new Date().toLocaleString('en-IN')
+      };
+      setWhatsAppLogs(prev => [newLog, ...prev]);
+
+      // Add to notifications
+      onAddNotification({
+        title: `💬 WhatsApp Reminder: ${activeReminderFee.studentName}`,
+        content: `Nudged parent at ${reminderModalPhone} via WhatsApp for pending ₹${activeReminderFee.pendingFee} dues (${activeReminderFee.month}).`,
+        category: 'FEE',
+        targetRole: 'ALL',
+        targetBatch: activeReminderFee.class
+      });
+
+      // Open WhatsApp in a new window
+      window.open(waLink, '_blank', 'noopener,noreferrer');
+
+      // Clear modal
+      setActiveReminderFee(null);
+    } else {
+      // Email
+      if (!reminderModalEmail) {
+        alert("Please provide an email address for the reminder.");
+        return;
+      }
+      setIsSendingReminderEmail(true);
+
+      fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'reminder',
+          to: reminderModalEmail,
+          studentName: activeReminderFee.studentName,
+          amount: activeReminderFee.pendingFee,
+          month: activeReminderFee.month,
+          className: activeReminderFee.class,
+          customSubject: reminderModalSubject,
+          customHtml: reminderModalEmailBody
+        })
+      })
+      .then(r => r.json())
+      .then(res => {
+        setIsSendingReminderEmail(false);
+        if (res.success) {
+          onAddNotification({
+            title: `📧 Email Reminder: ${activeReminderFee.studentName}`,
+            content: `Emailed parent at ${reminderModalEmail} for pending ₹${activeReminderFee.pendingFee} dues (${activeReminderFee.month}).`,
+            category: 'FEE',
+            targetRole: 'ALL',
+            targetBatch: activeReminderFee.class,
+            sentAsEmail: true,
+            emailRecipientsCount: 1
+          });
+
+          if (res.isEthereal && res.previewUrl) {
+            alert(`📧 Real SMTP Email Reminder sent to ${reminderModalEmail}!\n\nView mock delivery here:\n${res.previewUrl}`);
+          } else {
+            alert(`📧 Real Reminder Email dispatched to ${reminderModalEmail} via SMTP!`);
+          }
+
+          // Clear modal
+          setActiveReminderFee(null);
+        } else {
+          alert(`❌ Failed to send email: ${res.error || 'Unknown error'}`);
+        }
+      })
+      .catch(err => {
+        setIsSendingReminderEmail(false);
+        alert(`❌ Network error while sending email: ${err.message}`);
+      });
+    }
+  };
+
+  const handlePrintReceipt = (rec: FeeReceipt) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert("Please allow popups to view and print the receipt.");
+      return;
+    }
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Receipt - ${rec.id.substring(0, 8).toUpperCase()}</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+            body {
+              font-family: 'Inter', sans-serif;
+              color: #1e293b;
+              padding: 40px;
+              margin: 0;
+              background-color: #ffffff;
+            }
+            .receipt-card {
+              max-width: 600px;
+              margin: 0 auto;
+              border: 2px dashed #cbd5e1;
+              border-radius: 16px;
+              padding: 30px;
+              background: #f8fafc;
+            }
+            .header {
+              text-align: center;
+              border-bottom: 2px solid #e2e8f0;
+              padding-bottom: 15px;
+              margin-bottom: 20px;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+              color: #1e3a8a;
+              font-weight: 800;
+            }
+            .header p {
+              margin: 5px 0 0 0;
+              font-size: 12px;
+              color: #64748b;
+            }
+            .details-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin: 20px 0;
+            }
+            .details-table td {
+              padding: 10px 0;
+              border-bottom: 1px solid #f1f5f9;
+              font-size: 13px;
+            }
+            .details-table td.label {
+              color: #64748b;
+              font-weight: 600;
+              width: 40%;
+            }
+            .details-table td.value {
+              font-weight: 700;
+              text-align: right;
+              color: #0f172a;
+            }
+            .amount-box {
+              background-color: #ecfdf5;
+              border: 1px solid #a7f3d0;
+              border-radius: 8px;
+              padding: 15px;
+              text-align: center;
+              margin: 20px 0;
+            }
+            .amount-box h2 {
+              margin: 0;
+              font-size: 14px;
+              color: #065f46;
+            }
+            .amount-box p {
+              margin: 5px 0 0 0;
+              font-size: 28px;
+              color: #047857;
+              font-weight: 800;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              font-size: 11px;
+              color: #94a3b8;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 15px;
+            }
+            @media print {
+              body {
+                padding: 0;
+              }
+              .receipt-card {
+                border: none;
+                background: none;
+                padding: 0;
+              }
+              .no-print {
+                display: none;
+              }
+            }
+            .no-print {
+              text-align: center;
+              margin-top: 20px;
+            }
+            .print-btn {
+              background-color: #4f46e5;
+              color: white;
+              border: none;
+              padding: 10px 20px;
+              font-size: 13px;
+              font-weight: 600;
+              border-radius: 8px;
+              cursor: pointer;
+              transition: background-color 0.2s;
+            }
+            .print-btn:hover {
+              background-color: #4338ca;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="receipt-card">
+            <div class="header">
+              <h1>SUNSHINE CLASSES</h1>
+              <p>Tuition Fee Payment Receipt</p>
+            </div>
+            
+            <table class="details-table">
+              <tr>
+                <td class="label">Receipt No</td>
+                <td class="value">${rec.id.toUpperCase()}</td>
+              </tr>
+              <tr>
+                <td class="label">Student Name</td>
+                <td class="value">${rec.studentName}</td>
+              </tr>
+              <tr>
+                <td class="label">Class / Grade</td>
+                <td class="value">${rec.class}</td>
+              </tr>
+              <tr>
+                <td class="label">Fee Cycle Month</td>
+                <td class="value">${rec.month}</td>
+              </tr>
+              <tr>
+                <td class="label">Payment Date</td>
+                <td class="value">${rec.date}</td>
+              </tr>
+              <tr>
+                <td class="label">Payment Method</td>
+                <td class="value">${rec.paymentMethod}</td>
+              </tr>
+              ${rec.transactionId ? `
+              <tr>
+                <td class="label">Transaction ID</td>
+                <td class="value">${rec.transactionId}</td>
+              </tr>
+              ` : ''}
+              <tr>
+                <td class="label">Collected By</td>
+                <td class="value">${rec.receivedBy || 'Administrative Office'}</td>
+              </tr>
+            </table>
+
+            <div class="amount-box">
+              <h2>AMOUNT PAID</h2>
+              <p>₹${rec.amountPaid}</p>
+            </div>
+
+            <div class="footer">
+              <p>Thank you for your payment! For any support, please contact Sunshine Classes admin.</p>
+              <p style="margin-top: 5px; font-size: 9px; color: #cbd5e1;">Generated on ${new Date().toLocaleString('en-IN')}</p>
+            </div>
+          </div>
+
+          <div class="no-print">
+            <button class="print-btn" onclick="window.print()">Print Receipt</button>
+          </div>
+        </body>
+      </html>
+    `;
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
   };
 
   // Set default bulk target batch if empty on render or change
@@ -3576,7 +3975,14 @@ export default function AdminDashboard({
       email: stdEmail,
       preferredBatch: stdBatch,
       preferredTiming: stdTiming,
-      admissionDate: new Date().toISOString().split('T')[0],
+      admissionDate: stdAdmissionDate,
+      feeStartMonth: stdFeeStartMonth,
+      monthlyFee: stdMonthlyFee,
+      admissionFee: stdAdmissionFee,
+      registrationFee: stdRegistrationFee,
+      discount: stdDiscount,
+      scholarship: stdScholarship,
+      dueDay: stdDueDay,
       photoUrl: stdPhotoUrl || undefined
     });
 
@@ -3589,7 +3995,15 @@ export default function AdminDashboard({
     setStdParentMobile('');
     setStdEmail('');
     setStdPhotoUrl('');
-    alert("New student registered into Sunshine Classes ERP system successfully.");
+    setStdAdmissionDate(new Date().toISOString().split('T')[0]);
+    setStdAdmissionFee(0);
+    setStdRegistrationFee(0);
+    setStdDiscount(0);
+    setStdScholarship(0);
+    setStdDueDay(10);
+    const generatedUsername = stdName.toLowerCase().replace(/\s+/g, '');
+    const defaultPass = `${generatedUsername}123`;
+    alert(`New student registered into Sunshine Classes ERP system successfully with automatic 12-month billing schedule.\n\nStudent Login Username: ${generatedUsername}\nDefault Password: ${defaultPass}`);
   };
 
   const handleSubmitTeacher = (e: React.FormEvent) => {
@@ -3646,6 +4060,7 @@ export default function AdminDashboard({
               teacherName: batchFormTeacher,
               monthlyFee: Number(batchFormFee),
               status: batchFormStatus,
+              capacity: Number(batchFormCapacity),
             }
           : b
       );
@@ -3670,6 +4085,7 @@ export default function AdminDashboard({
         billingCycle: 'Monthly',
         nextDueDate: nextDueStr,
         status: batchFormStatus,
+        capacity: Number(batchFormCapacity),
       };
       onUpdateBatches([...batches, newBatch]);
       alert(`Batch "${batchFormName}" created successfully.`);
@@ -3684,6 +4100,7 @@ export default function AdminDashboard({
     setBatchFormTeacher('');
     setBatchFormFee(0);
     setBatchFormStatus('ACTIVE');
+    setBatchFormCapacity(30);
   };
 
   const handleEnrollAndScheduleUpdate = (e: React.FormEvent) => {
@@ -3815,6 +4232,7 @@ export default function AdminDashboard({
     setBatchFormTeacher(b.teacherName);
     setBatchFormFee(b.monthlyFee);
     setBatchFormStatus(b.status);
+    setBatchFormCapacity(b.capacity || 30);
     setShowBatchForm(true);
   };
 
@@ -5011,6 +5429,206 @@ ${data.log}`
                 )}
               </div>
 
+              {/* --- START OF BATCH CAPACITY SUMMARY CARD --- */}
+              <motion.div
+                id="batch-capacity-summary-card"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className="border border-indigo-100 rounded-2xl p-5 bg-gradient-to-br from-white via-slate-50 to-indigo-50/30 shadow-sm space-y-5 text-left animate-in"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 pb-3.5">
+                  <div>
+                    <h4 className="font-display font-black text-xs text-indigo-950 uppercase tracking-wider flex items-center gap-2">
+                      <Percent size={15} className="text-indigo-600 animate-pulse" />
+                      Class Batches & Capacity Usage Audit
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Real-time analysis of seat allocation, enrolled headcounts, and extreme utilization bounds.
+                    </p>
+                  </div>
+                  <span className="text-[10px] bg-indigo-50 border border-indigo-100 text-indigo-700 px-2.5 py-1 rounded-full font-bold">
+                    {batches.length} Active Tracks
+                  </span>
+                </div>
+
+                {batches.length === 0 ? (
+                  <div className="py-8 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-xl">
+                    No registered academic batches found. Go to the "Batches" tab to define some schedules.
+                  </div>
+                ) : (() => {
+                  const processedStats = batches.map(b => {
+                    const enrolledStudents = students.filter(s => s.preferredBatch?.toLowerCase() === b.name?.toLowerCase());
+                    const enrolledCount = enrolledStudents.length;
+                    const capLimit = b.capacity || 30;
+                    const fillPercent = Math.min(100, Math.round((enrolledCount / capLimit) * 100));
+                    return {
+                      ...b,
+                      enrolledStudents,
+                      enrolledCount,
+                      capLimit,
+                      fillPercent
+                    };
+                  });
+
+                  // Sort to find extreme utilization bounds
+                  const sortedStats = [...processedStats].sort((a, b) => b.fillPercent - a.fillPercent);
+                  const highestUsage = sortedStats[0];
+                  const lowestUsage = sortedStats[sortedStats.length - 1];
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Bento grid highlights */}
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        {/* Highest utilization card */}
+                        <div
+                          id="card-highest-capacity-usage"
+                          className="rounded-xl border border-emerald-100 bg-gradient-to-br from-emerald-50/40 to-white p-4 shadow-3xs flex flex-col justify-between"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <span className="text-[9px] font-extrabold uppercase tracking-widest bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                <TrendingUp size={10} /> Highest Occupancy
+                              </span>
+                              <span className="font-mono text-xs font-black text-emerald-700">{highestUsage.fillPercent}% Fill</span>
+                            </div>
+                            <h5 className="font-bold text-xs text-slate-800 line-clamp-1">{highestUsage.name}</h5>
+                            <p className="text-[10px] text-slate-500 mt-0.5">{highestUsage.class}</p>
+                          </div>
+                          <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-700 font-medium">
+                            <span>Students: <strong>{highestUsage.enrolledCount} / {highestUsage.capLimit}</strong></span>
+                            <span className="text-[10px] font-mono text-slate-400">{highestUsage.time}</span>
+                          </div>
+                        </div>
+
+                        {/* Lowest utilization card */}
+                        <div
+                          id="card-lowest-capacity-usage"
+                          className="rounded-xl border border-amber-100 bg-gradient-to-br from-amber-50/40 to-white p-4 shadow-3xs flex flex-col justify-between"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <span className="text-[9px] font-extrabold uppercase tracking-widest bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                <Award size={10} /> Lowest Occupancy
+                              </span>
+                              <span className="font-mono text-xs font-black text-amber-700">{lowestUsage.fillPercent}% Fill</span>
+                            </div>
+                            <h5 className="font-bold text-xs text-slate-800 line-clamp-1">{lowestUsage.name}</h5>
+                            <p className="text-[10px] text-slate-500 mt-0.5">{lowestUsage.class}</p>
+                          </div>
+                          <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-700 font-medium">
+                            <span>Students: <strong>{lowestUsage.enrolledCount} / {lowestUsage.capLimit}</strong></span>
+                            <span className="text-[10px] font-mono text-slate-400">{lowestUsage.time}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Interactive breakdown listing */}
+                      <div className="border border-slate-200/60 rounded-xl bg-white overflow-hidden shadow-4xs">
+                        <div className="bg-slate-50/75 border-b border-slate-150 px-4 py-2.5 flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                            Batch Rosters & Capacity Matrix
+                          </span>
+                          <span className="text-[10px] text-slate-400 italic">Click any batch to audit roster</span>
+                        </div>
+                        <div className="divide-y divide-slate-150 max-h-64 overflow-y-auto">
+                          {processedStats.map(stat => {
+                            const isAuditing = selectedAuditBatchName?.toLowerCase() === stat.name?.toLowerCase();
+                            return (
+                              <div key={stat.id} className="transition-colors hover:bg-slate-50/40">
+                                <button
+                                  type="button"
+                                  id={`btn-select-audit-${stat.id}`}
+                                  onClick={() => setSelectedAuditBatchName(isAuditing ? null : stat.name)}
+                                  className="w-full text-left px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer outline-none focus:bg-indigo-50/20"
+                                >
+                                  <div className="space-y-0.5 shrink-0">
+                                    <span className="font-bold text-xs text-slate-800 block">{stat.name}</span>
+                                    <span className="text-[10px] text-slate-400 font-normal">{stat.class} • {stat.time}</span>
+                                  </div>
+
+                                  <div className="flex items-center gap-4 sm:text-right w-full sm:w-auto justify-between sm:justify-end">
+                                    <div className="flex flex-col gap-1 w-28">
+                                      <div className="flex justify-between text-[10px] font-bold">
+                                        <span className="text-slate-600">{stat.enrolledCount} / {stat.capLimit}</span>
+                                        <span className="text-indigo-600">{stat.fillPercent}%</span>
+                                      </div>
+                                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden border border-slate-200/40">
+                                        <div
+                                          className={`h-full rounded-full transition-all duration-300 ${
+                                            stat.fillPercent >= 100
+                                              ? 'bg-rose-500'
+                                              : stat.fillPercent >= 80
+                                              ? 'bg-amber-500'
+                                              : 'bg-indigo-600'
+                                          }`}
+                                          style={{ width: `${stat.fillPercent}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                    <span className="text-slate-400 shrink-0">
+                                      {isAuditing ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                    </span>
+                                  </div>
+                                </button>
+
+                                {/* Expanded roster details container */}
+                                <AnimatePresence>
+                                  {isAuditing && (
+                                    <motion.div
+                                      id={`container-roster-audit-${stat.id}`}
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: 'auto', opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.2 }}
+                                      className="bg-indigo-50/15 border-t border-slate-200/50 px-4 py-3 text-xs text-slate-600 space-y-2 text-left overflow-hidden"
+                                    >
+                                      <div className="flex items-center justify-between mb-1.5">
+                                        <span className="font-extrabold uppercase tracking-wide text-[9px] text-slate-400">
+                                          Active Student Roster ({stat.enrolledCount} total)
+                                        </span>
+                                        {stat.enrolledCount > 0 && (
+                                          <span className="text-[9px] text-indigo-600 font-bold bg-indigo-50 border border-indigo-100/40 px-2 py-0.5 rounded-md">
+                                            Total Monthly Revenue: ₹{stat.enrolledCount * stat.monthlyFee}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {stat.enrolledCount === 0 ? (
+                                        <p className="text-[11px] text-slate-400 italic py-2 text-center">
+                                          No students currently allocated to this academic batch.
+                                        </p>
+                                      ) : (
+                                        <div className="grid gap-2 sm:grid-cols-2 max-h-40 overflow-y-auto pr-1">
+                                          {stat.enrolledStudents.map((std) => (
+                                            <div
+                                              key={std.id}
+                                              id={`roster-student-item-${std.id}`}
+                                              className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200/60 shadow-3xs"
+                                            >
+                                              <div className="flex flex-col">
+                                                <span className="font-bold text-slate-800">{std.name}</span>
+                                                <span className="text-[9px] text-slate-400 font-mono">Roll: {std.rollNo || 'N/A'}</span>
+                                              </div>
+                                              <span className="text-[10px] text-slate-500 bg-slate-100 border border-slate-200/60 px-2 py-0.5 rounded font-mono">
+                                                {std.mobile || std.parentMobile || 'No Phone'}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </motion.div>
+
               <div className="border border-slate-100 rounded-xl p-4 bg-slate-50/50">
                 <h4 className="font-display font-bold text-xs text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                   <Database size={14} className="text-brand-blue" /> Cloud Storage Integrity
@@ -5354,6 +5972,134 @@ ${data.log}`
                           onChange={(e) => setStdTiming(e.target.value)}
                           className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
                         />
+                      </div>
+
+                      {/* NEW BILLING & ADMISSION MODEL FIELDS */}
+                      <div className="border-t border-slate-100 sm:col-span-3 my-2 pt-4">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-900 mb-3 flex items-center gap-1.5">
+                          💼 Official Billing & Tuition Settings
+                        </h4>
+                        <div className="grid gap-4 sm:grid-cols-3">
+                          <div>
+                            <label className="mb-1.5 block text-xs font-semibold text-slate-700">Admission Date</label>
+                            <input
+                              id="input-std-admission-date"
+                              type="date"
+                              required
+                              value={stdAdmissionDate}
+                              onChange={(e) => setStdAdmissionDate(e.target.value)}
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-xs font-semibold text-slate-700">Fee Starts From (Billing Start Month)</label>
+                            <select
+                              id="select-std-fee-start-month"
+                              required
+                              value={stdFeeStartMonth}
+                              onChange={(e) => setStdFeeStartMonth(e.target.value)}
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                            >
+                              {(() => {
+                                const monthsList = [];
+                                const today = new Date();
+                                const monthNames = [
+                                  'January', 'February', 'March', 'April', 'May', 'June',
+                                  'July', 'August', 'September', 'October', 'November', 'December'
+                                ];
+                                for (let i = -3; i < 9; i++) {
+                                  const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+                                  monthsList.push(`${monthNames[d.getMonth()]} ${d.getFullYear()}`);
+                                }
+                                return monthsList.map(m => (
+                                  <option key={m} value={m}>{m}</option>
+                                ));
+                              })()}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-xs font-semibold text-slate-700">Monthly Tuition Fee (₹)</label>
+                            <input
+                              id="input-std-monthly-fee"
+                              type="number"
+                              required
+                              min={0}
+                              placeholder="e.g. 1200"
+                              value={stdMonthlyFee}
+                              onChange={(e) => setStdMonthlyFee(Number(e.target.value))}
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-xs font-semibold text-slate-700">Admission Fee (₹)</label>
+                            <input
+                              id="input-std-admission-fee"
+                              type="number"
+                              min={0}
+                              placeholder="0"
+                              value={stdAdmissionFee}
+                              onChange={(e) => setStdAdmissionFee(Number(e.target.value))}
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-xs font-semibold text-slate-700">Registration Fee (₹)</label>
+                            <input
+                              id="input-std-registration-fee"
+                              type="number"
+                              min={0}
+                              placeholder="0"
+                              value={stdRegistrationFee}
+                              onChange={(e) => setStdRegistrationFee(Number(e.target.value))}
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-xs font-semibold text-slate-700">Monthly Discount Amount (₹)</label>
+                            <input
+                              id="input-std-discount"
+                              type="number"
+                              min={0}
+                              placeholder="0"
+                              value={stdDiscount}
+                              onChange={(e) => setStdDiscount(Number(e.target.value))}
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-xs font-semibold text-slate-700">Monthly Scholarship Amount (₹)</label>
+                            <input
+                              id="input-std-scholarship"
+                              type="number"
+                              min={0}
+                              placeholder="0"
+                              value={stdScholarship}
+                              onChange={(e) => setStdScholarship(Number(e.target.value))}
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-xs font-semibold text-slate-700">Fee Due Day of Month (1–31)</label>
+                            <input
+                              id="input-std-due-day"
+                              type="number"
+                              min={1}
+                              max={31}
+                              required
+                              placeholder="e.g. 10"
+                              value={stdDueDay}
+                              onChange={(e) => setStdDueDay(Number(e.target.value))}
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                            />
+                          </div>
+                        </div>
                       </div>
 
                       <div className="sm:col-span-3">
@@ -6899,85 +7645,21 @@ ${data.log}`
                   </div>
 
                   {/* Dynamic Student Cards / Directory Table */}
-                  <div className="overflow-hidden border border-slate-150 rounded-xl bg-white">
+                  <div className="overflow-hidden border border-slate-150 rounded-xl bg-white shadow-sm">
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-150 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            <th 
-                              className="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition-colors group text-left"
-                              onClick={() => {
-                                if (feeSortKey === 'studentName') {
-                                  setFeeSortDirection(feeSortDirection === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setFeeSortKey('studentName');
-                                  setFeeSortDirection('asc');
-                                }
-                              }}
-                            >
-                              <div className="flex items-center gap-1">
-                                <span>Student / Class</span>
-                                <span className={`text-[10px] transition-all ${feeSortKey === 'studentName' ? 'opacity-100 text-indigo-900 font-extrabold' : 'opacity-0 group-hover:opacity-40 text-slate-400'}`}>
-                                  {feeSortKey === 'studentName' ? (feeSortDirection === 'asc' ? '▲' : '▼') : '▲'}
-                                </span>
-                              </div>
-                            </th>
-                            <th 
-                              className="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition-colors group text-left"
-                              onClick={() => {
-                                if (feeSortKey === 'month') {
-                                  setFeeSortDirection(feeSortDirection === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setFeeSortKey('month');
-                                  setFeeSortDirection('asc');
-                                }
-                              }}
-                            >
-                              <div className="flex items-center gap-1">
-                                <span>Cycle Month</span>
-                                <span className={`text-[10px] transition-all ${feeSortKey === 'month' ? 'opacity-100 text-indigo-900 font-extrabold' : 'opacity-0 group-hover:opacity-40 text-slate-400'}`}>
-                                  {feeSortKey === 'month' ? (feeSortDirection === 'asc' ? '▲' : '▼') : '▲'}
-                                </span>
-                              </div>
-                            </th>
-                            <th 
-                              className="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition-colors group text-right"
-                              onClick={() => {
-                                if (feeSortKey === 'pendingFee') {
-                                  setFeeSortDirection(feeSortDirection === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setFeeSortKey('pendingFee');
-                                  setFeeSortDirection('desc'); // default high-low for dues
-                                }
-                              }}
-                            >
-                              <div className="flex items-center justify-end gap-1">
-                                <span>Bill Detail</span>
-                                <span className={`text-[10px] transition-all ${feeSortKey === 'pendingFee' ? 'opacity-100 text-indigo-900 font-extrabold' : 'opacity-0 group-hover:opacity-40 text-slate-400'}`}>
-                                  {feeSortKey === 'pendingFee' ? (feeSortDirection === 'asc' ? '▲' : '▼') : '▼'}
-                                </span>
-                              </div>
-                            </th>
-                            <th className="px-4 py-3 text-center font-mono">Status</th>
-                            <th 
-                              className="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition-colors group text-left"
-                              onClick={() => {
-                                if (feeSortKey === 'dueDate') {
-                                  setFeeSortDirection(feeSortDirection === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setFeeSortKey('dueDate');
-                                  setFeeSortDirection('asc');
-                                }
-                              }}
-                            >
-                              <div className="flex items-center gap-1">
-                                <span>Due Date</span>
-                                <span className={`text-[10px] transition-all ${feeSortKey === 'dueDate' ? 'opacity-100 text-indigo-900 font-extrabold' : 'opacity-0 group-hover:opacity-40 text-slate-400'}`}>
-                                  {feeSortKey === 'dueDate' ? (feeSortDirection === 'asc' ? '▲' : '▼') : '▲'}
-                                </span>
-                              </div>
-                            </th>
-                            <th className="px-4 py-3 text-right">One-Click Action Reminder</th>
+                            <th className="px-4 py-3 text-left">Student Name / Roll</th>
+                            <th className="px-4 py-3 text-left">Class / Batch</th>
+                            <th className="px-4 py-3 text-left">Fee Month</th>
+                            <th className="px-4 py-3 text-right">Bill Amt</th>
+                            <th className="px-4 py-3 text-right">Paid Amt</th>
+                            <th className="px-4 py-3 text-right">Balance</th>
+                            <th className="px-4 py-3 text-left">Due Date</th>
+                            <th className="px-4 py-3 text-center">Status</th>
+                            <th className="px-4 py-3 text-center">Payment Date</th>
+                            <th className="px-4 py-3 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
@@ -6986,14 +7668,59 @@ ${data.log}`
                             const rawPhone = studentProfile?.whatsapp || studentProfile?.parentMobile || studentProfile?.mobile || '';
                             const hasPending = entry.pendingFee > 0;
                             const waLink = getWhatsAppLink(entry);
+                            
+                            // Get dynamic current status (based on today's date)
+                            const dynamicStatus = getFeeStatusForRecord(entry);
+
+                            // Get payment date (most recent transaction date)
+                            const relevantReceipts = feeReceipts.filter(r => r.studentId === entry.studentId && r.month === entry.month);
+                            const sortedReceipts = [...relevantReceipts].sort((a, b) => b.date.localeCompare(a.date));
+                            const paymentDate = sortedReceipts.length > 0 ? sortedReceipts[0].date : '—';
 
                             return (
-                              <tr key={entry.id} className="hover:bg-slate-50/60 transition-colors">
-                                {/* Student name & class */}
+                              <React.Fragment key={entry.id}>
+                                <tr className="hover:bg-slate-50/60 transition-colors">
+                                 {/* Student name & Roll */}
+                                 <td className="px-4 py-3.5 select-none">
+                                   <div className="flex items-center gap-2">
+                                     <button
+                                       id={`btn-toggle-expand-${entry.id}`}
+                                       type="button"
+                                       onClick={(e) => {
+                                         e.stopPropagation();
+                                         setExpandedFeeRecordIds(prev => ({
+                                           ...prev,
+                                           [entry.id]: !prev[entry.id]
+                                         }));
+                                       }}
+                                       className="p-1 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 transition-colors focus:outline-none cursor-pointer flex items-center justify-center"
+                                       title={expandedFeeRecordIds[entry.id] ? "Collapse payment history" : "Expand payment history"}
+                                     >
+                                       {expandedFeeRecordIds[entry.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                     </button>
+                                     <div 
+                                       onClick={() => {
+                                         setExpandedFeeRecordIds(prev => ({
+                                           ...prev,
+                                           [entry.id]: !prev[entry.id]
+                                         }));
+                                       }}
+                                       className="cursor-pointer group flex-1"
+                                       title="Click to toggle full payment history"
+                                     >
+                                       <span className="font-bold text-slate-800 block text-sm group-hover:text-indigo-600 transition-colors">
+                                         {entry.studentName}
+                                       </span>
+                                       <span className="text-[10px] text-slate-400 font-mono font-bold block">{studentProfile?.rollNo || '—'}</span>
+                                     </div>
+                                   </div>
+                                 </td>
+
+                                {/* Class & Batch */}
                                 <td className="px-4 py-3.5">
                                   <div>
-                                    <span className="font-bold text-slate-800 block text-sm">{entry.studentName}</span>
-                                    <span className="text-[10px] text-slate-400 font-semibold block">{entry.class}</span>
+                                    <span className="text-slate-700 block font-medium">{entry.class}</span>
+                                    <span className="text-[10px] text-slate-400 block">{studentProfile?.preferredBatch || '—'}</span>
                                   </div>
                                 </td>
 
@@ -7002,92 +7729,194 @@ ${data.log}`
                                   {entry.month}
                                 </td>
 
-                                {/* Bill Details */}
-                                <td className="px-4 py-3.5 text-right font-semibold">
-                                  <div>
-                                    <span className="text-slate-800 block">Total: ₹{entry.totalFee}</span>
-                                    <div className="text-[10px] space-x-1.5 mt-0.5">
-                                      <span className="text-emerald-600">Paid: ₹{entry.paidFee}</span>
-                                      {hasPending && (
-                                        <span className="text-rose-600 font-bold">Due: ₹{entry.pendingFee}</span>
-                                      )}
-                                    </div>
-                                  </div>
+                                {/* Bill Amt */}
+                                <td className="px-4 py-3.5 text-right font-semibold text-slate-800">
+                                  ₹{entry.totalFee}
                                 </td>
 
-                                {/* Status badge */}
-                                <td className="px-4 py-3.5 text-center">
-                                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase border ${
-                                    entry.status === 'PAID'
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : entry.status === 'PARTIAL'
-                                      ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                      : 'bg-rose-50 text-rose-700 border-rose-200'
-                                  }`}>
-                                    {entry.status}
-                                  </span>
+                                {/* Paid Amt */}
+                                <td className="px-4 py-3.5 text-right font-semibold text-emerald-600">
+                                  ₹{entry.paidFee}
+                                </td>
+
+                                {/* Balance */}
+                                <td className="px-4 py-3.5 text-right font-semibold text-rose-600">
+                                  ₹{entry.pendingFee}
                                 </td>
 
                                 {/* Due Date */}
-                                <td className="px-4 py-3.5 text-slate-500 font-medium">
+                                <td className="px-4 py-3.5 text-slate-500 font-medium font-mono text-[11px]">
                                   {entry.dueDate}
                                 </td>
 
-                                {/* WhatsApp single-click action */}
-                                <td className="px-4 py-3.5 text-right">
-                                  {hasPending ? (
-                                    <div className="flex flex-wrap items-center justify-end gap-1.5">
-                                      {rawPhone && (
-                                        <span className="text-[10px] text-slate-400 font-mono" title="Phone">
-                                          ({rawPhone})
-                                        </span>
-                                      )}
-                                      {waLink ? (
-                                        <a
-                                          href={waLink}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 text-xs font-bold text-white shadow transition-all cursor-pointer hover:shadow"
-                                          title="Open direct WhatsApp Chat with template reminder"
-                                        >
-                                          <MessageSquare size={11} /> Ping WhatsApp
-                                        </a>
-                                      ) : (
-                                        <span className="text-[10px] text-rose-500 italic">No phone contact</span>
-                                      )}
+                                {/* Dynamic Current Status */}
+                                <td className="px-4 py-3.5 text-center">
+                                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-extrabold tracking-wider uppercase border ${
+                                    entry.isWaived
+                                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                      : entry.isSkipped
+                                      ? 'bg-slate-100 text-slate-600 border-slate-300'
+                                      : dynamicStatus === 'PAID'
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : dynamicStatus === 'PARTIAL'
+                                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                      : dynamicStatus === 'OVERDUE'
+                                      ? 'bg-rose-50 text-rose-700 border-rose-200 animate-pulse font-black'
+                                      : dynamicStatus === 'PENDING'
+                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                      : 'bg-gray-100 text-gray-700 border-gray-300'
+                                  }`}>
+                                    {entry.isWaived ? 'WAIVED' : entry.isSkipped ? 'SKIPPED' : dynamicStatus}
+                                  </span>
+                                </td>
 
-                                      {(() => {
-                                        const sProfile = students.find(s => s.id === entry.studentId);
-                                        const parentEmail = sProfile?.email;
-                                        if (parentEmail) {
-                                          return (
-                                            <button
-                                              onClick={() => handleSendSingleEmailReminder(entry, parentEmail)}
-                                              className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow transition-all cursor-pointer hover:shadow"
-                                              title={`Send official Email reminder to ${parentEmail}`}
-                                            >
-                                              <Mail size={11} /> Email Parent
-                                            </button>
-                                          );
+                                {/* Payment Date */}
+                                <td className="px-4 py-3.5 text-center font-mono text-[10px] text-slate-500">
+                                  {paymentDate}
+                                </td>
+
+                                {/* Actions */}
+                                <td className="px-4 py-3.5 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    {/* Manage Button */}
+                                    <button
+                                      id={`btn-manage-billing-${entry.id}`}
+                                      onClick={() => {
+                                        setBillingCtrlStudent(studentProfile || null);
+                                        setBillingCtrlRecord(entry);
+                                        if (studentProfile) {
+                                          setCtrlFeeStartMonth(studentProfile.feeStartMonth || entry.month);
+                                          setCtrlMonthlyFee(studentProfile.monthlyFee ?? 1200);
+                                          setCtrlDiscount(studentProfile.discount ?? 0);
+                                          setCtrlScholarship(studentProfile.scholarship ?? 0);
+                                          setCtrlDueDay(studentProfile.dueDay ?? 10);
                                         }
-                                        return (
-                                          <span className="text-[10px] text-slate-400 italic">No email logged</span>
-                                        );
-                                      })()}
-                                    </div>
-                                  ) : (
-                                    <div className="inline-flex items-center justify-end gap-1 text-emerald-600 font-bold text-[10px]">
-                                      <CheckCircle size={14} className="text-emerald-500" /> Fully Settled
-                                    </div>
-                                  )}
+                                        setCtrlCycleTotalFee(entry.totalFee);
+                                        setCtrlCycleIsWaived(!!entry.isWaived);
+                                        setCtrlCycleIsSkipped(!!entry.isSkipped);
+                                        setCtrlCycleDiscount(entry.discount ?? 0);
+                                        setCtrlCycleScholarship(entry.scholarship ?? 0);
+                                      }}
+                                      className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 px-2.5 py-1.5 text-xs font-bold text-slate-700 transition-all cursor-pointer shadow-sm"
+                                      title="Manage Student Dues & Billing"
+                                    >
+                                      <Settings size={12} /> Manage
+                                    </button>
+
+                                    {/* Reminders block if there are dues */}
+                                    {hasPending && (
+                                      <button
+                                        id={`btn-remind-modal-trigger-${entry.id}`}
+                                        onClick={() => handleOpenReminderModal(entry)}
+                                        className="inline-flex items-center gap-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-2.5 py-1.5 text-xs font-bold text-white shadow transition-all cursor-pointer font-sans"
+                                        title="Send pre-filled, editable WhatsApp or Email reminder"
+                                      >
+                                        <Bell size={11} /> Remind
+                                      </button>
+                                    )}
+                                  </div>
                                 </td>
                               </tr>
-                            );
+
+                              {/* Expandable historical payments panel */}
+                              {expandedFeeRecordIds[entry.id] && (
+                                <tr id={`row-history-expanded-${entry.id}`} className="bg-slate-50/50">
+                                  <td colSpan={10} className="px-6 py-4 border-t border-b border-slate-200/40">
+                                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs animate-in slide-in-from-top-2 duration-200 text-left">
+                                      <div className="flex items-center justify-between border-b border-slate-150 pb-3 mb-4">
+                                        <div className="flex items-center gap-2">
+                                          <div className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-ping" />
+                                          <span className="font-display font-black text-slate-800 text-xs tracking-wider uppercase">
+                                            {entry.studentName}'s Tuition Payment Ledger
+                                          </span>
+                                        </div>
+                                        <span className="text-[10px] text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-0.5 rounded-full font-bold">
+                                          {feeReceipts.filter(r => r.studentId === entry.studentId).length} Total Receipt(s)
+                                        </span>
+                                      </div>
+
+                                      {feeReceipts.filter(r => r.studentId === entry.studentId).length === 0 ? (
+                                        <div className="py-6 text-center text-slate-400 font-medium text-xs">
+                                          No past tuition payments logged for this student.
+                                        </div>
+                                      ) : (
+                                        <div className="overflow-x-auto">
+                                          <table className="w-full text-left text-xs border-collapse">
+                                            <thead>
+                                              <tr className="border-b border-slate-200 text-slate-400 font-bold uppercase tracking-wider text-[9px] pb-2">
+                                                <th className="pb-2 text-left">Receipt ID</th>
+                                                <th className="pb-2 text-left">Fee Month</th>
+                                                <th className="pb-2 text-left">Payment Date</th>
+                                                <th className="pb-2 text-right">Amount Paid</th>
+                                                <th className="pb-2 text-center">Method</th>
+                                                <th className="pb-2 text-left">Transaction ID</th>
+                                                <th className="pb-2 text-left">Received By</th>
+                                                <th className="pb-2 text-right">Actions</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 text-slate-600 text-xs">
+                                              {[...feeReceipts.filter(r => r.studentId === entry.studentId)]
+                                                .sort((a, b) => b.date.localeCompare(a.date))
+                                                .map((rec) => (
+                                                  <tr key={rec.id} className="hover:bg-slate-50/50">
+                                                    <td className="py-2.5 font-semibold text-indigo-600 font-mono text-[11px]">
+                                                      {rec.id}
+                                                    </td>
+                                                    <td className="py-2.5 font-bold text-slate-800">
+                                                      {rec.month}
+                                                    </td>
+                                                    <td className="py-2.5 font-medium font-mono text-[11px] text-slate-500">
+                                                      {rec.date}
+                                                    </td>
+                                                    <td className="py-2.5 text-right font-bold text-emerald-600">
+                                                      ₹{rec.amountPaid}
+                                                    </td>
+                                                    <td className="py-2.5 text-center">
+                                                      <span className={`inline-block px-2 py-0.5 rounded-md text-[9px] font-bold tracking-wide uppercase border ${
+                                                        rec.paymentMethod === 'CASH'
+                                                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                          : rec.paymentMethod === 'UPI'
+                                                          ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                                          : 'bg-sky-50 text-sky-700 border-sky-200'
+                                                      }`}>
+                                                        {rec.paymentMethod}
+                                                      </span>
+                                                    </td>
+                                                    <td className="py-2.5 font-mono text-[11px] text-slate-400">
+                                                      {rec.transactionId || '—'}
+                                                    </td>
+                                                    <td className="py-2.5 font-medium text-slate-500">
+                                                      {rec.receivedBy || 'Administrative Office'}
+                                                    </td>
+                                                    <td className="py-2.5 text-right">
+                                                      <button
+                                                        id={`btn-print-receipt-history-${rec.id}`}
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handlePrintReceipt(rec);
+                                                        }}
+                                                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600 px-2 py-1 text-[10px] font-bold text-slate-600 transition-all cursor-pointer shadow-3xs"
+                                                      >
+                                                        Print Receipt 🖨️
+                                                      </button>
+                                                    </td>
+                                                  </tr>
+                                                ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
                           })}
 
                           {filteredFeeStatuses.length === 0 && (
                             <tr>
-                              <td colSpan={6} className="py-12 text-center text-slate-400 font-medium">
+                              <td colSpan={10} className="py-12 text-center text-slate-400 font-medium">
                                 <CheckCircle size={28} className="mx-auto text-emerald-300 mb-2" />
                                 No students match the selected fee criteria. All settled!
                               </td>
@@ -7122,6 +7951,7 @@ ${data.log}`
                         setBatchFormTeacher('');
                         setBatchFormFee(0);
                         setBatchFormStatus('ACTIVE');
+                        setBatchFormCapacity(30);
                         setShowBatchForm(false);
                       }}
                       className="text-xs text-slate-500 hover:text-slate-800 underline"
@@ -7154,7 +7984,7 @@ ${data.log}`
                       </div>
                     </div>
 
-                    <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
                       <div>
                         <label className="mb-1.5 block text-xs font-semibold text-slate-700">Batch Name</label>
                         <input
@@ -7245,6 +8075,20 @@ ${data.log}`
                           <option value="EXPIRED">EXPIRED / SUSPENDED</option>
                         </select>
                       </div>
+
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Student Capacity</label>
+                        <input
+                          id="input-batch-capacity"
+                          type="number"
+                          required
+                          min="1"
+                          placeholder="e.g. 30"
+                          value={batchFormCapacity || ''}
+                          onChange={(e) => setBatchFormCapacity(Number(e.target.value))}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                        />
+                      </div>
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">
@@ -7260,6 +8104,7 @@ ${data.log}`
                           setBatchFormTeacher('');
                           setBatchFormFee(0);
                           setBatchFormStatus('ACTIVE');
+                          setBatchFormCapacity(30);
                         }}
                         className="rounded-xl border border-slate-200 hover:bg-slate-50 px-4 py-2 text-xs font-bold text-slate-600 transition-colors"
                       >
@@ -7291,12 +8136,13 @@ ${data.log}`
 
                 <div className="overflow-x-auto">
                   <table className="w-full border-collapse text-left text-xs">
-                    <thead>
+                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/75 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                         <th className="px-6 py-3.5">Batch Name & Class</th>
                         <th className="px-6 py-3.5">Daily Timing</th>
                         <th className="px-6 py-3.5">Allocated Faculty</th>
                         <th className="px-6 py-3.5">Monthly Fee</th>
+                        <th className="px-6 py-3.5">Capacity Usage</th>
                         <th className="px-6 py-3.5">Status</th>
                         <th className="px-6 py-3.5 text-right">Actions</th>
                       </tr>
@@ -7304,37 +8150,70 @@ ${data.log}`
                     <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                       {batches.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="px-6 py-10 text-center text-slate-400 font-medium">
+                          <td colSpan={7} className="px-6 py-10 text-center text-slate-400 font-medium">
                             No batches registered in database yet. Create one above.
                           </td>
                         </tr>
                       ) : (
-                        batches.map((b) => (
-                          <tr key={b.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-6 py-4">
-                              <div className="font-bold text-slate-800">{b.name}</div>
-                              <div className="text-[10px] text-slate-400 font-normal">{b.class} • Created on {b.startDate}</div>
-                            </td>
-                            <td className="px-6 py-4 font-mono text-slate-600">
-                              {b.time}
-                            </td>
-                            <td className="px-6 py-4 text-slate-600">
-                              {b.teacherName || 'Founder (Priyanshu Gupta)'}
-                            </td>
-                            <td className="px-6 py-4 font-bold text-slate-900">
-                              ₹{b.monthlyFee}
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                                b.status === 'ACTIVE'
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : b.status === 'DUE'
-                                  ? 'bg-amber-50 text-amber-700'
-                                  : 'bg-slate-100 text-slate-600'
-                              }`}>
-                                {b.status}
-                              </span>
-                            </td>
+                        batches.map((b) => {
+                          const enrolledCount = students.filter((s) => s.preferredBatch === b.name).length;
+                          const capLimit = b.capacity || 30;
+                          const fillPercent = Math.min(100, Math.round((enrolledCount / capLimit) * 100));
+
+                          return (
+                            <tr key={b.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="px-6 py-4">
+                                <div className="font-bold text-slate-800">{b.name}</div>
+                                <div className="text-[10px] text-slate-400 font-normal">{b.class} • Created on {b.startDate}</div>
+                              </td>
+                              <td className="px-6 py-4 font-mono text-slate-600">
+                                {b.time}
+                              </td>
+                              <td className="px-6 py-4 text-slate-600">
+                                {b.teacherName || 'Founder (Priyanshu Gupta)'}
+                              </td>
+                              <td className="px-6 py-4 font-bold text-slate-900">
+                                ₹{b.monthlyFee}
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="flex flex-col gap-1.5 max-w-[120px]">
+                                  <div className="flex items-center justify-between text-[10px]">
+                                    <span className="font-bold text-slate-700">{enrolledCount} / {capLimit}</span>
+                                    <span className={`font-mono text-[9px] font-extrabold ${
+                                      fillPercent >= 100
+                                        ? 'text-red-600'
+                                        : fillPercent >= 80
+                                        ? 'text-amber-600'
+                                        : 'text-indigo-600'
+                                    }`}>
+                                      {fillPercent}%
+                                    </span>
+                                  </div>
+                                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden border border-slate-200/40">
+                                    <div
+                                      className={`h-full rounded-full transition-all duration-500 ${
+                                        fillPercent >= 100
+                                          ? 'bg-rose-500'
+                                          : fillPercent >= 80
+                                          ? 'bg-amber-500'
+                                          : 'bg-indigo-600'
+                                      }`}
+                                      style={{ width: `${fillPercent}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                  b.status === 'ACTIVE'
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : b.status === 'DUE'
+                                    ? 'bg-amber-50 text-amber-700'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {b.status}
+                                </span>
+                              </td>
                             <td className="px-6 py-4 text-right">
                               <div className="flex justify-end gap-1.5">
                                 <button
@@ -7356,7 +8235,8 @@ ${data.log}`
                               </div>
                             </td>
                           </tr>
-                        ))
+                        );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -7730,7 +8610,7 @@ ${data.log}`
                           <textarea
                             id="ta-bulk-content"
                             required
-                            rows={2}
+                            rows={5}
                             placeholder="Type targeted alert details here..."
                             value={bulkContent}
                             onChange={(e) => setBulkContent(e.target.value)}
@@ -13278,6 +14158,128 @@ ${data.log}`
                 </div>
               </div>
 
+              {/* BILLING & TUITION SETTINGS SECTION */}
+              <div className="border-t border-slate-100 pt-4 mt-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-900 mb-3 flex items-center gap-1.5">
+                  💼 Official Billing & Tuition Settings
+                </h4>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Admission Date</label>
+                    <input
+                      id="input-edit-std-admission-date"
+                      type="date"
+                      required
+                      value={editStdAdmissionDate}
+                      onChange={(e) => setEditStdAdmissionDate(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Fee Starts From</label>
+                    <select
+                      id="select-edit-std-fee-start-month"
+                      required
+                      value={editStdFeeStartMonth}
+                      onChange={(e) => setEditStdFeeStartMonth(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
+                    >
+                      {(() => {
+                        const monthsList = [];
+                        const today = new Date();
+                        const monthNames = [
+                          'January', 'February', 'March', 'April', 'May', 'June',
+                          'July', 'August', 'September', 'October', 'November', 'December'
+                        ];
+                        for (let i = -3; i < 9; i++) {
+                          const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+                          monthsList.push(`${monthNames[d.getMonth()]} ${d.getFullYear()}`);
+                        }
+                        return monthsList.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ));
+                      })()}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Tuition Fee (₹)</label>
+                    <input
+                      id="input-edit-std-monthly-fee"
+                      type="number"
+                      required
+                      min={0}
+                      value={editStdMonthlyFee}
+                      onChange={(e) => setEditStdMonthlyFee(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Admission Fee (₹)</label>
+                    <input
+                      id="input-edit-std-admission-fee"
+                      type="number"
+                      min={0}
+                      value={editStdAdmissionFee}
+                      onChange={(e) => setEditStdAdmissionFee(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Registration Fee (₹)</label>
+                    <input
+                      id="input-edit-std-registration-fee"
+                      type="number"
+                      min={0}
+                      value={editStdRegistrationFee}
+                      onChange={(e) => setEditStdRegistrationFee(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Discount Amount (₹)</label>
+                    <input
+                      id="input-edit-std-discount"
+                      type="number"
+                      min={0}
+                      value={editStdDiscount}
+                      onChange={(e) => setEditStdDiscount(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Scholarship Amount (₹)</label>
+                    <input
+                      id="input-edit-std-scholarship"
+                      type="number"
+                      min={0}
+                      value={editStdScholarship}
+                      onChange={(e) => setEditStdScholarship(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Fee Due Day of Month</label>
+                    <input
+                      id="input-edit-std-due-day"
+                      type="number"
+                      required
+                      min={1}
+                      max={31}
+                      value={editStdDueDay}
+                      onChange={(e) => setEditStdDueDay(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Footer CTAs */}
               <div className="flex gap-2 pt-4">
                 <button
@@ -13624,6 +14626,187 @@ ${data.log}`
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: INTERACTIVE EDITABLE REMINDER FOR SINGLE STUDENT */}
+      {activeReminderFee && (
+        <div id="modal-reminder-overlay" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200 text-left">
+          <div id="modal-reminder-container" className="bg-white rounded-3xl p-6 shadow-2xl border border-slate-200 w-full max-w-xl relative animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            <button
+              id="btn-reminder-modal-close"
+              type="button"
+              onClick={() => setActiveReminderFee(null)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 rounded-lg p-1 transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="mb-4">
+              <span className="inline-flex h-9 w-9 rounded-full bg-indigo-50 text-indigo-600 items-center justify-center mb-2">
+                <Bell size={16} />
+              </span>
+              <h3 className="font-display font-bold text-slate-800 text-base">Send Tuition Fee Nudge</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Customize and dispatch a payment reminder for <strong>{activeReminderFee.studentName}</strong> ({activeReminderFee.class})
+              </p>
+            </div>
+
+            {/* Quick stats about the bill */}
+            <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-150 text-xs mb-4">
+              <div>
+                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Fee Month</span>
+                <span className="font-bold text-slate-700">{activeReminderFee.month}</span>
+              </div>
+              <div>
+                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Pending Amount</span>
+                <span className="font-bold text-rose-600 font-sans">₹{activeReminderFee.pendingFee}</span>
+              </div>
+              <div>
+                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Due Date</span>
+                <span className="font-bold text-slate-600 font-mono text-[11px]">{activeReminderFee.dueDate}</span>
+              </div>
+            </div>
+
+            {/* Channel Tabs */}
+            <div className="flex border-b border-slate-150 mb-4">
+              <button
+                id="tab-reminder-whatsapp"
+                type="button"
+                onClick={() => setReminderModalType('WHATSAPP')}
+                className={`flex-1 pb-2.5 text-xs font-bold transition-all border-b-2 text-center flex items-center justify-center gap-1.5 cursor-pointer ${
+                  reminderModalType === 'WHATSAPP'
+                    ? 'border-emerald-500 text-emerald-600 font-black'
+                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                <MessageSquare size={14} /> WhatsApp Message
+              </button>
+              <button
+                id="tab-reminder-email"
+                type="button"
+                onClick={() => setReminderModalType('EMAIL')}
+                className={`flex-1 pb-2.5 text-xs font-bold transition-all border-b-2 text-center flex items-center justify-center gap-1.5 cursor-pointer ${
+                  reminderModalType === 'EMAIL'
+                    ? 'border-indigo-500 text-indigo-600 font-black'
+                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                <Mail size={14} /> Email Message
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 max-h-[50vh]">
+              {reminderModalType === 'WHATSAPP' ? (
+                <div className="space-y-3.5">
+                  {/* Phone Input */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Parent's WhatsApp / Mobile Number</label>
+                    <input
+                      id="input-reminder-phone"
+                      type="text"
+                      placeholder="e.g. +91 9876543210"
+                      value={reminderModalPhone}
+                      onChange={(e) => setReminderModalPhone(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-emerald-500 focus:bg-white"
+                    />
+                  </div>
+                  {/* WhatsApp Message Textarea */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">WhatsApp Message Draft</label>
+                    <textarea
+                      id="textarea-reminder-whatsapp-msg"
+                      rows={5}
+                      value={reminderModalWAMessage}
+                      onChange={(e) => setReminderModalWAMessage(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-emerald-500 focus:bg-white font-sans leading-relaxed resize-none"
+                      placeholder="Enter custom WhatsApp message here..."
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3.5">
+                  {/* Recipient Email Input */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Parent's Email Address</label>
+                    <input
+                      id="input-reminder-email"
+                      type="email"
+                      placeholder="e.g. parent@example.com"
+                      value={reminderModalEmail}
+                      onChange={(e) => setReminderModalEmail(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-indigo-500 focus:bg-white"
+                    />
+                  </div>
+                  {/* Email Subject Input */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Email Subject Line</label>
+                    <input
+                      id="input-reminder-subject"
+                      type="text"
+                      placeholder="Subject of the email"
+                      value={reminderModalSubject}
+                      onChange={(e) => setReminderModalSubject(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-indigo-500 focus:bg-white font-medium"
+                    />
+                  </div>
+                  {/* Email Body Draft (Plain text/HTML) */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Email HTML / Body Draft</label>
+                    <textarea
+                      id="textarea-reminder-email-body"
+                      rows={7}
+                      value={reminderModalEmailBody}
+                      onChange={(e) => setReminderModalEmailBody(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-[11px] text-slate-800 outline-none focus:border-indigo-500 focus:bg-white font-mono leading-relaxed"
+                      placeholder="Enter custom Email body here..."
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="flex gap-2.5 border-t border-slate-150 pt-4 mt-4">
+              <button
+                id="btn-reminder-cancel"
+                type="button"
+                onClick={() => setActiveReminderFee(null)}
+                className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2.5 text-xs transition-colors cursor-pointer text-center"
+              >
+                Cancel
+              </button>
+              {reminderModalType === 'WHATSAPP' ? (
+                <button
+                  id="btn-reminder-send-whatsapp"
+                  type="button"
+                  onClick={handleSendReminderModal}
+                  className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5"
+                >
+                  <MessageSquare size={13} /> Open WhatsApp ↗
+                </button>
+              ) : (
+                <button
+                  id="btn-reminder-send-email"
+                  type="button"
+                  disabled={isSendingReminderEmail}
+                  onClick={handleSendReminderModal}
+                  className="flex-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:text-slate-500 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5"
+                >
+                  {isSendingReminderEmail ? (
+                    <span className="flex items-center gap-1">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                      Sending...
+                    </span>
+                  ) : (
+                    <>
+                      <Mail size={13} /> Dispatch Email ✉
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
