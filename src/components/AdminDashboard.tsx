@@ -51,7 +51,8 @@ import {
   Video,
   UploadCloud,
   UserPlus,
-  ShieldAlert
+  ShieldAlert,
+  Crown
 } from 'lucide-react';
 import { Student, Teacher, User, UserRole, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig, DepartedStudent } from '../types';
 import { interpolateTemplate } from '../data';
@@ -206,7 +207,7 @@ export default function AdminDashboard({
   departedStudents,
   onUpdateUsers
 } : AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets' | 'roles'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets' | 'roles' | 'founder-office' | 'cofounder-office'>('overview');
   const [waInitialPhone, setWaInitialPhone] = useState<string>('');
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -214,6 +215,67 @@ export default function AdminDashboard({
   const [adminGlobalSearchQuery, setAdminGlobalSearchQuery] = useState('');
   const [selectedSearchStudentId, setSelectedSearchStudentId] = useState<string | null>(null);
   const [enrollMethod, setEnrollMethod] = useState<'manual' | 'sheets'>('manual');
+
+  const [localUsers, setLocalUsers] = useState<any[]>([]);
+  const [fetchingLocalUsers, setFetchingLocalUsers] = useState<boolean>(false);
+  const [founderAnnouncement, setFounderAnnouncement] = useState<string>('');
+
+  const fetchLocalUsers = async () => {
+    setFetchingLocalUsers(true);
+    try {
+      const { doc, getDoc } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+      const docRef = doc(db, 'sunshine_erp_state', 'users');
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        setLocalUsers(snap.data()?.data || []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setFetchingLocalUsers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'founder-office') {
+      fetchLocalUsers();
+    }
+  }, [activeTab]);
+
+  const handleToggleUserActive = async (userId: string, currentStatus: boolean) => {
+    const updated = localUsers.map((u: any) => 
+      u.id === userId ? { ...u, active: !currentStatus } : u
+    );
+    setLocalUsers(updated);
+    try {
+      const { doc, setDoc } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+      await setDoc(doc(db, 'sunshine_erp_state', 'users'), { data: updated });
+      if (onUpdateUsers) {
+        onUpdateUsers(updated);
+      }
+    } catch (err) {
+      console.error("Failed to update user active state", err);
+    }
+  };
+
+  const handleToggleUserEmailVerified = async (userId: string, currentVerified: boolean) => {
+    const updated = localUsers.map((u: any) => 
+      u.id === userId ? { ...u, emailVerified: !currentVerified } : u
+    );
+    setLocalUsers(updated);
+    try {
+      const { doc, setDoc } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+      await setDoc(doc(db, 'sunshine_erp_state', 'users'), { data: updated });
+      if (onUpdateUsers) {
+        onUpdateUsers(updated);
+      }
+    } catch (err) {
+      console.error("Failed to update user verification state", err);
+    }
+  };
 
   // Custom administrative confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -4492,6 +4554,7 @@ ${data.log}`
       {/* Main ERP Tab System */}
       {(() => {
         const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+        const isAdmin = currentUser?.role === 'ADMIN';
         const allTabs = [
           { id: 'overview', label: 'Admin Operations Overview', icon: <Activity size={16} />, category: 'Core Operations' },
           { id: 'students', label: `Manage Student ERP (${students.length})`, icon: <Users size={16} />, category: 'Core Operations' },
@@ -4502,6 +4565,9 @@ ${data.log}`
           { id: 'website', label: 'Public Website & Notes CMS', icon: <Sparkles size={16} />, category: 'Academic & CMS' },
           { id: 'announcements', label: 'Broadcast Announcements', icon: <Bell size={16} />, category: 'Academic & CMS' },
           
+          { id: 'founder-office', label: "Founder's Executive Office", icon: <Crown size={16} className="text-amber-500 font-bold" />, category: 'Executive Suite' },
+          { id: 'cofounder-office', label: "Co-Founder's Workspace", icon: <Award size={16} className="text-indigo-500 font-bold" />, category: 'Executive Suite' },
+          
           { id: 'roles', label: 'Role Management', icon: <Shield size={16} className="text-indigo-600 font-bold" />, category: 'Integrations & Logs' },
           { id: 'sheets', label: 'Google Sheets Sync', icon: <FileSpreadsheet size={16} className="text-emerald-600 animate-pulse" />, category: 'Integrations & Logs' },
           { id: 'whatsapp', label: 'WhatsApp Messaging', icon: <MessageSquare size={16} />, category: 'Integrations & Logs' },
@@ -4511,7 +4577,16 @@ ${data.log}`
         ] as const;
 
         const tabsList = allTabs.filter(tab => {
-          if (isSuperAdmin) return true;
+          // Founder has access to all tabs except cofounder-office (unless he wants to audit it, but let's keep it clean)
+          if (isSuperAdmin) {
+            return tab.id !== 'cofounder-office';
+          }
+          // Co-Founder has access to standard admin tabs plus his executive workspace
+          if (isAdmin) {
+            const allowedAdminTabs = ['overview', 'students', 'fees', 'teachers', 'batches', 'announcements', 'cofounder-office'];
+            return allowedAdminTabs.includes(tab.id);
+          }
+          // Default fallback
           const allowedAdminTabs = ['overview', 'students', 'fees', 'teachers', 'batches', 'announcements'];
           return allowedAdminTabs.includes(tab.id);
         });
@@ -8595,6 +8670,255 @@ ${data.log}`
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: FOUNDER EXECUTIVE OFFICE */}
+          {activeTab === 'founder-office' && (
+            <div className="space-y-6">
+              {/* Founder's Boardroom Banner */}
+              <div className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-950 to-slate-900 p-6 text-white shadow-md relative overflow-hidden">
+                <div className="absolute right-0 top-0 translate-x-10 -translate-y-10 text-amber-500/10 shrink-0 select-none">
+                  <Crown size={220} />
+                </div>
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 bg-amber-400/10 px-2.5 py-1 rounded-full border border-amber-500/20">
+                      Super Admin Authority
+                    </span>
+                    <h3 className="font-display font-black text-2xl tracking-tight mt-1.5">Executive Office of the Founder</h3>
+                    <p className="text-xs text-slate-300 max-w-xl font-medium">
+                      Welcome back, Director Priyanshu Gupta. As Chief Founder of Sunshine Classes, you have master permissions to override lockouts, review all registered roles, toggle student rosters, and audit core platform diagnostics.
+                    </p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 shrink-0">
+                    <span className="text-[9px] font-bold text-amber-400 uppercase tracking-widest block">Core Faculty Identity</span>
+                    <strong className="text-sm font-extrabold text-slate-100">Priyanshu Gupta</strong>
+                    <span className="text-xs text-slate-400 block mt-0.5">M.Sc. Mathematics</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dynamic Local User Registry Manager */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="mb-4 border-b border-slate-150 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-display font-bold text-base text-slate-800">Master User Directory & Credentials Manager</h3>
+                    <p className="text-xs text-slate-500">Inspect, activate, disable, or verify administrative or student accounts dynamically inside the portal.</p>
+                  </div>
+                  <button
+                    id="btn-refresh-founder-users"
+                    type="button"
+                    onClick={fetchLocalUsers}
+                    className="self-start text-xs font-bold text-brand-blue hover:text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw size={13} className={fetchingLocalUsers ? "animate-spin" : ""} />
+                    Sync User List
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-100">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        <th className="p-3">User ID</th>
+                        <th className="p-3">Name</th>
+                        <th className="p-3">Username</th>
+                        <th className="p-3">Role</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3">Email Status</th>
+                        <th className="p-3 text-right">Actions Override</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50 text-xs text-slate-700 font-medium">
+                      {fetchingLocalUsers ? (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-slate-400">
+                            <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2 text-indigo-500" />
+                            Fetching real-time local ledger...
+                          </td>
+                        </tr>
+                      ) : localUsers.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-slate-400">
+                            No users registered in local ledger yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        localUsers.map((user) => (
+                          <tr key={user.id} className="hover:bg-slate-50/50">
+                            <td className="p-3 font-mono font-bold text-indigo-900">{user.id}</td>
+                            <td className="p-3 font-extrabold text-slate-800">{user.name}</td>
+                            <td className="p-3 text-slate-600">@{user.username}</td>
+                            <td className="p-3">
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+                                user.role === 'SUPER_ADMIN' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
+                                user.role === 'ADMIN' ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' :
+                                user.role === 'TEACHER' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                              }`}>
+                                {user.role}
+                              </span>
+                            </td>
+                            <td className="p-3">
+                              <span className={`h-2.5 w-2.5 rounded-full inline-block mr-1.5 ${user.active !== false ? 'bg-emerald-500' : 'bg-rose-400'}`}></span>
+                              <span className="font-bold">{user.active !== false ? 'Active' : 'Disabled'}</span>
+                            </td>
+                            <td className="p-3">
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${user.emailVerified ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                                {user.emailVerified ? 'Verified' : 'Pending Activation'}
+                              </span>
+                            </td>
+                            <td className="p-3 text-right space-x-2">
+                              <button
+                                id={`btn-toggle-active-${user.id}`}
+                                type="button"
+                                onClick={() => handleToggleUserActive(user.id, user.active !== false)}
+                                className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-colors cursor-pointer ${
+                                  user.active !== false 
+                                    ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100' 
+                                    : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                }`}
+                              >
+                                {user.active !== false ? 'Disable Account' : 'Activate Account'}
+                              </button>
+                              
+                              <button
+                                id={`btn-toggle-verify-${user.id}`}
+                                type="button"
+                                onClick={() => handleToggleUserEmailVerified(user.id, !!user.emailVerified)}
+                                className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors cursor-pointer"
+                              >
+                                {user.emailVerified ? 'Set Unverified' : 'Force Verify'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Priority Announcement Dispatch */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="mb-4 border-b border-slate-150 pb-3">
+                  <h3 className="font-display font-bold text-base text-slate-800">Priority Announcement Dispatch</h3>
+                  <p className="text-xs text-slate-500">Quickly publish notices directly to the frontend landing pages signed by the Founder.</p>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-slate-700">Founder's Special Announcement Message</label>
+                    <textarea
+                      id="input-founder-notice"
+                      rows={3}
+                      placeholder="Enter custom notice message to publish..."
+                      value={founderAnnouncement}
+                      onChange={(e) => setFounderAnnouncement(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
+                    />
+                  </div>
+                  <button
+                    id="btn-submit-founder-notice"
+                    type="button"
+                    onClick={async () => {
+                      if (!founderAnnouncement.trim()) return;
+                      const { doc, setDoc } = await import('firebase/firestore');
+                      const { db } = await import('../lib/firebase');
+                      const newNotice = {
+                        id: `notice-founder-${Date.now()}`,
+                        title: "Founder's Special Notice",
+                        message: founderAnnouncement,
+                        date: new Date().toISOString().split('T')[0],
+                        important: true,
+                        category: "GENERAL"
+                      };
+                      try {
+                        const noticeRef = doc(db, 'announcements', newNotice.id);
+                        await setDoc(noticeRef, newNotice);
+                        alert("Founder notice dispatched successfully!");
+                        setFounderAnnouncement('');
+                      } catch (err) {
+                        console.error(err);
+                        alert("Failed to publish founder notice.");
+                      }
+                    }}
+                    className="rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold px-4 py-2 text-xs transition-colors cursor-pointer"
+                  >
+                    Broadcast Announcement
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: CO-FOUNDER EXECUTIVE OFFICE */}
+          {activeTab === 'cofounder-office' && (
+            <div className="space-y-6">
+              {/* Co-Founder's Workspace Banner */}
+              <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-950 to-slate-900 p-6 text-white shadow-md relative overflow-hidden">
+                <div className="absolute right-0 top-0 translate-x-10 -translate-y-10 text-indigo-500/10 shrink-0 select-none">
+                  <Award size={220} />
+                </div>
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 bg-indigo-400/10 px-2.5 py-1 rounded-full border border-indigo-500/20">
+                      Administrative Partner Desk
+                    </span>
+                    <h3 className="font-display font-black text-2xl tracking-tight mt-1.5 font-sans">Executive Desk of the Co-Founder</h3>
+                    <p className="text-xs text-slate-300 max-w-xl font-medium">
+                      Welcome back, Director Rajeev Kr. Verma. From this partner workspace, you can coordinate faculty directories, verify upcoming batch timetables, and audit fee logs.
+                    </p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 shrink-0">
+                    <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest block">Core Faculty Identity</span>
+                    <strong className="text-sm font-extrabold text-slate-100">Rajeev Kr. Verma</strong>
+                    <span className="text-xs text-slate-400 block mt-0.5">B.Sc. Physics & Chemistry</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Co-Founder's Batches & Academic Schedule */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="mb-4 border-b border-slate-150 pb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-display font-bold text-base text-slate-800">Academic Batches & Science Supervision</h3>
+                    <p className="text-xs text-slate-500">Monitor classes under Co-Founder Rajeev Sir's Science, Physics & Chemistry supervision.</p>
+                  </div>
+                  <button
+                    id="btn-refresh-cofounder-batches"
+                    type="button"
+                    onClick={() => alert("All supervised batches are fully synched with the main directory.")}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer"
+                  >
+                    Check Timings
+                  </button>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  {batches.map((b) => (
+                    <div key={b.id} className="border border-slate-100 rounded-xl p-4 bg-slate-50/50 flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-start mb-2">
+                          <strong className="text-sm text-slate-800">{b.name}</strong>
+                          <span className="bg-indigo-50 border border-indigo-100 text-indigo-700 text-[9px] font-bold px-2 py-0.5 rounded">
+                            {b.class}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-1.5">
+                          Timing: <strong className="text-slate-700">{b.time}</strong>
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Primary Faculty: <strong className="text-slate-700">{b.teacherName || 'Rajeev Kr. Verma'}</strong>
+                        </p>
+                      </div>
+                      <div className="border-t border-slate-100 mt-3 pt-2.5 flex items-center justify-between text-[10px] text-slate-400">
+                        <span>Total Registered Students: {students.filter(s => s.preferredBatch === b.name).length}</span>
+                        <span className="text-emerald-500 font-bold font-mono">● LIVE</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

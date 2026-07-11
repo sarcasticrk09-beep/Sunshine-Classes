@@ -11,6 +11,8 @@ export interface AuthContextType {
   googleLogin: () => Promise<boolean>;
   resetPassword: (email: string) => Promise<void>;
   changePassword: (newPassword: string) => Promise<void>;
+  verifyAndResetPassword?: (email: string, token: string, newPass: string) => Promise<void>;
+  verifyEmail?: (email: string, token: string) => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);

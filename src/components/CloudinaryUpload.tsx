@@ -11,7 +11,7 @@ import {
   File, 
   Eye 
 } from "lucide-react";
-import { cloudinaryService } from "../services/cloudinaryService";
+import { cloudinaryService, getPublicIdFromUrl, getOptimizedImageUrl } from "../services/cloudinaryService";
 
 interface CloudinaryUploadProps {
   id: string;
@@ -110,7 +110,20 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
+    if (value) {
+      const publicId = getPublicIdFromUrl(value);
+      if (publicId) {
+        setUploadProgress(0);
+        try {
+          await cloudinaryService.deleteFile(publicId);
+        } catch (err) {
+          console.error("Secure asset deletion failed:", err);
+        } finally {
+          setUploadProgress(null);
+        }
+      }
+    }
     onChange("");
     setCurrentFile(null);
     setError(null);
@@ -164,7 +177,7 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
               {isImageValue ? (
                 <div className="relative group rounded-xl overflow-hidden shadow-md max-w-xs border border-slate-100 dark:border-slate-800">
                   <img
-                    src={value}
+                    src={getOptimizedImageUrl(value, context === "students" || context === "teachers" ? "profile" : "thumbnail")}
                     alt="Upload Preview"
                     className="h-32 w-auto object-cover rounded-xl"
                     referrerPolicy="no-referrer"

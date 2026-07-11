@@ -85,6 +85,9 @@ import ChatBot from './components/ChatBot';
 import SunshineLogo from './components/SunshineLogo';
 import { useAuth } from './auth/useAuth';
 import { Login } from './pages/Login';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { VerifyEmail } from './pages/VerifyEmail';
+import { MailSimulatorWidget } from './components/MailSimulatorWidget';
 
 import { db, auth, googleSignIn } from './lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -126,6 +129,17 @@ const pendingSyncs: { [key: string]: any } = {};
 let syncTimeoutId: any = null;
 
 export default function App() {
+  // Pathname Routing State
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const handleLocationChange = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handleLocationChange);
+    return () => window.removeEventListener('popstate', handleLocationChange);
+  }, []);
+
   // Theme Management
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = localStorage.getItem('sunshine_theme');
@@ -164,6 +178,14 @@ export default function App() {
 
   // Authentication & View states
   const { currentUser, logout } = useAuth();
+
+  // Redirect if logged in and trying to access auth pages
+  useEffect(() => {
+    if (currentUser && (currentPath === '/login' || currentPath === '/forgot-password')) {
+      window.history.pushState({}, "", "/");
+      setCurrentPath("/");
+    }
+  }, [currentUser, currentPath]);
   const [rememberMe, setRememberMe] = useState(() => {
     return localStorage.getItem('sunshine_remember_me') === 'true';
   });
@@ -246,9 +268,9 @@ export default function App() {
       let updatedUser = { ...u };
       let uChanged = false;
       if (updatedUser.username === 'admin') {
-        if (updatedUser.name.includes('Shubham') || updatedUser.email === 'admin@sunshine.com') {
+        if (updatedUser.email !== 'sunshineclassespihani@gmail.com') {
           updatedUser.name = 'Priyanshu Gupta (Founder)';
-          updatedUser.email = 'sunshineclasses@example.com';
+          updatedUser.email = 'sunshineclassespihani@gmail.com';
           updatedUser.phone = '9999900000';
           uChanged = true;
         }
@@ -257,9 +279,16 @@ export default function App() {
           uChanged = true;
         }
       }
-      if (updatedUser.email === 'guptapriyansu@gmail.com' || updatedUser.email === 'sarcasticrk09@gmail.com' || updatedUser.email === 'sunshineclassespihani@gmail.com') {
-        updatedUser.email = 'sunshineclasses@example.com';
-        uChanged = true;
+      if (updatedUser.username === 'rajeev') {
+        if (updatedUser.email !== 'kumarvermarajeev79@gmail.com') {
+          updatedUser.name = 'Rajeev Kr. Verma (Co-Founder)';
+          updatedUser.email = 'kumarvermarajeev79@gmail.com';
+          uChanged = true;
+        }
+        if (updatedUser.role !== 'ADMIN') {
+          updatedUser.role = 'ADMIN';
+          uChanged = true;
+        }
       }
       if (uChanged) {
         changed = true;
@@ -272,7 +301,7 @@ export default function App() {
         id: 'u8',
         username: 'rajeev',
         name: 'Rajeev Kr. Verma (Co-Founder)',
-        email: 'rajeev@example.com',
+        email: 'kumarvermarajeev79@gmail.com',
         role: 'ADMIN',
         phone: '9999900001'
       });
@@ -955,9 +984,9 @@ export default function App() {
       let updatedUser = { ...u };
       let uChanged = false;
       if (updatedUser.username === 'admin') {
-        if (updatedUser.name.includes('Shubham') || updatedUser.email === 'admin@sunshine.com') {
+        if (updatedUser.email !== 'sunshineclassespihani@gmail.com') {
           updatedUser.name = 'Priyanshu Gupta (Founder)';
-          updatedUser.email = 'sunshineclasses@example.com';
+          updatedUser.email = 'sunshineclassespihani@gmail.com';
           updatedUser.phone = '9999900000';
           uChanged = true;
         }
@@ -966,9 +995,16 @@ export default function App() {
           uChanged = true;
         }
       }
-      if (updatedUser.email === 'guptapriyansu@gmail.com' || updatedUser.email === 'sarcasticrk09@gmail.com' || updatedUser.email === 'sunshineclassespihani@gmail.com') {
-        updatedUser.email = 'sunshineclasses@example.com';
-        uChanged = true;
+      if (updatedUser.username === 'rajeev') {
+        if (updatedUser.email !== 'kumarvermarajeev79@gmail.com') {
+          updatedUser.name = 'Rajeev Kr. Verma (Co-Founder)';
+          updatedUser.email = 'kumarvermarajeev79@gmail.com';
+          uChanged = true;
+        }
+        if (updatedUser.role !== 'ADMIN') {
+          updatedUser.role = 'ADMIN';
+          uChanged = true;
+        }
       }
       if (uChanged) {
         usersMigrated = true;
@@ -981,7 +1017,7 @@ export default function App() {
         id: 'u8',
         username: 'rajeev',
         name: 'Rajeev Kr. Verma (Co-Founder)',
-        email: 'rajeev@example.com',
+        email: 'kumarvermarajeev79@gmail.com',
         role: 'ADMIN',
         phone: '9999900001'
       });
@@ -2067,10 +2103,10 @@ export default function App() {
     // 1. Force update all administrative user profiles
     const updatedUsers = users.map(u => {
       if (u.email === 'sarcasticrk09@gmail.com' || u.email === 'guptapriyansu@gmail.com' || u.email === 'admin@sunshine.com') {
-        return { ...u, email: 'sunshineclasses@example.com' };
+        return { ...u, email: 'sunshineclassespihani@gmail.com' };
       }
       if ((u.role === 'ADMIN' || u.role === 'TEACHER') && (u.username === 'admin' || u.username === 'teacher')) {
-        return { ...u, email: 'sunshineclasses@example.com' };
+        return { ...u, email: 'sunshineclassespihani@gmail.com' };
       }
       return u;
     });
@@ -2085,7 +2121,7 @@ export default function App() {
     // 3. Force update teachers collection
     const updatedTeachers = teachers.map(t => {
       if (t.email === 'sarcasticrk09@gmail.com' || t.email === 'guptapriyansu@gmail.com' || t.username === 'teacher') {
-        return { ...t, email: 'sunshineclasses@example.com' };
+        return { ...t, email: 'sunshineclassespihani@gmail.com' };
       }
       return t;
     });
@@ -2804,24 +2840,38 @@ export default function App() {
       {/* Primary ERP / Website Display Controller */}
       <div className="flex-1">
         {!currentUser ? (
-          /* Public Website */
-          <LandingPage
-            courses={SEED_COURSES}
-            blogs={blogs}
-            testimonials={testimonials}
-            toppers={toppers}
-            onAddReview={handleAddReview}
-            studyMaterials={studyMaterials}
-            gallery={gallery}
-            onNavigateToERP={() => setShowLoginModal(true)}
-            onAddAdmission={handleAddAdmission}
-            admissions={admissions}
-            students={students}
-            theme={theme}
-            onToggleTheme={toggleTheme}
-            founders={founders}
-            subConfig={subConfig}
-          />
+          /* Pathname-based Public Routing */
+          currentPath === '/login' ? (
+            <Login onBackToWebsite={() => {
+              window.history.pushState({}, "", "/");
+              setCurrentPath("/");
+            }} />
+          ) : currentPath === '/forgot-password' ? (
+            <ForgotPassword />
+          ) : currentPath === '/verify-email' ? (
+            <VerifyEmail />
+          ) : (
+            <LandingPage
+              courses={SEED_COURSES}
+              blogs={blogs}
+              testimonials={testimonials}
+              toppers={toppers}
+              onAddReview={handleAddReview}
+              studyMaterials={studyMaterials}
+              gallery={gallery}
+              onNavigateToERP={() => {
+                window.history.pushState({}, "", "/login");
+                setCurrentPath("/login");
+              }}
+              onAddAdmission={handleAddAdmission}
+              admissions={admissions}
+              students={students}
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              founders={founders}
+              subConfig={subConfig}
+            />
+          )
         ) : (
           /* Logged In Dashboard Frame */
           <motion.div
@@ -3407,6 +3457,7 @@ export default function App() {
           </div>
         </div>
       )}
+      <MailSimulatorWidget />
     </div>
     </>
   );

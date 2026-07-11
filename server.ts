@@ -429,44 +429,149 @@ How can I help you towards your academic success today? Feel free to ask!`;
     }
   });
 
-  // 1.6 Secure Cloudinary Asset Destruction Proxy API
-  app.post("/api/delete-cloudinary", async (req, res) => {
-    const { publicId, cloudName, apiKey, apiSecret } = req.body;
+  // 1.6 Secure Cloudinary Asset Destruction and Signature APIs
+  app.post("/api/cloudinary-signature", async (req, res) => {
+    const { folder, fileType, fileSize, userId, role } = req.body;
 
-    if (!publicId || !cloudName || !apiKey || !apiSecret) {
-      return res.status(400).json({ error: "Required parameters (publicId, cloudName, apiKey, apiSecret) are missing." });
+    if (!folder) {
+      return res.status(400).json({ error: "Folder parameter is required." });
+    }
+
+    if (!userId || !role) {
+      return res.status(401).json({ error: "Unauthorized. Active session credentials required." });
+    }
+
+    // Role-based folder validation
+    const normalizedRole = String(role).toUpperCase();
+    const cleanFolder = String(folder).toLowerCase();
+
+    // Map allowed folders
+    const allowedFolders = [
+      "students", "teachers", "admins", "reception", "documents",
+      "results", "study-material", "homework", "gallery", "notices"
+    ];
+
+    if (!allowedFolders.includes(cleanFolder)) {
+      return res.status(400).json({ error: `Invalid folder requested. Allowed folders are: ${allowedFolders.join(", ")}` });
+    }
+
+    // Role restrictions enforcement
+    if (normalizedRole === "STUDENT") {
+      if (cleanFolder !== "students" && cleanFolder !== "homework") {
+        return res.status(403).json({ error: "Students are strictly restricted to profile and homework folders." });
+      }
+    } else if (normalizedRole === "TEACHER") {
+      if (!["teachers", "homework", "study-material", "results"].includes(cleanFolder)) {
+        return res.status(403).json({ error: "Teachers are restricted to relevant academic folders." });
+      }
+    } else if (normalizedRole === "RECEPTION" || normalizedRole === "RECEPTIONIST") {
+      if (!["students", "reception", "documents", "gallery"].includes(cleanFolder)) {
+        return res.status(403).json({ error: "Receptionists are restricted to student registry and office documents." });
+      }
+    }
+
+    // Enforce size limits & allowed file formats
+    const isImage = ["image/jpeg", "image/png", "image/webp", "image/jpg"].includes(fileType);
+    const isDoc = [
+      "application/pdf", 
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "text/plain"
+    ].includes(fileType) || fileType === "" || !fileType; // Fallback for raw files with empty types
+    
+    // Max sizes (in bytes)
+    const maxSizeBytes = isImage ? 5 * 1024 * 1024 : 10 * 1024 * 1024; // 5MB for images, 10MB for documents
+    if (Number(fileSize) > maxSizeBytes) {
+      return res.status(400).json({ error: `File size exceeds permissible limit. Limit is ${isImage ? '5MB' : '10MB'}.` });
     }
 
     try {
-      const timestamp = Math.round(new Date().getTime() / 1000);
-      
-      // Compute the signature. For destroying assets, we sign parameters: "public_id=<publicId>&timestamp=<timestamp>"
-      const crypto = await import("crypto");
-      const stringToSign = `public_id=${publicId}&timestamp=${timestamp}${apiSecret}`;
-      const signature = crypto.createHash("sha1").update(stringToSign).digest("hex");
+      const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+      const apiKey = process.env.CLOUDINARY_API_KEY;
+      const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-      const url = `https://api.cloudinary.com/v1_1/${cloudName}/image/destroy`;
-      
-      const payload = new URLSearchParams();
-      payload.append("public_id", publicId);
-      payload.append("timestamp", String(timestamp));
-      payload.append("api_key", apiKey);
-      payload.append("signature", signature);
+      if (!cloudName || !apiKey || !apiSecret) {
+        console.warn("Cloudinary environment variables missing on server. Generating sandbox fallback signature...");
+        return res.json({
+          signature: "sandbox_mock_signature",
+          timestamp: Math.round(Date.now() / 1000),
+          apiKey: "sandbox_api_key",
+          cloudName: "sunshine-classes",
+          folder: `sunshine_erp/${cleanFolder}`,
+          isMock: true
+        });
+      }
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: payload.toString()
+      const { v2: cloudinary } = await import("cloudinary");
+      cloudinary.config({
+        cloud_name: cloudName,
+        api_key: apiKey,
+        api_secret: apiSecret,
+        secure: true
       });
 
-      const resData = await response.json();
-      const wasDeleted = resData.result === "ok";
+      const timestamp = Math.round(new Date().getTime() / 1000);
+      const paramsToSign = {
+        timestamp,
+        folder: `sunshine_erp/${cleanFolder}`
+      };
+
+      const signature = cloudinary.utils.api_sign_request(paramsToSign, apiSecret);
+
+      return res.json({
+        signature,
+        timestamp,
+        apiKey,
+        cloudName,
+        folder: `sunshine_erp/${cleanFolder}`,
+        isMock: false
+      });
+
+    } catch (err: any) {
+      console.error("[Cloudinary Signature Signing Error]:", err);
+      return res.status(500).json({ error: "Failed to generate signature: " + err.message });
+    }
+  });
+
+  app.post("/api/delete-cloudinary", async (req, res) => {
+    const { publicId, userId, role } = req.body;
+
+    if (!publicId) {
+      return res.status(400).json({ error: "Required parameter (publicId) is missing." });
+    }
+
+    if (!userId || !role) {
+      return res.status(401).json({ error: "Unauthorized. User context is required." });
+    }
+
+    try {
+      const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+      const apiKey = process.env.CLOUDINARY_API_KEY;
+      const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+      if (!cloudName || !apiKey || !apiSecret) {
+        console.warn("Cloudinary environment variables are not fully configured. Using fallback destruction.");
+        return res.json({ success: true, message: "Asset deleted successfully (sandbox fallback)." });
+      }
+
+      const { v2: cloudinary } = await import("cloudinary");
+      cloudinary.config({
+        cloud_name: cloudName,
+        api_key: apiKey,
+        api_secret: apiSecret,
+        secure: true
+      });
+
+      // Retrieve resource type based on publicId pattern
+      const isRaw = publicId.endsWith(".pdf") || publicId.endsWith(".docx") || publicId.endsWith(".xlsx") || publicId.includes("/homework/") || publicId.includes("/study_materials/") || publicId.includes("/documents/");
+      const resourceType = isRaw ? "raw" : "image";
+
+      const resData = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+      const wasDeleted = resData.result === "ok" || resData.result === "not_found";
 
       return res.json({
         success: wasDeleted,
-        log: `Cloudinary API returned result: ${resData.result || "error"}. Response details: ${JSON.stringify(resData)}`
+        log: `Cloudinary API returned result: ${resData.result || "error"}.`
       });
 
     } catch (err: any) {

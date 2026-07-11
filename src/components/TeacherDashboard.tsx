@@ -859,6 +859,47 @@ export default function TeacherDashboard({
                             {sub.textAnswer}
                           </div>
                         )}
+
+                        {sub.fileUrl && (
+                          <div className="mt-3 rounded-lg border border-slate-150 bg-slate-50 p-3 text-xs text-slate-700">
+                            <span className="text-[9px] font-bold text-slate-400 block uppercase mb-1.5">Attached Homework Document:</span>
+                            {sub.fileUrl.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp)/) ? (
+                              <div className="space-y-2">
+                                <img 
+                                  src={sub.fileUrl} 
+                                  alt="Submitted Homework Preview" 
+                                  referrerPolicy="no-referrer"
+                                  className="max-h-60 rounded-lg border border-slate-200 object-contain hover:scale-[1.01] transition-transform" 
+                                />
+                                <a 
+                                  href={sub.fileUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-blue hover:underline"
+                                >
+                                  Open Image in New Tab
+                                </a>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-red-50 text-red-600 rounded-xl border border-red-100">
+                                  <FileText size={20} />
+                                </div>
+                                <div>
+                                  <span className="block text-xs font-bold text-slate-800">PDF Homework Submission</span>
+                                  <a 
+                                    href={sub.fileUrl} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer" 
+                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-blue hover:underline mt-0.5"
+                                  >
+                                    View PDF / Download Document
+                                  </a>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex-shrink-0">

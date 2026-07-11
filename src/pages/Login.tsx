@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../auth/useAuth';
-import { Sun, Eye, EyeOff, Shield, RefreshCw, AlertCircle, Key } from 'lucide-react';
+import { Sun, Eye, EyeOff, Shield, RefreshCw, AlertCircle, Key, Mail, CheckCircle2, Award, User, UserCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 import SunshineLogo from '../components/SunshineLogo';
 
@@ -18,6 +18,7 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [googleLoginStep, setGoogleLoginStep] = useState<string>('');
+  const [verificationPendingEmail, setVerificationPendingEmail] = useState<string | null>(null);
 
   // States for forced password change (firstLogin === true)
   const [newPassword, setNewPassword] = useState<string>('');
@@ -28,11 +29,17 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setVerificationPendingEmail(null);
     setLoading(true);
     try {
       await login(email.trim(), password, rememberMe);
     } catch (err: any) {
-      setError(err.message || 'Authentication failed. Please verify credentials.');
+      if (err.message && err.message.startsWith('EMAIL_VERIFICATION_PENDING:')) {
+        const pendingEmail = err.message.split(':')[1];
+        setVerificationPendingEmail(pendingEmail);
+      } else {
+        setError(err.message || 'Authentication failed. Please verify credentials.');
+      }
     } finally {
       setLoading(false);
     }
@@ -40,6 +47,7 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
 
   const handleGoogleLogin = async () => {
     setError(null);
+    setVerificationPendingEmail(null);
     setLoading(true);
     setGoogleLoginStep('Google Sign-In Initiated');
     console.log('[Google Sign-In] Google Sign-In Initiated');
@@ -88,6 +96,13 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
     } finally {
       setPassChanging(false);
     }
+  };
+
+  const selectQuickLogin = (emailVal: string, passVal: string) => {
+    setEmail(emailVal);
+    setPassword(passVal);
+    setError(null);
+    setVerificationPendingEmail(null);
   };
 
   // If user is authenticated BUT has firstLogin flag set to true, force password change!
@@ -164,6 +179,7 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans selection:bg-amber-100">
+      
       <div className="w-full max-w-md bg-white rounded-3xl border border-slate-100 shadow-xl p-8 relative overflow-hidden">
         <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-amber-400 to-brand-orange"></div>
         
@@ -183,14 +199,29 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
           </div>
         )}
 
+        {verificationPendingEmail && (
+          <div className="mb-5 p-4 rounded-2xl bg-amber-50 border border-amber-200/70 flex items-start gap-3 text-xs text-slate-700 font-medium leading-relaxed animate-fade-in">
+            <Mail className="shrink-0 h-5 w-5 text-amber-600 mt-0.5 animate-bounce" />
+            <div>
+              <p className="font-extrabold text-amber-800 text-sm">Email Activation Required</p>
+              <p className="mt-1 text-slate-600 text-[11px] leading-relaxed">
+                Your account <strong className="text-slate-950 font-bold">{verificationPendingEmail}</strong> is pending activation. We have sent a simulated link to your inbox.
+              </p>
+              <p className="mt-2 text-[10.5px] text-amber-800 font-extrabold bg-amber-100/50 px-2.5 py-1 rounded-lg border border-amber-200/50 inline-block">
+                Open the "Mail Sandbox" (bottom right) to activate.
+              </p>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handlePasswordLogin} className="space-y-4">
           <div>
-            <label className="mb-1 block text-xs font-bold text-slate-700">Email Address</label>
+            <label className="mb-1 block text-xs font-bold text-slate-700">Email Address or Username</label>
             <input
               id="auth-email"
-              type="email"
+              type="text"
               required
-              placeholder="Enter your registered email address"
+              placeholder="Enter your registered email or username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
@@ -205,7 +236,8 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
                 className="text-[11px] font-bold text-brand-blue hover:text-blue-700 hover:underline"
                 onClick={(e) => {
                   e.preventDefault();
-                  window.location.href = '/forgot-password';
+                  window.history.pushState({}, "", "/forgot-password");
+                  window.dispatchEvent(new Event('popstate'));
                 }}
               >
                 Forgot Password?
