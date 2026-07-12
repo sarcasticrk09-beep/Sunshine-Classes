@@ -54,13 +54,13 @@ import {
   ShieldAlert,
   Crown
 } from 'lucide-react';
-import { Student, Teacher, User, UserRole, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig, DepartedStudent } from '../types';
-import { interpolateTemplate } from '../data';
+import { Student, Teacher, User, UserRole, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig, DepartedStudent, EmailLog } from '../types';
+import { interpolateTemplate, getFeeForClass } from '../data';
 import { sendWhatsAppMessage, interpolateWhatsAppTemplate } from '../lib/whatsappService';
 import { googleSignIn, getCachedAccessToken, clearCachedAccessToken } from '../lib/firebase';
 import { CloudinaryUpload } from './CloudinaryUpload';
 import { WhatsAppCommunication } from './WhatsAppCommunication';
-import { getFeeStatusForRecord, parseMonthYear, formatMonthYear, generateFeeRecords, compareMonths } from '../lib/feeUtils';
+import { getFeeStatusForRecord, parseMonthYear, formatMonthYear, generateFeeRecords, compareMonths, getCurrentAndNextMonths } from '../lib/feeUtils';
 
 function simpleSecureHash(password: string): string {
   let hash = 0x811c9dc5;
@@ -209,6 +209,98 @@ export default function AdminDashboard({
   onUpdateUsers
 } : AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets' | 'roles' | 'founder-office' | 'cofounder-office'>('overview');
+  const [dashboardSession, setDashboardSession] = useState('2026-27');
+  const [dashboardMonth, setDashboardMonth] = useState('July 2026');
+  const [showPendingFeesDetails, setShowPendingFeesDetails] = useState(false);
+  const [pendingFeesSearchQuery, setPendingFeesSearchQuery] = useState('');
+  const [feeSubTab, setFeeSubTab] = useState<'board' | 'email-logs'>('board');
+  const [emailLogs, setEmailLogs] = useState<EmailLog[]>(() => {
+    const saved = localStorage.getItem('sunshine_email_logs');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('sunshine_email_logs', JSON.stringify(emailLogs));
+  }, [emailLogs]);
+
+  const recordEmailLog = (
+    recipient: string,
+    studentName: string,
+    amount: number,
+    month: string,
+    status: 'Sent' | 'Failed',
+    errorMessage?: string,
+    feeStatusId?: string
+  ) => {
+    const newLog: EmailLog = {
+      id: `em-log-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+      dateTime: new Date().toLocaleString('en-IN'),
+      recipient,
+      studentName,
+      amount,
+      month,
+      status,
+      errorMessage,
+      feeStatusId
+    };
+    setEmailLogs(prev => [newLog, ...prev]);
+  };
+
+  const handleResendEmail = (log: EmailLog) => {
+    if (!confirm(`Are you sure you want to resend this tuition fee reminder email to ${log.recipient}?`)) {
+      return;
+    }
+    
+    const variables = {
+      studentName: log.studentName,
+      className: 'N/A',
+      month: log.month,
+      amount: log.amount,
+      dueDate: '10th of the Month'
+    };
+    
+    const matchedStudent = students.find(s => s.name === log.studentName || s.email === log.recipient);
+    if (matchedStudent) {
+      variables.className = matchedStudent.class || matchedStudent.preferredBatch || 'N/A';
+    }
+
+    const customSubject = interpolateTemplate(emailTemplates.reminderSubject, variables);
+    const customHtml = interpolateTemplate(emailTemplates.reminderBody, variables);
+
+    fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'reminder',
+        to: log.recipient,
+        studentName: log.studentName,
+        amount: log.amount,
+        month: log.month,
+        className: variables.className,
+        customSubject,
+        customHtml
+      })
+    })
+    .then(r => r.json())
+    .then(res => {
+      if (res.success) {
+        recordEmailLog(log.recipient, log.studentName, log.amount, log.month, 'Sent', undefined, log.feeStatusId);
+        if (res.isEthereal && res.previewUrl) {
+          alert(`📧 Real SMTP Email Reminder resent successfully to ${log.recipient}!\n\nView mock delivery here:\n${res.previewUrl}`);
+        } else {
+          alert(`📧 Real Reminder Email resent successfully via SMTP to ${log.recipient}!`);
+        }
+      } else {
+        recordEmailLog(log.recipient, log.studentName, log.amount, log.month, 'Failed', res.error || 'Unknown error', log.feeStatusId);
+        alert(`❌ Failed to resend email: ${res.error || 'Unknown error'}`);
+      }
+    })
+    .catch(err => {
+      recordEmailLog(log.recipient, log.studentName, log.amount, log.month, 'Failed', err.message, log.feeStatusId);
+      alert(`❌ Network error while resending: ${err.message}`);
+    });
+  };
+
   const [waInitialPhone, setWaInitialPhone] = useState<string>('');
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1899,7 +1991,7 @@ export default function AdminDashboard({
   }, [backupFrequency, localBackupsArchive, onAddNotification]);
 
   // Detailed Fees & Ledger local state variables
-  const [feeSelectedMonth, setFeeSelectedMonth] = useState('June 2026');
+  const [feeSelectedMonth, setFeeSelectedMonth] = useState(() => getCurrentAndNextMonths().currentMonth);
   const [feeSearchQuery, setFeeSearchQuery] = useState('');
   const [feeFilterClass, setFeeFilterClass] = useState('ALL');
   const [feeFilterStatus, setFeeFilterStatus] = useState<'ALL' | 'UNPAID' | 'PENDING' | 'OVERDUE' | 'PAID' | 'PARTIAL'>('UNPAID');
@@ -1917,7 +2009,7 @@ export default function AdminDashboard({
   // Recording payments local form states
   const [collectStudentId, setCollectStudentId] = useState('');
   const [collectAmount, setCollectAmount] = useState('');
-  const [collectMonth, setCollectMonth] = useState('June 2026');
+  const [collectMonth, setCollectMonth] = useState(() => getCurrentAndNextMonths().currentMonth);
   const [collectMethod, setCollectMethod] = useState<'CASH' | 'UPI' | 'ONLINE'>('UPI');
   const [collectTxnId, setCollectTxnId] = useState('');
   const [showCollectForm, setShowCollectForm] = useState(false);
@@ -1963,7 +2055,7 @@ export default function AdminDashboard({
   // Quick Fee Collect State Variables
   const [quickCollectStudent, setQuickCollectStudent] = useState<Student | null>(null);
   const [quickCollectAmount, setQuickCollectAmount] = useState('');
-  const [quickCollectMonth, setQuickCollectMonth] = useState('June 2026');
+  const [quickCollectMonth, setQuickCollectMonth] = useState(() => getCurrentAndNextMonths().currentMonth);
   const [quickCollectMethod, setQuickCollectMethod] = useState<'CASH' | 'UPI' | 'ONLINE'>('UPI');
   const [quickCollectTxnId, setQuickCollectTxnId] = useState('');
   const [showQuickCollectHistory, setShowQuickCollectHistory] = useState(false);
@@ -1995,6 +2087,44 @@ export default function AdminDashboard({
   const [editStdDiscount, setEditStdDiscount] = useState(0);
   const [editStdScholarship, setEditStdScholarship] = useState(0);
   const [editStdDueDay, setEditStdDueDay] = useState(10);
+  const [editStdStatus, setEditStdStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
+
+  // Student Profile Hub sub-tab and sub-states
+  const [profileActiveTab, setProfileActiveTab] = useState<'details' | 'billing' | 'fees' | 'attendance' | 'academic'>('details');
+  const [editingFeeStatusId, setEditingFeeStatusId] = useState<string | null>(null);
+  const [editFeeTotal, setEditFeeTotal] = useState<number>(0);
+  const [editFeePaid, setEditFeePaid] = useState<number>(0);
+  const [editFeePending, setEditFeePending] = useState<number>(0);
+  const [editFeeStatusValue, setEditFeeStatusValue] = useState<'PAID' | 'PENDING' | 'PARTIAL'>('PENDING');
+  const [editFeeDueDate, setEditFeeDueDate] = useState<string>('');
+
+  // States for adding a new billing month
+  const [newFeeMonth, setNewFeeMonth] = useState<string>('August 2026');
+  const [newFeeTotal, setNewFeeTotal] = useState<number>(1200);
+
+  // States for editing/adding attendance records for this student
+  const [editingAttendanceId, setEditingAttendanceId] = useState<string | null>(null);
+  const [editAttDate, setEditAttDate] = useState<string>('');
+  const [editAttStatus, setEditAttStatus] = useState<'PRESENT' | 'ABSENT'>('PRESENT');
+  const [editAttRemarks, setEditAttRemarks] = useState<string>('');
+  
+  // States for adding an attendance log
+  const [newAttDate, setNewAttDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [newAttStatus, setNewAttStatus] = useState<'PRESENT' | 'ABSENT'>('PRESENT');
+  const [newAttRemarks, setNewAttRemarks] = useState<string>('');
+
+  // States for editing/adding exam marks for this student
+  const [editingMarkId, setEditingMarkId] = useState<string | null>(null);
+  const [editMarkTestId, setEditMarkTestId] = useState<string>('');
+  const [editMarkObtained, setEditMarkObtained] = useState<number>(0);
+  const [editMarkTotal, setEditMarkTotal] = useState<number>(100);
+  const [editMarkRemarks, setEditMarkRemarks] = useState<string>('');
+
+  // States for adding a new mark
+  const [newMarkTestId, setNewMarkTestId] = useState<string>('');
+  const [newMarkObtained, setNewMarkObtained] = useState<number>(0);
+  const [newMarkTotal, setNewMarkTotal] = useState<number>(100);
+  const [newMarkRemarks, setNewMarkRemarks] = useState<string>('');
 
   // Camera API states
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -2026,6 +2156,15 @@ export default function AdminDashboard({
     setEditStdDiscount(student.discount || 0);
     setEditStdScholarship(student.scholarship || 0);
     setEditStdDueDay(student.dueDay || 10);
+    
+    setEditStdStatus(student.status || 'ACTIVE');
+    setProfileActiveTab('details');
+    setEditingFeeStatusId(null);
+    setEditingAttendanceId(null);
+    setEditingMarkId(null);
+    setNewAttDate(new Date().toISOString().split('T')[0]);
+    setNewAttStatus('PRESENT');
+    setNewAttRemarks('');
     
     setIsCameraActive(false);
     setCameraError('');
@@ -2077,6 +2216,159 @@ export default function AdminDashboard({
     }
   };
 
+  // Helper handlers for Fee status management inside the Student Profile Hub
+  const handleSaveFeeStatus = (feeId: string) => {
+    const updated = feeStatuses.map(f => {
+      if (f.id === feeId) {
+        return {
+          ...f,
+          totalFee: Number(editFeeTotal),
+          paidFee: Number(editFeePaid),
+          pendingFee: Number(editFeePending),
+          status: editFeeStatusValue,
+          dueDate: editFeeDueDate
+        };
+      }
+      return f;
+    });
+    onHealState('fee_statuses', updated);
+    setEditingFeeStatusId(null);
+    alert("Fee status entry updated successfully.");
+  };
+
+  const handleDeleteFeeStatus = (feeId: string) => {
+    if (confirm("Are you sure you want to delete this fee status record?")) {
+      const updated = feeStatuses.filter(f => f.id !== feeId);
+      onHealState('fee_statuses', updated);
+      alert("Fee status entry deleted successfully.");
+    }
+  };
+
+  const handleAddFeeStatus = (studentId: string, studentName: string, studentClass: string) => {
+    if (!newFeeMonth) {
+      alert("Please specify the billing month.");
+      return;
+    }
+    const exists = feeStatuses.some(f => f.studentId === studentId && f.month === newFeeMonth);
+    if (exists) {
+      alert(`A fee status entry for ${newFeeMonth} already exists for this student.`);
+      return;
+    }
+
+    const newFee: FeeStatus = {
+      id: 'fee-' + Date.now(),
+      studentId,
+      studentName,
+      class: studentClass,
+      month: newFeeMonth,
+      totalFee: Number(newFeeTotal),
+      discount: 0,
+      scholarship: 0,
+      paidFee: 0,
+      pendingFee: Number(newFeeTotal),
+      status: 'PENDING',
+      dueDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 10).toISOString().split('T')[0]
+    };
+
+    onHealState('fee_statuses', [...feeStatuses, newFee]);
+    alert(`Added billing cycle for ${newFeeMonth} successfully.`);
+  };
+
+  // Helper handlers for Attendance management inside the Student Profile Hub
+  const handleSaveAttendance = (attId: string) => {
+    const updated = attendanceList.map(a => {
+      if (a.id === attId) {
+        return {
+          ...a,
+          date: editAttDate,
+          status: editAttStatus as 'PRESENT' | 'ABSENT' | 'LATE' | 'LEAVE',
+          remarks: editAttRemarks
+        };
+      }
+      return a;
+    });
+    onHealState('attendance', updated);
+    setEditingAttendanceId(null);
+    alert("Attendance record updated successfully.");
+  };
+
+  const handleDeleteAttendance = (attId: string) => {
+    if (confirm("Are you sure you want to delete this attendance record?")) {
+      const updated = attendanceList.filter(a => a.id !== attId);
+      onHealState('attendance', updated);
+      alert("Attendance record deleted successfully.");
+    }
+  };
+
+  const handleAddAttendance = (studentId: string, studentName: string, studentClass: string) => {
+    if (!newAttDate) {
+      alert("Please select a valid date.");
+      return;
+    }
+
+    const newAtt: Attendance = {
+      id: 'att-' + Date.now(),
+      studentId,
+      studentName,
+      class: studentClass,
+      date: newAttDate,
+      status: newAttStatus as 'PRESENT' | 'ABSENT' | 'LATE' | 'LEAVE',
+      markedBy: currentUser?.name || 'Admin',
+      remarks: newAttRemarks || undefined
+    };
+
+    onHealState('attendance', [...attendanceList, newAtt]);
+    setNewAttRemarks('');
+    alert("New attendance record added successfully.");
+  };
+
+  // Helper handlers for Academic Exam score management inside the Student Profile Hub
+  const handleSaveMark = (markId: string) => {
+    const updated = studentMarks.map(m => {
+      if (m.id === markId) {
+        return {
+          ...m,
+          marksObtained: Number(editMarkObtained),
+          remarks: editMarkRemarks
+        };
+      }
+      return m;
+    });
+    onHealState('student_marks', updated);
+    setEditingMarkId(null);
+    alert("Test score updated successfully.");
+  };
+
+  const handleDeleteMark = (markId: string) => {
+    if (confirm("Are you sure you want to delete this test score?")) {
+      const updated = studentMarks.filter(m => m.id !== markId);
+      onHealState('student_marks', updated);
+      alert("Test score deleted successfully.");
+    }
+  };
+
+  const handleAddMark = (studentId: string, studentName: string, studentClass: string) => {
+    if (!newMarkTestId) {
+      alert("Please select a valid test.");
+      return;
+    }
+
+    const newMark: StudentMark = {
+      id: 'mark-' + Date.now(),
+      testId: newMarkTestId,
+      studentId,
+      studentName,
+      class: studentClass,
+      marksObtained: Number(newMarkObtained),
+      remarks: newMarkRemarks || undefined
+    };
+
+    onHealState('student_marks', [...studentMarks, newMark]);
+    setNewMarkObtained(0);
+    setNewMarkRemarks('');
+    alert("Test score added successfully.");
+  };
+
   const handleUpdateStudentProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStudent) return;
@@ -2104,7 +2396,8 @@ export default function AdminDashboard({
       registrationFee: Number(editStdRegistrationFee),
       discount: Number(editStdDiscount),
       scholarship: Number(editStdScholarship),
-      dueDay: Number(editStdDueDay)
+      dueDay: Number(editStdDueDay),
+      status: editStdStatus
     };
 
     const updatedStudents = students.map(s => s.id === editingStudent.id ? updatedStudent : s);
@@ -3218,6 +3511,7 @@ export default function AdminDashboard({
       .then(res => {
         setIsSendingReminderEmail(false);
         if (res.success) {
+          recordEmailLog(reminderModalEmail, activeReminderFee.studentName, activeReminderFee.pendingFee, activeReminderFee.month, 'Sent', undefined, activeReminderFee.id);
           onAddNotification({
             title: `📧 Email Reminder: ${activeReminderFee.studentName}`,
             content: `Emailed parent at ${reminderModalEmail} for pending ₹${activeReminderFee.pendingFee} dues (${activeReminderFee.month}).`,
@@ -3237,11 +3531,13 @@ export default function AdminDashboard({
           // Clear modal
           setActiveReminderFee(null);
         } else {
+          recordEmailLog(reminderModalEmail, activeReminderFee.studentName, activeReminderFee.pendingFee, activeReminderFee.month, 'Failed', res.error || 'Unknown error', activeReminderFee.id);
           alert(`❌ Failed to send email: ${res.error || 'Unknown error'}`);
         }
       })
       .catch(err => {
         setIsSendingReminderEmail(false);
+        recordEmailLog(reminderModalEmail, activeReminderFee.studentName, activeReminderFee.pendingFee, activeReminderFee.month, 'Failed', err.message, activeReminderFee.id);
         alert(`❌ Network error while sending email: ${err.message}`);
       });
     }
@@ -3513,11 +3809,12 @@ export default function AdminDashboard({
       let subject = '';
       let htmlContent = '';
       let emailType = 'custom';
+      let pendingBill: FeeStatus | undefined = undefined;
 
       if (templateMode === 'REMINDER') {
         emailType = 'reminder';
         // Try to find a pending bill for this student
-        const pendingBill = feeStatuses.find(f => f.studentId === student.id && f.pendingFee > 0);
+        pendingBill = feeStatuses.find(f => f.studentId === student.id && f.pendingFee > 0);
         const variables = {
           studentName: student.name,
           className: student.class || student.preferredBatch || 'N/A',
@@ -3567,6 +3864,15 @@ export default function AdminDashboard({
 
           if (res.ok) {
             const data = await res.json();
+            recordEmailLog(
+              student.email,
+              student.name,
+              templateMode === 'REMINDER' && pendingBill ? pendingBill.pendingFee : 0,
+              templateMode === 'REMINDER' && pendingBill ? pendingBill.month : (templateMode === 'RECEIPT' ? 'Cycle receipt' : 'Bulk Custom'),
+              'Sent',
+              undefined,
+              templateMode === 'REMINDER' && pendingBill ? pendingBill.id : undefined
+            );
             report.push({
               studentName: student.name,
               email: student.email,
@@ -3575,19 +3881,39 @@ export default function AdminDashboard({
             });
           } else {
             const errData = await res.json().catch(() => ({}));
+            const errMsg = errData.error || `HTTP error ${res.status}`;
+            recordEmailLog(
+              student.email,
+              student.name,
+              templateMode === 'REMINDER' && pendingBill ? pendingBill.pendingFee : 0,
+              templateMode === 'REMINDER' && pendingBill ? pendingBill.month : (templateMode === 'RECEIPT' ? 'Cycle receipt' : 'Bulk Custom'),
+              'Failed',
+              errMsg,
+              templateMode === 'REMINDER' && pendingBill ? pendingBill.id : undefined
+            );
             report.push({
               studentName: student.name,
               email: student.email,
               success: false,
-              error: errData.error || `HTTP error ${res.status}`
+              error: errMsg
             });
           }
         } catch (error: any) {
+          const errMsg = error.message || 'Network exception';
+          recordEmailLog(
+            student.email,
+            student.name,
+            templateMode === 'REMINDER' && pendingBill ? pendingBill.pendingFee : 0,
+            templateMode === 'REMINDER' && pendingBill ? pendingBill.month : (templateMode === 'RECEIPT' ? 'Cycle receipt' : 'Bulk Custom'),
+            'Failed',
+            errMsg,
+            templateMode === 'REMINDER' && pendingBill ? pendingBill.id : undefined
+          );
           report.push({
             studentName: student.name,
             email: student.email,
             success: false,
-            error: error.message || 'Network exception'
+            error: errMsg
           });
         }
       } else {
@@ -3953,9 +4279,30 @@ export default function AdminDashboard({
   };
 
   // Helper calculation numbers
-  const totalRevenue = feeReceipts.reduce((acc, r) => acc + r.amountPaid, 0);
-  const totalPendingFees = feeStatuses.reduce((acc, f) => acc + f.pendingFee, 0);
-  const activeStudentsCount = students.length;
+  // Get all fee records for the selected month and session
+  const monthFeeRecords = feeStatuses.filter(f => f.month === dashboardMonth);
+
+  // To handle duplicates and deleted/inactive students:
+  const seenStudentIdsDashboard = new Set<string>();
+  const verifiedMonthFees: FeeStatus[] = [];
+
+  monthFeeRecords.forEach(f => {
+    // Check if student exists and is active
+    const student = students.find(s => s.id === f.studentId);
+    if (student && student.status !== 'INACTIVE') {
+      if (!seenStudentIdsDashboard.has(f.studentId)) {
+        seenStudentIdsDashboard.add(f.studentId);
+        verifiedMonthFees.push(f);
+      }
+    }
+  });
+
+  const totalPendingFees = verifiedMonthFees.reduce((sum, f) => sum + (f.pendingFee || 0), 0);
+  const totalRevenue = verifiedMonthFees.reduce((sum, f) => sum + (f.paidFee || 0), 0);
+  const verifiedExpectedRevenue = totalRevenue + totalPendingFees;
+  const dashboardCollectionRate = verifiedExpectedRevenue > 0 ? Math.round((totalRevenue / verifiedExpectedRevenue) * 100) : 0;
+  
+  const activeStudentsCount = students.filter(s => s.status !== 'INACTIVE').length;
   const totalTeachersCount = teachers.length;
 
   const handleCreateStudent = (e: React.FormEvent) => {
@@ -4620,44 +4967,275 @@ ${data.log}`
         </div>
       </div>
 
-      {/* Numerical Stats overview */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm flex justify-between items-center">
-          <div>
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Total Students</span>
-            <span className="font-display text-2xl font-black text-slate-800">{activeStudentsCount}</span>
-            <span className="text-[10px] text-green-600 font-semibold block mt-0.5">Classes 1 to 10</span>
-          </div>
-          <div className="rounded-xl bg-blue-50 p-3 text-brand-blue"><Users size={22} /></div>
-        </div>
+      {/* Session & Month Selector Bar */}
+      {(() => {
+        const sessionMonthsMap: { [key: string]: string[] } = {
+          "2026-27": [
+            "April 2026", "May 2026", "June 2026", "July 2026", "August 2026", 
+            "September 2026", "October 2026", "November 2026", "December 2026",
+            "January 2027", "February 2027", "March 2027"
+          ],
+          "2025-26": [
+            "April 2025", "May 2025", "June 2025", "July 2025", "August 2025", 
+            "September 2025", "October 2025", "November 2025", "December 2025",
+            "January 2026", "February 2026", "March 2026"
+          ],
+          "2027-28": [
+            "April 2027", "May 2027", "June 2027", "July 2027", "August 2027", 
+            "September 2027", "October 2027", "November 2027", "December 2027",
+            "January 2028", "February 2028", "March 2028"
+          ]
+        };
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm flex justify-between items-center">
-          <div>
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Coaching Faculty</span>
-            <span className="font-display text-2xl font-black text-slate-800">{totalTeachersCount}</span>
-            <span className="text-[10px] text-indigo-600 font-semibold block mt-0.5">Board Specialists</span>
-          </div>
-          <div className="rounded-xl bg-indigo-50 p-3 text-indigo-600"><BookOpen size={22} /></div>
-        </div>
+        return (
+          <>
+            <div id="dashboard-cycle-selector-panel" className="mb-6 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div>
+                <h4 className="font-display font-black text-xs text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                  <Calendar size={14} className="text-indigo-600" />
+                  Financial & Compliance Cycle
+                </h4>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Active stats and pending fees are recalculated for: <strong className="text-indigo-600">{dashboardMonth}</strong> (Session {dashboardSession})
+                </p>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="flex flex-col">
+                  <label htmlFor="select-dashboard-session" className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Academic Session</label>
+                  <select
+                    id="select-dashboard-session"
+                    value={dashboardSession}
+                    onChange={(e) => {
+                      const session = e.target.value;
+                      setDashboardSession(session);
+                      const months = sessionMonthsMap[session] || [];
+                      if (months.length > 0) {
+                        const currentMonthName = dashboardMonth.split(' ')[0];
+                        const matchingMonth = months.find(m => m.startsWith(currentMonthName));
+                        setDashboardMonth(matchingMonth || months[0]);
+                      }
+                    }}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value="2026-27">Session 2026-27</option>
+                    <option value="2025-26">Session 2025-26</option>
+                    <option value="2027-28">Session 2027-28</option>
+                  </select>
+                </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm flex justify-between items-center">
-          <div>
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Revenue Collected</span>
-            <span className="font-display text-2xl font-black text-emerald-600">₹{totalRevenue}</span>
-            <span className="text-[10px] text-slate-400 block mt-0.5">Session cycle 2026-27</span>
-          </div>
-          <div className="rounded-xl bg-green-50 p-3 text-green-600"><DollarSign size={22} /></div>
-        </div>
+                <div className="flex flex-col">
+                  <label htmlFor="select-dashboard-month" className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Billing Month</label>
+                  <select
+                    id="select-dashboard-month"
+                    value={dashboardMonth}
+                    onChange={(e) => setDashboardMonth(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs focus:border-indigo-500 focus:outline-none"
+                  >
+                    {(sessionMonthsMap[dashboardSession] || []).map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm flex justify-between items-center">
-          <div>
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Pending monthly fees</span>
-            <span className="font-display text-2xl font-black text-brand-red">₹{totalPendingFees}</span>
-            <span className="text-[10px] text-brand-red font-medium block mt-0.5">Auto reminder queued</span>
-          </div>
-          <div className="rounded-xl bg-red-50 p-3 text-brand-red"><Bell size={22} /></div>
-        </div>
-      </div>
+            {/* Numerical Stats overview */}
+            <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div id="card-total-active-students" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm flex justify-between items-center">
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Total Students</span>
+                  <span className="font-display text-2xl font-black text-slate-800">{activeStudentsCount}</span>
+                  <span className="text-[10px] text-green-600 font-semibold block mt-0.5">Classes 1 to 10</span>
+                </div>
+                <div className="rounded-xl bg-blue-50 p-3 text-brand-blue"><Users size={22} /></div>
+              </div>
+
+              <div id="card-total-coaching-faculty" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm flex justify-between items-center">
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Coaching Faculty</span>
+                  <span className="font-display text-2xl font-black text-slate-800">{totalTeachersCount}</span>
+                  <span className="text-[10px] text-indigo-600 font-semibold block mt-0.5">Board Specialists</span>
+                </div>
+                <div className="rounded-xl bg-indigo-50 p-3 text-indigo-600"><BookOpen size={22} /></div>
+              </div>
+
+              <div id="card-revenue-collected" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm flex justify-between items-center">
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Revenue Collected</span>
+                  <span className="font-display text-2xl font-black text-emerald-600">₹{totalRevenue.toLocaleString('en-IN')}</span>
+                  <span className="text-[10px] text-emerald-600 font-bold block mt-0.5">{dashboardCollectionRate}% Collection Rate</span>
+                </div>
+                <div className="rounded-xl bg-green-50 p-3 text-green-600"><DollarSign size={22} /></div>
+              </div>
+
+              <div 
+                id="card-dashboard-pending-monthly-fees"
+                onClick={() => setShowPendingFeesDetails(true)}
+                className="rounded-2xl border border-rose-150 bg-rose-50/10 p-5 shadow-sm flex justify-between items-center cursor-pointer hover:border-rose-400 hover:bg-rose-50/30 transition-all duration-200 active:scale-[0.98]"
+                title="Click to view detailed pending fees list"
+              >
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Pending monthly fees</span>
+                  <span className="font-display text-2xl font-black text-rose-600">₹{totalPendingFees.toLocaleString('en-IN')}</span>
+                  <span className="text-[10px] text-rose-600 font-semibold block mt-0.5">Click to view breakdown</span>
+                </div>
+                <div className="rounded-xl bg-rose-50 p-3 text-rose-600"><Bell size={22} /></div>
+              </div>
+            </div>
+
+            {/* Detailed Pending Fees Modal */}
+            <AnimatePresence>
+              {showPendingFeesDetails && (
+                <div 
+                  id="modal-pending-fees-details"
+                  className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-xs"
+                  onClick={() => setShowPendingFeesDetails(false)}
+                >
+                  <motion.div
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden"
+                  >
+                    {/* Header */}
+                    <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                      <div>
+                        <h3 className="font-display font-black text-lg text-slate-800 flex items-center gap-2">
+                          <ShieldAlert className="text-rose-600" size={20} />
+                          Pending Monthly Fees Breakdown
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Viewing records for <strong className="text-slate-700">{dashboardMonth}</strong> (Session {dashboardSession})
+                        </p>
+                      </div>
+                      <button
+                        id="btn-close-pending-fees-modal"
+                        type="button"
+                        onClick={() => setShowPendingFeesDetails(false)}
+                        className="p-2 hover:bg-slate-200/60 rounded-xl transition-colors cursor-pointer text-slate-400 hover:text-slate-600"
+                      >
+                        <X size={20} />
+                      </button>
+                    </div>
+
+                    {/* Stats & Search */}
+                    <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full md:w-auto">
+                        <div className="bg-white border border-slate-150 p-3 rounded-2xl shadow-3xs">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Expected Revenue</span>
+                          <span className="text-sm font-black text-slate-800">₹{verifiedExpectedRevenue.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="bg-white border border-slate-150 p-3 rounded-2xl shadow-3xs">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Collected</span>
+                          <span className="text-sm font-black text-emerald-600">₹{totalRevenue.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="bg-white border border-slate-150 p-3 rounded-2xl shadow-3xs">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Pending Amount</span>
+                          <span className="text-sm font-black text-rose-600">₹{totalPendingFees.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="bg-white border border-slate-150 p-3 rounded-2xl shadow-3xs">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Collection Rate</span>
+                          <span className="text-sm font-black text-indigo-600">{dashboardCollectionRate}%</span>
+                        </div>
+                      </div>
+
+                      <div className="relative w-full md:w-64 shrink-0">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                          <Search size={14} />
+                        </div>
+                        <input
+                          id="input-search-pending-fees"
+                          type="text"
+                          value={pendingFeesSearchQuery}
+                          onChange={(e) => setPendingFeesSearchQuery(e.target.value)}
+                          placeholder="Filter by name or class..."
+                          className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-700 shadow-xs focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Table list */}
+                    <div className="flex-1 overflow-y-auto p-6">
+                      {(() => {
+                        const pendingList = verifiedMonthFees.filter(f => {
+                          const matchesQuery = f.studentName.toLowerCase().includes(pendingFeesSearchQuery.toLowerCase()) || 
+                                               f.class.toLowerCase().includes(pendingFeesSearchQuery.toLowerCase());
+                          return matchesQuery;
+                        });
+
+                        const sumOfFilteredPending = pendingList.reduce((sum, f) => sum + f.pendingFee, 0);
+
+                        if (pendingList.length === 0) {
+                          return (
+                            <div className="py-16 text-center text-slate-400 font-bold">
+                              No pending fee records found for the selection.
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="space-y-4">
+                            <div className="overflow-x-auto rounded-2xl border border-slate-150 shadow-xs">
+                              <table className="w-full border-collapse text-left text-xs text-slate-600 bg-white">
+                                <thead>
+                                  <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-150">
+                                    <th className="p-3">Student Name</th>
+                                    <th className="p-3">Class</th>
+                                    <th className="p-3 text-right">Monthly Fee</th>
+                                    <th className="p-3 text-right">Amount Paid</th>
+                                    <th className="p-3 text-right">Pending Amount</th>
+                                    <th className="p-3">Month</th>
+                                    <th className="p-3">Due Date</th>
+                                    <th className="p-3">Reminder Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {pendingList.map((row) => {
+                                    // Find reminder logs
+                                    const sentEmails = emailLogs.filter(l => l.recipient === row.studentName || l.studentName === row.studentName);
+                                    const reminderStatus = sentEmails.length > 0 
+                                      ? `${sentEmails.length} Email(s) sent` 
+                                      : 'No reminder sent';
+
+                                    return (
+                                      <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
+                                        <td className="p-3 font-bold text-slate-800">{row.studentName}</td>
+                                        <td className="p-3 font-semibold text-slate-500">{row.class}</td>
+                                        <td className="p-3 text-right font-mono text-slate-600">₹{(row.totalFee - row.discount - row.scholarship).toLocaleString('en-IN')}</td>
+                                        <td className="p-3 text-right font-mono text-emerald-600">₹{row.paidFee.toLocaleString('en-IN')}</td>
+                                        <td className="p-3 text-right font-mono font-bold text-rose-600">₹{row.pendingFee.toLocaleString('en-IN')}</td>
+                                        <td className="p-3 font-semibold text-slate-500">{row.month}</td>
+                                        <td className="p-3 text-slate-500">{row.dueDate}</td>
+                                        <td className="p-3">
+                                          <span className={`inline-block px-2.5 py-0.5 rounded-lg text-[9px] font-bold uppercase tracking-wider ${
+                                            sentEmails.length > 0 
+                                              ? "bg-indigo-50 text-indigo-600 border border-indigo-100" 
+                                              : "bg-slate-50 text-slate-400 border border-slate-100"
+                                          }`}>
+                                            {reminderStatus}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                            <div className="flex justify-end pr-4 text-xs font-bold text-slate-700">
+                              Sum of displayed: ₹{sumOfFilteredPending.toLocaleString('en-IN')} (Target: ₹{totalPendingFees.toLocaleString('en-IN')})
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+          </>
+        );
+      })()}
 
       {/* Analytics Info banner / dashboard section */}
       <div className="mb-6">
@@ -5866,13 +6444,24 @@ ${data.log}`
                         <select
                           id="select-std-class"
                           value={stdClass}
-                          onChange={(e) => setStdClass(e.target.value)}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setStdClass(val);
+                            setStdMonthlyFee(getFeeForClass(val));
+                            setStdBatch(val); // Batch matches class name directly for simplicity
+                          }}
                           className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
                         >
-                          <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
-                          <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
-                          <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
-                          <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
+                          <option value="Class 10">Class 10</option>
+                          <option value="Class 9">Class 9</option>
+                          <option value="Class 8">Class 8</option>
+                          <option value="Class 7">Class 7</option>
+                          <option value="Class 6">Class 6</option>
+                          <option value="Class 5">Class 5</option>
+                          <option value="Class 4">Class 4</option>
+                          <option value="Class 3">Class 3</option>
+                          <option value="Class 2">Class 2</option>
+                          <option value="Class 1">Class 1</option>
                         </select>
                       </div>
 
@@ -5942,23 +6531,11 @@ ${data.log}`
                       </div>
 
                       <div>
-                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Preferred Tuition Batch</label>
-                        <select
-                          id="select-std-batch"
-                          value={stdBatch}
-                          onChange={(e) => {
-                            setStdBatch(e.target.value);
-                            const matched = batches.find(b => b.name === e.target.value);
-                            if (matched) {
-                              setStdTiming(matched.time);
-                            }
-                          }}
-                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                        >
-                          {batches.map(b => (
-                            <option key={b.id} value={b.name}>{b.name}</option>
-                          ))}
-                        </select>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Assigned Tutor</label>
+                        <div className="w-full rounded-xl border border-slate-200 bg-indigo-50/50 px-3 py-2 text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse"></span>
+                          Priyanshu Gupta (Founder)
+                        </div>
                       </div>
 
                       <div>
@@ -6763,27 +7340,30 @@ ${data.log}`
           {/* TAB 3.5: MANAGE FEES & LEDGER */}
           {activeTab === 'fees' && (() => {
             // Dynamic derived collections and lists
-            const uniqueMonths = Array.from(new Set([
-              ...feeStatuses.map(f => f.month),
-              ...feeReceipts.map(r => r.month)
-            ])).sort((a, b) => b.localeCompare(a));
+            const { currentMonth, nextMonth } = getCurrentAndNextMonths();
+            const uniqueMonths = [currentMonth, nextMonth];
+            const activeBillingMonths = feeSelectedMonth === 'ALL' ? [currentMonth, nextMonth] : [feeSelectedMonth];
 
             const uniqueClasses = Array.from(new Set(students.map(s => s.class))).sort();
 
-            // Computations
-            const collectedThisMonth = feeReceipts
-              .filter(r => r.month === feeSelectedMonth)
-              .reduce((sum, r) => sum + r.amountPaid, 0);
+            // Computations matching user's specific request
+            // 1. Collection Target (Total Fee due)
+            const collectionTarget = feeStatuses
+              .filter(f => activeBillingMonths.includes(f.month))
+              .reduce((sum, f) => sum + (f.totalFee || 0), 0);
 
-            const overallCollected = feeReceipts.reduce((sum, r) => sum + r.amountPaid, 0);
+            // 2. Total Collected (Paid Fee)
+            const totalCollected = feeStatuses
+              .filter(f => activeBillingMonths.includes(f.month))
+              .reduce((sum, f) => sum + (f.paidFee || 0), 0);
 
-            const totalPendingOverall = feeStatuses.reduce((sum, r) => sum + r.pendingFee, 0);
+            // 3. Pending Fee (Pending Fee)
+            const pendingFee = feeStatuses
+              .filter(f => activeBillingMonths.includes(f.month))
+              .reduce((sum, f) => sum + (f.pendingFee || 0), 0);
 
-            const totalPendingSelectedMonth = feeStatuses
-              .filter(f => f.month === feeSelectedMonth)
-              .reduce((sum, f) => sum + f.pendingFee, 0);
-
-            const collectionRate = Math.round((overallCollected / (overallCollected + totalPendingOverall || 1)) * 100);
+            // 4. Collection Rate
+            const collectionRate = collectionTarget > 0 ? Math.round((totalCollected / collectionTarget) * 100) : 0;
 
             // Filter student lists
             const todayStr = new Date().toISOString().split('T')[0];
@@ -6915,6 +7495,7 @@ ${data.log}`
               .then(r => r.json())
               .then(res => {
                 if (res.success) {
+                  recordEmailLog(email, statusEntry.studentName, statusEntry.pendingFee, statusEntry.month, 'Sent', undefined, statusEntry.id);
                   onAddNotification({
                     title: `📧 Reminder Sent: ${statusEntry.studentName}`,
                     content: `Emailed parent at ${email} for pending ₹${statusEntry.pendingFee} dues (${statusEntry.month}).`,
@@ -6931,10 +7512,12 @@ ${data.log}`
                     alert(`📧 Real Reminder Email dispatched to ${email} via SMTP!`);
                   }
                 } else {
+                  recordEmailLog(email, statusEntry.studentName, statusEntry.pendingFee, statusEntry.month, 'Failed', res.error || 'Unknown error', statusEntry.id);
                   alert(`❌ Failed to send email: ${res.error || 'Unknown error'}`);
                 }
               })
               .catch(err => {
+                recordEmailLog(email, statusEntry.studentName, statusEntry.pendingFee, statusEntry.month, 'Failed', err.message, statusEntry.id);
                 alert(`❌ Network error while sending email: ${err.message}`);
               });
             };
@@ -6943,49 +7526,49 @@ ${data.log}`
               <div className="space-y-6">
                 {/* Financial Health Stats Grid */}
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  {/* Monthly Collections */}
-                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50/30 p-5 shadow-sm">
-                    <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider block">
-                      Revenue Collected This Month ({feeSelectedMonth === 'ALL' ? 'Overall' : feeSelectedMonth})
-                    </span>
-                    <span className="font-display text-2xl font-black text-emerald-700 mt-1 block">
-                      ₹{(feeSelectedMonth === 'ALL' ? overallCollected : collectedThisMonth).toLocaleString('en-IN')}
-                    </span>
-                    <span className="text-[10px] text-emerald-500 font-semibold mt-0.5 block">
-                      {feeReceipts.filter(r => feeSelectedMonth === 'ALL' ? true : r.month === feeSelectedMonth).length} Receipts logged
-                    </span>
-                  </div>
-
-                  {/* Overall Cumulative Collections */}
+                  {/* Collection Target */}
                   <div className="rounded-2xl border border-indigo-100 bg-indigo-50/20 p-5 shadow-sm">
                     <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider block">
-                      Overall Fee Collected (All Students)
+                      Collection Target ({feeSelectedMonth === 'ALL' ? 'Current & Next Month' : feeSelectedMonth})
                     </span>
-                    <span className="font-display text-2xl font-black text-indigo-900 mt-1 block">
-                      ₹{overallCollected.toLocaleString('en-IN')}
+                    <span className="font-display text-2xl font-black text-indigo-950 mt-1 block">
+                      ₹{collectionTarget.toLocaleString('en-IN')}
                     </span>
                     <span className="text-[10px] text-indigo-500 font-semibold mt-0.5 block">
-                      Cumulative digital & cash ledgers
+                      Total tuition billing target
                     </span>
                   </div>
 
-                  {/* Total Pending Dues */}
+                  {/* Total Collected */}
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50/30 p-5 shadow-sm">
+                    <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider block">
+                      Total Collected
+                    </span>
+                    <span className="font-display text-2xl font-black text-emerald-700 mt-1 block">
+                      ₹{totalCollected.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-[10px] text-emerald-500 font-semibold mt-0.5 block">
+                      Collected fees on active records
+                    </span>
+                  </div>
+
+                  {/* Pending Fee */}
                   <div className="rounded-2xl border border-rose-100 bg-rose-50/30 p-5 shadow-sm">
                     <span className="text-[10px] text-rose-600 font-bold uppercase tracking-wider block">
-                      Total Pending Tuition Dues
+                      Pending Fee
                     </span>
                     <span className="font-display text-2xl font-black text-rose-700 mt-1 block">
-                      ₹{totalPendingOverall.toLocaleString('en-IN')}
+                      ₹{pendingFee.toLocaleString('en-IN')}
                     </span>
                     <span className="text-[10px] text-rose-500 font-semibold mt-0.5 block">
-                      {feeStatuses.filter(f => f.pendingFee > 0).length} Unpaid bills remaining
+                      Remaining unpaid balance
                     </span>
                   </div>
 
-                  {/* Billing Collection efficiency */}
+                  {/* Collection Rate */}
                   <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
-                      ERP Collection efficiency
+                      Collection Rate
                     </span>
                     <span className="font-display text-2xl font-black text-slate-800 mt-1 block">
                       {collectionRate}%
@@ -7380,6 +7963,23 @@ ${data.log}`
                         Promise.all(emailPromises).then(results => {
                           setIsSendingBulkWA(false);
 
+                          // Record email log entries
+                          results.forEach(res => {
+                            if (res.skipped) return;
+                            const entry = pendingAudience.find(e => e.studentName === res.studentName);
+                            if (entry) {
+                              recordEmailLog(
+                                res.email,
+                                res.studentName,
+                                entry.pendingFee,
+                                entry.month,
+                                res.success ? 'Sent' : 'Failed',
+                                (res as any).errorMessage || (res.success ? undefined : 'Mail transmission failure'),
+                                entry.id
+                              );
+                            }
+                          });
+
                           const successCount = results.filter(r => r.success).length;
                           const skippedCount = results.filter(r => r.skipped).length;
                           const failedCount = results.filter(r => r.error).length;
@@ -7540,8 +8140,28 @@ ${data.log}`
                     </div>
                   </div>
 
-                  {/* Filters Grid */}
-                  <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+                  {/* Sub-tabs toggler */}
+                  <div className="flex border-b border-slate-100 pb-1 gap-4">
+                    <button
+                      id="subtab-fee-board"
+                      onClick={() => setFeeSubTab('board')}
+                      className={`pb-2 text-sm font-semibold border-b-2 transition-all cursor-pointer ${feeSubTab === 'board' ? 'border-indigo-900 text-indigo-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                    >
+                      💳 Student Fee Board
+                    </button>
+                    <button
+                      id="subtab-email-logs"
+                      onClick={() => setFeeSubTab('email-logs')}
+                      className={`pb-2 text-sm font-semibold border-b-2 transition-all cursor-pointer ${feeSubTab === 'email-logs' ? 'border-indigo-900 text-indigo-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                    >
+                      📨 Email Reminder Logs ({emailLogs.length})
+                    </button>
+                  </div>
+
+                  {feeSubTab === 'board' ? (
+                    <>
+                      {/* Filters Grid */}
+                      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
                     {/* Month selector */}
                     <div>
                       <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">Billing Cycle Month</label>
@@ -7926,10 +8546,104 @@ ${data.log}`
                       </table>
                     </div>
                   </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-500">
+                      Showing {emailLogs.length} historical email reminder dispatches recorded in this session.
+                    </span>
+                    {emailLogs.length > 0 && (
+                      <button
+                        id="btn-clear-email-logs"
+                        onClick={() => {
+                          if (confirm("Are you sure you want to clear all email reminder logs?")) {
+                            setEmailLogs([]);
+                          }
+                        }}
+                        className="text-xs text-red-600 hover:text-red-800 font-semibold cursor-pointer"
+                      >
+                        Clear All Logs
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="overflow-hidden border border-slate-150 rounded-xl bg-white shadow-sm">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-150 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            <th className="px-4 py-3">Timestamp</th>
+                            <th className="px-4 py-3">Student Name</th>
+                            <th className="px-4 py-3">Recipient Email</th>
+                            <th className="px-4 py-3 text-center">Cycle Month</th>
+                            <th className="px-4 py-3 text-right">Dues Amount</th>
+                            <th className="px-4 py-3 text-center">Status</th>
+                            <th className="px-4 py-3 text-center">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                          {emailLogs.map((log) => (
+                            <tr key={log.id} className="hover:bg-slate-50/60 transition-colors">
+                              <td className="px-4 py-3 font-mono text-[11px] text-slate-500">
+                                {log.dateTime}
+                              </td>
+                              <td className="px-4 py-3 font-semibold text-slate-800">
+                                {log.studentName}
+                              </td>
+                              <td className="px-4 py-3 text-slate-600">
+                                {log.recipient}
+                              </td>
+                              <td className="px-4 py-3 text-center font-medium text-slate-600">
+                                {log.month}
+                              </td>
+                              <td className="px-4 py-3 text-right font-semibold text-indigo-950">
+                                ₹{log.amount}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {log.status === 'Sent' ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    ● Sent
+                                  </span>
+                                ) : (
+                                  <span 
+                                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 cursor-help"
+                                    title={log.errorMessage || "Unknown error occurred during transmission"}
+                                  >
+                                    ● Failed
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <button
+                                  id={`btn-resend-email-${log.id}`}
+                                  onClick={() => handleResendEmail(log)}
+                                  className="rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2 py-1 text-[10px] cursor-pointer transition-colors"
+                                >
+                                  Resend
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+
+                          {emailLogs.length === 0 && (
+                            <tr>
+                              <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                                <Mail size={28} className="mx-auto text-slate-300 mb-2" />
+                                No email reminder logs recorded yet in this session.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            );
-          })()}
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
           {/* TAB: MANAGE BATCHES & TIMINGS */}
           {activeTab === 'batches' && (
@@ -13941,9 +14655,10 @@ ${data.log}`
       {/* Edit Student Profile Modal */}
       {editingStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 w-full max-w-2xl my-8 relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 w-full max-w-4xl my-8 relative max-h-[90vh] overflow-y-auto animate-fade-in">
             <button
               type="button"
+              id="btn-close-edit-student-modal"
               onClick={() => {
                 setEditingStudent(null);
                 stopCamera();
@@ -13954,352 +14669,1193 @@ ${data.log}`
             </button>
 
             <div className="text-center mb-6">
-              <span className="inline-flex h-10 w-10 rounded-full bg-indigo-50 text-indigo-900 items-center justify-center mb-2">
-                <Edit size={18} />
-              </span>
-              <h3 className="font-display font-bold text-slate-800 text-base">Edit Student Profile</h3>
+              <div className="inline-flex h-12 w-12 rounded-full bg-indigo-50 text-indigo-900 items-center justify-center mb-2">
+                <Users size={22} />
+              </div>
+              <h3 className="font-display font-black text-slate-800 text-lg">Sunshine Student Profile Hub</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Modify ERP directory fields and student identification media.
+                Deep-dive into student profile details, monthly tuition fee ledgers, exam performance scorecard, and attendance records.
               </p>
             </div>
 
-            <form onSubmit={handleUpdateStudentProfile} className="space-y-4">
-              {/* Profile Image & Camera Capture Area */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col items-center gap-3">
-                <label className="block text-xs font-bold text-slate-700 font-display">Student Photo Identification</label>
-                
-                <div className="flex flex-col sm:flex-row items-center gap-4 w-full justify-center">
-                  {/* Current/Captured Photo Preview */}
-                  <div className="relative h-28 w-28 rounded-full border border-slate-200 overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
-                    {editStdPhotoUrl ? (
-                      <img src={editStdPhotoUrl} alt="Preview" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="text-slate-400 flex flex-col items-center justify-center gap-1">
-                        <Users size={24} />
-                        <span className="text-[9px] font-medium uppercase font-mono">No Photo</span>
+            {/* Profile Navigation Tabs */}
+            <div className="flex flex-wrap border-b border-slate-100 mb-6 gap-2">
+              <button
+                type="button"
+                id="profile-tab-details"
+                onClick={() => setProfileActiveTab('details')}
+                className={`px-4 py-2 text-xs font-bold transition-all rounded-t-xl cursor-pointer ${
+                  profileActiveTab === 'details'
+                    ? 'bg-indigo-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                👤 Identity & Contacts
+              </button>
+              <button
+                type="button"
+                id="profile-tab-billing"
+                onClick={() => setProfileActiveTab('billing')}
+                className={`px-4 py-2 text-xs font-bold transition-all rounded-t-xl cursor-pointer ${
+                  profileActiveTab === 'billing'
+                    ? 'bg-indigo-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                💼 Tuition Settings
+              </button>
+              <button
+                type="button"
+                id="profile-tab-fees"
+                onClick={() => setProfileActiveTab('fees')}
+                className={`px-4 py-2 text-xs font-bold transition-all rounded-t-xl cursor-pointer ${
+                  profileActiveTab === 'fees'
+                    ? 'bg-indigo-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                💳 Fee Ledger & Receipts
+              </button>
+              <button
+                type="button"
+                id="profile-tab-attendance"
+                onClick={() => setProfileActiveTab('attendance')}
+                className={`px-4 py-2 text-xs font-bold transition-all rounded-t-xl cursor-pointer ${
+                  profileActiveTab === 'attendance'
+                    ? 'bg-indigo-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                📊 Attendance Logs
+              </button>
+              <button
+                type="button"
+                id="profile-tab-academic"
+                onClick={() => setProfileActiveTab('academic')}
+                className={`px-4 py-2 text-xs font-bold transition-all rounded-t-xl cursor-pointer ${
+                  profileActiveTab === 'academic'
+                    ? 'bg-indigo-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                📝 Academic Performance
+              </button>
+            </div>
+
+            {/* TAB CONTENT: DETAILS (Identity & Contacts) */}
+            {profileActiveTab === 'details' && (
+              <form onSubmit={handleUpdateStudentProfile} className="space-y-4">
+                {/* Profile Image & Camera Capture Area */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col items-center gap-3">
+                  <label className="block text-xs font-bold text-slate-700 font-display">Student Photo Identification</label>
+                  
+                  <div className="flex flex-col sm:flex-row items-center gap-4 w-full justify-center">
+                    {/* Current/Captured Photo Preview */}
+                    <div className="relative h-28 w-28 rounded-full border border-slate-200 overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
+                      {editStdPhotoUrl ? (
+                        <img src={editStdPhotoUrl} alt="Preview" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="text-slate-400 flex flex-col items-center justify-center gap-1">
+                          <Users size={24} />
+                          <span className="text-[9px] font-medium uppercase font-mono">No Photo</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Camera stream view when active */}
+                    {isCameraActive && (
+                      <div className="relative h-28 w-28 rounded-full border-2 border-dashed border-indigo-500 overflow-hidden bg-black shrink-0 flex items-center justify-center">
+                        <video id="camera-feed" className="h-full w-full object-cover" playsInline muted />
+                        <span className="absolute bottom-1 bg-indigo-600 text-[8px] text-white px-1.5 py-0.5 rounded font-mono font-bold animate-pulse">LIVE</span>
                       </div>
                     )}
-                  </div>
 
-                  {/* Camera stream view when active */}
-                  {isCameraActive && (
-                    <div className="relative h-28 w-28 rounded-full border-2 border-dashed border-indigo-500 overflow-hidden bg-black shrink-0 flex items-center justify-center">
-                      <video id="camera-feed" className="h-full w-full object-cover" playsInline muted />
-                      <span className="absolute bottom-1 bg-indigo-600 text-[8px] text-white px-1.5 py-0.5 rounded font-mono font-bold animate-pulse">LIVE</span>
-                    </div>
-                  )}
-
-                  {/* Camera action buttons */}
-                  <div className="flex flex-col gap-2">
-                    {!isCameraActive ? (
-                      <button
-                        type="button"
-                        onClick={startCamera}
-                        className="rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold px-4 py-2 text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                      >
-                        <Camera size={14} /> Take Photo (Webcam)
-                      </button>
-                    ) : (
-                      <div className="flex gap-2">
+                    {/* Camera action buttons */}
+                    <div className="flex flex-col gap-2">
+                      {!isCameraActive ? (
                         <button
                           type="button"
-                          onClick={capturePhoto}
-                          className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer"
+                          onClick={startCamera}
+                          className="rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold px-4 py-2 text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
                         >
-                          <Check size={14} /> Capture
+                          <Camera size={14} /> Take Photo (Webcam)
                         </button>
-                        <button
-                          type="button"
-                          onClick={stopCamera}
-                          className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-2 text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer"
-                        >
-                          <X size={14} /> Cancel
-                        </button>
-                      </div>
-                    )}
+                      ) : (
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={capturePhoto}
+                            className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer"
+                          >
+                            <Check size={14} /> Capture
+                          </button>
+                          <button
+                            type="button"
+                            onClick={stopCamera}
+                            className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-2 text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer"
+                          >
+                            <X size={14} /> Cancel
+                          </button>
+                        </div>
+                      )}
 
-                    <div className="text-[10px] text-slate-500 text-center sm:text-left">
-                      Supports direct image upload as data-URI via camera API.
-                    </div>
-                    {cameraError && (
-                      <div className="text-[10px] text-rose-600 bg-rose-50 border border-rose-100 px-2 py-1 rounded max-w-xs font-medium">
-                        ⚠️ {cameraError}
+                      <div className="text-[10px] text-slate-500 text-center sm:text-left">
+                        Supports direct image upload as data-URI via camera API.
                       </div>
-                    )}
+                      {cameraError && (
+                        <div className="text-[10px] text-rose-600 bg-rose-50 border border-rose-100 px-2 py-1 rounded max-w-xs font-medium">
+                          ⚠️ {cameraError}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Grid of inputs */}
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Student Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={editStdName}
-                    onChange={(e) => setEditStdName(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Class</label>
-                  <select
-                    value={editStdClass}
-                    onChange={(e) => setEditStdClass(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
-                  >
-                    <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
-                    <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
-                    <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
-                    <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Father's Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={editStdFatherName}
-                    onChange={(e) => setEditStdFatherName(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mother's Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={editStdMotherName}
-                    onChange={(e) => setEditStdMotherName(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date of Birth</label>
-                  <input
-                    type="date"
-                    required
-                    value={editStdDob}
-                    onChange={(e) => setEditStdDob(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Gender</label>
-                  <select
-                    value={editStdGender}
-                    onChange={(e) => setEditStdGender(e.target.value as 'Male' | 'Female')}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
-                  >
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Student Mobile</label>
-                  <input
-                    type="text"
-                    required
-                    value={editStdMobile}
-                    onChange={(e) => setEditStdMobile(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Parent Mobile</label>
-                  <input
-                    type="text"
-                    required
-                    value={editStdParentMobile}
-                    onChange={(e) => setEditStdParentMobile(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
-                  <input
-                    type="email"
-                    required
-                    value={editStdEmail}
-                    onChange={(e) => setEditStdEmail(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Roll Number</label>
-                  <input
-                    type="text"
-                    required
-                    value={editStdRollNo}
-                    onChange={(e) => setEditStdRollNo(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono font-bold"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Address</label>
-                  <textarea
-                    required
-                    rows={2}
-                    value={editStdAddress}
-                    onChange={(e) => setEditStdAddress(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                  />
-                </div>
-              </div>
-
-              {/* BILLING & TUITION SETTINGS SECTION */}
-              <div className="border-t border-slate-100 pt-4 mt-2">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-900 mb-3 flex items-center gap-1.5">
-                  💼 Official Billing & Tuition Settings
-                </h4>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {/* Grid of inputs */}
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Admission Date</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Student Name</label>
                     <input
-                      id="input-edit-std-admission-date"
-                      type="date"
+                      type="text"
                       required
-                      value={editStdAdmissionDate}
-                      onChange={(e) => setEditStdAdmissionDate(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      value={editStdName}
+                      onChange={(e) => setEditStdName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Fee Starts From</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Class</label>
                     <select
-                      id="select-edit-std-fee-start-month"
-                      required
-                      value={editStdFeeStartMonth}
-                      onChange={(e) => setEditStdFeeStartMonth(e.target.value)}
+                      value={editStdClass}
+                      onChange={(e) => setEditStdClass(e.target.value)}
                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
                     >
-                      {(() => {
-                        const monthsList = [];
-                        const today = new Date();
-                        const monthNames = [
-                          'January', 'February', 'March', 'April', 'May', 'June',
-                          'July', 'August', 'September', 'October', 'November', 'December'
-                        ];
-                        for (let i = -3; i < 9; i++) {
-                          const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
-                          monthsList.push(`${monthNames[d.getMonth()]} ${d.getFullYear()}`);
-                        }
-                        return monthsList.map(m => (
-                          <option key={m} value={m}>{m}</option>
-                        ));
-                      })()}
+                      <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
+                      <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
+                      <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
+                      <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Tuition Fee (₹)</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Father's Name</label>
                     <input
-                      id="input-edit-std-monthly-fee"
-                      type="number"
+                      type="text"
                       required
-                      min={0}
-                      value={editStdMonthlyFee}
-                      onChange={(e) => setEditStdMonthlyFee(Number(e.target.value))}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      value={editStdFatherName}
+                      onChange={(e) => setEditStdFatherName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Admission Fee (₹)</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Mother's Name</label>
                     <input
-                      id="input-edit-std-admission-fee"
-                      type="number"
-                      min={0}
-                      value={editStdAdmissionFee}
-                      onChange={(e) => setEditStdAdmissionFee(Number(e.target.value))}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Registration Fee (₹)</label>
-                    <input
-                      id="input-edit-std-registration-fee"
-                      type="number"
-                      min={0}
-                      value={editStdRegistrationFee}
-                      onChange={(e) => setEditStdRegistrationFee(Number(e.target.value))}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Discount Amount (₹)</label>
-                    <input
-                      id="input-edit-std-discount"
-                      type="number"
-                      min={0}
-                      value={editStdDiscount}
-                      onChange={(e) => setEditStdDiscount(Number(e.target.value))}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Scholarship Amount (₹)</label>
-                    <input
-                      id="input-edit-std-scholarship"
-                      type="number"
-                      min={0}
-                      value={editStdScholarship}
-                      onChange={(e) => setEditStdScholarship(Number(e.target.value))}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Fee Due Day of Month</label>
-                    <input
-                      id="input-edit-std-due-day"
-                      type="number"
+                      type="text"
                       required
-                      min={1}
-                      max={31}
-                      value={editStdDueDay}
-                      onChange={(e) => setEditStdDueDay(Number(e.target.value))}
+                      value={editStdMotherName}
+                      onChange={(e) => setEditStdMotherName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Date of Birth</label>
+                    <input
+                      type="date"
+                      required
+                      value={editStdDob}
+                      onChange={(e) => setEditStdDob(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Gender</label>
+                    <select
+                      value={editStdGender}
+                      onChange={(e) => setEditStdGender(e.target.value as 'Male' | 'Female')}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
+                    >
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Student Mobile</label>
+                    <input
+                      type="text"
+                      required
+                      value={editStdMobile}
+                      onChange={(e) => setEditStdMobile(e.target.value)}
                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Parent Mobile</label>
+                    <input
+                      type="text"
+                      required
+                      value={editStdParentMobile}
+                      onChange={(e) => setEditStdParentMobile(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      value={editStdEmail}
+                      onChange={(e) => setEditStdEmail(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Roll Number</label>
+                    <input
+                      type="text"
+                      required
+                      value={editStdRollNo}
+                      onChange={(e) => setEditStdRollNo(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Preferred Batch Name</label>
+                    <select
+                      value={editStdPreferredBatch}
+                      onChange={(e) => setEditStdPreferredBatch(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
+                    >
+                      <option value="">-- No Batch assigned --</option>
+                      {batches.map(b => (
+                        <option key={b.id} value={b.name}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Preferred Timing / Slot</label>
+                    <input
+                      type="text"
+                      value={editStdPreferredTiming}
+                      onChange={(e) => setEditStdPreferredTiming(e.target.value)}
+                      placeholder="e.g. 04:00 PM - 05:30 PM"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Enrolment Status</label>
+                    <select
+                      value={editStdStatus}
+                      onChange={(e) => setEditStdStatus(e.target.value as 'ACTIVE' | 'INACTIVE')}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer font-bold"
+                    >
+                      <option value="ACTIVE" className="text-emerald-700 font-bold">ACTIVE (Enrolled)</option>
+                      <option value="INACTIVE" className="text-slate-500">INACTIVE (Departed)</option>
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Home Address</label>
+                    <textarea
+                      required
+                      rows={2}
+                      value={editStdAddress}
+                      onChange={(e) => setEditStdAddress(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
                     />
                   </div>
                 </div>
-              </div>
 
-              {/* Footer CTAs */}
-              <div className="flex gap-2 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingStudent(null);
-                    stopCamera();
-                  }}
-                  className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2.5 text-xs transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"
-                >
-                  Save Profile
-                </button>
+                {/* Footer CTAs */}
+                <div className="flex gap-2 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingStudent(null);
+                      stopCamera();
+                    }}
+                    className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2.5 text-xs transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"
+                  >
+                    Save Identity & Close
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB CONTENT: BILLING (Tuition Settings) */}
+            {profileActiveTab === 'billing' && (
+              <form onSubmit={handleUpdateStudentProfile} className="space-y-4">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-900 mb-3 flex items-center gap-1.5">
+                    💼 Tuition & Fee Billing Structure
+                  </h4>
+                  
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Admission Date</label>
+                      <input
+                        id="input-edit-std-admission-date"
+                        type="date"
+                        required
+                        value={editStdAdmissionDate}
+                        onChange={(e) => setEditStdAdmissionDate(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Fee Starts From</label>
+                      <select
+                        id="select-edit-std-fee-start-month"
+                        required
+                        value={editStdFeeStartMonth}
+                        onChange={(e) => setEditStdFeeStartMonth(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
+                      >
+                        {(() => {
+                          const monthsList = [];
+                          const today = new Date();
+                          const monthNames = [
+                            'January', 'February', 'March', 'April', 'May', 'June',
+                            'July', 'August', 'September', 'October', 'November', 'December'
+                          ];
+                          for (let i = -3; i < 9; i++) {
+                            const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+                            monthsList.push(`${monthNames[d.getMonth()]} ${d.getFullYear()}`);
+                          }
+                          return monthsList.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ));
+                        })()}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Tuition Fee (₹)</label>
+                      <input
+                        id="input-edit-std-monthly-fee"
+                        type="number"
+                        required
+                        min={0}
+                        value={editStdMonthlyFee}
+                        onChange={(e) => setEditStdMonthlyFee(Number(e.target.value))}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Admission Fee (₹)</label>
+                      <input
+                        id="input-edit-std-admission-fee"
+                        type="number"
+                        min={0}
+                        value={editStdAdmissionFee}
+                        onChange={(e) => setEditStdAdmissionFee(Number(e.target.value))}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Registration Fee (₹)</label>
+                      <input
+                        id="input-edit-std-registration-fee"
+                        type="number"
+                        min={0}
+                        value={editStdRegistrationFee}
+                        onChange={(e) => setEditStdRegistrationFee(Number(e.target.value))}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Discount Amount (₹)</label>
+                      <input
+                        id="input-edit-std-discount"
+                        type="number"
+                        min={0}
+                        value={editStdDiscount}
+                        onChange={(e) => setEditStdDiscount(Number(e.target.value))}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Scholarship Amount (₹)</label>
+                      <input
+                        id="input-edit-std-scholarship"
+                        type="number"
+                        min={0}
+                        value={editStdScholarship}
+                        onChange={(e) => setEditStdScholarship(Number(e.target.value))}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Fee Due Day of Month</label>
+                      <input
+                        id="input-edit-std-due-day"
+                        type="number"
+                        required
+                        min={1}
+                        max={31}
+                        value={editStdDueDay}
+                        onChange={(e) => setEditStdDueDay(Number(e.target.value))}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer CTAs */}
+                <div className="flex gap-2 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingStudent(null);
+                      stopCamera();
+                    }}
+                    className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2.5 text-xs transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"
+                  >
+                    Save Billing & Close
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB CONTENT: FEES (Fee Ledger & Receipts) */}
+            {profileActiveTab === 'fees' && (
+              <div className="space-y-6">
+                {/* Add billing cycle / month form */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">➕ Generate Custom Fee Ledger Cycle</h4>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="flex-1 min-w-[140px]">
+                      <label className="block text-[10px] text-slate-500 mb-1 font-semibold">Select Target Month</label>
+                      <select
+                        value={newFeeMonth}
+                        onChange={(e) => setNewFeeMonth(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-indigo-900 cursor-pointer"
+                      >
+                        {(() => {
+                          const monthsList = [];
+                          const today = new Date();
+                          const monthNames = [
+                            'January', 'February', 'March', 'April', 'May', 'June',
+                            'July', 'August', 'September', 'October', 'November', 'December'
+                          ];
+                          for (let i = -6; i < 6; i++) {
+                            const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+                            monthsList.push(`${monthNames[d.getMonth()]} ${d.getFullYear()}`);
+                          }
+                          return monthsList.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ));
+                        })()}
+                      </select>
+                    </div>
+                    <div className="w-28">
+                      <label className="block text-[10px] text-slate-500 mb-1 font-semibold">Total Fee Amount (₹)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={newFeeTotal}
+                        onChange={(e) => setNewFeeTotal(Number(e.target.value))}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-indigo-900 font-mono"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      id="btn-add-fee-cycle"
+                      onClick={() => handleAddFeeStatus(editingStudent!.id, editingStudent!.name, editingStudent!.class)}
+                      className="rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold px-4 py-2 text-xs h-9 transition-colors cursor-pointer"
+                    >
+                      Add Ledger
+                    </button>
+                  </div>
+                </div>
+
+                {/* Ledger Table */}
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">📋 Billing Cycles & Payments Ledger</h4>
+                  <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-100">
+                          <th className="p-3">Month</th>
+                          <th className="p-3">Total (₹)</th>
+                          <th className="p-3">Paid (₹)</th>
+                          <th className="p-3">Pending (₹)</th>
+                          <th className="p-3">Status</th>
+                          <th className="p-3">Due Date</th>
+                          <th className="p-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {feeStatuses.filter(f => f.studentId === editingStudent?.id).length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="p-6 text-center text-slate-400 font-medium">
+                              No billing cycles registered. Add a cycle above or configure tuition start month.
+                            </td>
+                          </tr>
+                        ) : (
+                          feeStatuses.filter(f => f.studentId === editingStudent?.id).map(f => {
+                            const isEditingThis = editingFeeStatusId === f.id;
+                            return (
+                              <tr key={f.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                                <td className="p-3 font-semibold text-slate-800">{f.month}</td>
+                                <td className="p-3 font-mono">
+                                  {isEditingThis ? (
+                                    <input
+                                      type="number"
+                                      value={editFeeTotal}
+                                      onChange={(e) => {
+                                        setEditFeeTotal(Number(e.target.value));
+                                        setEditFeePending(Number(e.target.value) - editFeePaid);
+                                      }}
+                                      className="w-20 rounded border border-slate-200 px-1 py-0.5 text-xs text-slate-800"
+                                    />
+                                  ) : (
+                                    `₹${f.totalFee}`
+                                  )}
+                                </td>
+                                <td className="p-3 font-mono text-emerald-600 font-medium">
+                                  {isEditingThis ? (
+                                    <input
+                                      type="number"
+                                      value={editFeePaid}
+                                      onChange={(e) => {
+                                        setEditFeePaid(Number(e.target.value));
+                                        setEditFeePending(editFeeTotal - Number(e.target.value));
+                                      }}
+                                      className="w-20 rounded border border-slate-200 px-1 py-0.5 text-xs text-slate-800"
+                                    />
+                                  ) : (
+                                    `₹${f.paidFee}`
+                                  )}
+                                </td>
+                                <td className="p-3 font-mono text-rose-600 font-bold">
+                                  {isEditingThis ? (
+                                    <input
+                                      type="number"
+                                      value={editFeePending}
+                                      onChange={(e) => setEditFeePending(Number(e.target.value))}
+                                      className="w-20 rounded border border-slate-200 px-1 py-0.5 text-xs text-slate-800"
+                                    />
+                                  ) : (
+                                    `₹${f.pendingFee}`
+                                  )}
+                                </td>
+                                <td className="p-3">
+                                  {isEditingThis ? (
+                                    <select
+                                      value={editFeeStatusValue}
+                                      onChange={(e) => setEditFeeStatusValue(e.target.value as 'PAID' | 'PENDING' | 'PARTIAL')}
+                                      className="rounded border border-slate-200 px-1 py-0.5 text-xs"
+                                    >
+                                      <option value="PAID">PAID</option>
+                                      <option value="PENDING">PENDING</option>
+                                      <option value="PARTIAL">PARTIAL</option>
+                                    </select>
+                                  ) : (
+                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                      f.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' :
+                                      f.status === 'PARTIAL' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'
+                                    }`}>
+                                      {f.status}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3 font-mono">
+                                  {isEditingThis ? (
+                                    <input
+                                      type="date"
+                                      value={editFeeDueDate}
+                                      onChange={(e) => setEditFeeDueDate(e.target.value)}
+                                      className="rounded border border-slate-200 px-1 py-0.5 text-[10px]"
+                                    />
+                                  ) : (
+                                    f.dueDate
+                                  )}
+                                </td>
+                                <td className="p-3 text-right">
+                                  {isEditingThis ? (
+                                    <div className="flex gap-1.5 justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveFeeStatus(f.id)}
+                                        className="text-emerald-600 hover:text-emerald-700 font-bold px-1.5 py-0.5 border border-emerald-200 rounded hover:bg-emerald-50 cursor-pointer"
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingFeeStatusId(null)}
+                                        className="text-slate-500 hover:text-slate-600 px-1.5 py-0.5 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex gap-2 justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingFeeStatusId(f.id);
+                                          setEditFeeTotal(f.totalFee);
+                                          setEditFeePaid(f.paidFee);
+                                          setEditFeePending(f.pendingFee);
+                                          setEditFeeStatusValue(f.status);
+                                          setEditFeeDueDate(f.dueDate);
+                                        }}
+                                        className="text-indigo-900 hover:text-indigo-950 font-semibold cursor-pointer"
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteFeeStatus(f.id)}
+                                        className="text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Receipts History */}
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">🧾 Transactions & Receipts History</h4>
+                  <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm max-h-60 overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-100">
+                          <th className="p-3">Receipt ID</th>
+                          <th className="p-3">Month</th>
+                          <th className="p-3">Amount Paid (₹)</th>
+                          <th className="p-3">Method</th>
+                          <th className="p-3">Transaction Info</th>
+                          <th className="p-3">Collected On</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {feeReceipts.filter(r => r.studentId === editingStudent?.id).length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="p-6 text-center text-slate-400 font-medium">
+                              No payment receipts found. Use "Quick Collect" from dashboard to capture real transactions.
+                            </td>
+                          </tr>
+                        ) : (
+                          feeReceipts.filter(r => r.studentId === editingStudent?.id).map(r => (
+                            <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                              <td className="p-3 font-mono font-bold text-slate-600">{r.id}</td>
+                              <td className="p-3 font-semibold text-slate-700">{r.month}</td>
+                              <td className="p-3 font-mono font-bold text-emerald-600">₹{r.amountPaid}</td>
+                              <td className="p-3">
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-bold text-[10px]">
+                                  {r.paymentMethod}
+                                </span>
+                              </td>
+                              <td className="p-3 font-mono text-slate-500">{r.transactionId || '—'}</td>
+                              <td className="p-3 text-slate-500 font-mono">
+                                {r.date || new Date().toISOString().split('T')[0]}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Footer close button only */}
+                <div className="flex gap-2 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingStudent(null);
+                      stopCamera();
+                    }}
+                    className="flex-1 rounded-xl bg-slate-900 hover:bg-black text-white font-bold py-2.5 text-xs transition-colors cursor-pointer"
+                  >
+                    Close Profile Hub
+                  </button>
+                </div>
               </div>
-            </form>
+            )}
+
+            {/* TAB CONTENT: ATTENDANCE (Attendance Logs) */}
+            {profileActiveTab === 'attendance' && (
+              <div className="space-y-6">
+                {/* Attendance Summary and Metrics */}
+                {(() => {
+                  const studentAtt = attendanceList.filter(a => a.studentId === editingStudent?.id);
+                  const total = studentAtt.length;
+                  const present = studentAtt.filter(a => a.status === 'PRESENT').length;
+                  const absent = studentAtt.filter(a => a.status === 'ABSENT').length;
+                  const late = studentAtt.filter(a => a.status === 'LATE').length;
+                  const leave = studentAtt.filter(a => a.status === 'LEAVE').length;
+                  const percentage = total > 0 ? Math.round(((present + late * 0.7 + leave * 0.5) / total) * 100) : 100;
+
+                  return (
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                      <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-2xl text-center">
+                        <span className="text-[10px] text-indigo-700 block uppercase font-bold tracking-wider mb-1">Percentage</span>
+                        <strong className="text-xl text-indigo-950 font-display">{percentage}%</strong>
+                      </div>
+                      <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-2xl text-center">
+                        <span className="text-[10px] text-emerald-700 block uppercase font-bold tracking-wider mb-1">Present</span>
+                        <strong className="text-xl text-emerald-950 font-display">{present} Days</strong>
+                      </div>
+                      <div className="bg-rose-50 border border-rose-100 p-3 rounded-2xl text-center">
+                        <span className="text-[10px] text-rose-700 block uppercase font-bold tracking-wider mb-1">Absent</span>
+                        <strong className="text-xl text-rose-950 font-display">{absent} Days</strong>
+                      </div>
+                      <div className="bg-amber-50 border border-amber-100 p-3 rounded-2xl text-center">
+                        <span className="text-[10px] text-amber-700 block uppercase font-bold tracking-wider mb-1">Late Arrival</span>
+                        <strong className="text-xl text-amber-950 font-display">{late} Days</strong>
+                      </div>
+                      <div className="bg-slate-100 border border-slate-200 p-3 rounded-2xl text-center col-span-2 sm:col-span-1">
+                        <span className="text-[10px] text-slate-700 block uppercase font-bold tracking-wider mb-1">Apprvd Leave</span>
+                        <strong className="text-xl text-slate-800 font-display">{leave} Days</strong>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Form to log new attendance entry */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">➕ Record Daily Attendance Log</h4>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="w-36">
+                      <label className="block text-[10px] text-slate-500 mb-1 font-semibold">Log Date</label>
+                      <input
+                        type="date"
+                        value={newAttDate}
+                        onChange={(e) => setNewAttDate(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-indigo-900 font-mono"
+                      />
+                    </div>
+                    <div className="w-36">
+                      <label className="block text-[10px] text-slate-500 mb-1 font-semibold">Attendance Status</label>
+                      <select
+                        value={newAttStatus}
+                        onChange={(e) => setNewAttStatus(e.target.value as any)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-indigo-900 cursor-pointer"
+                      >
+                        <option value="PRESENT">PRESENT</option>
+                        <option value="ABSENT">ABSENT</option>
+                        <option value="LATE">LATE</option>
+                        <option value="LEAVE">APPROVED LEAVE</option>
+                      </select>
+                    </div>
+                    <div className="flex-1 min-w-[140px]">
+                      <label className="block text-[10px] text-slate-500 mb-1 font-semibold">Log Remarks (Optional)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Approved medical leave"
+                        value={newAttRemarks}
+                        onChange={(e) => setNewAttRemarks(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-indigo-900"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      id="btn-add-attendance"
+                      onClick={() => handleAddAttendance(editingStudent!.id, editingStudent!.name, editingStudent!.class)}
+                      className="rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold px-4 py-2 text-xs h-9 transition-colors cursor-pointer"
+                    >
+                      Record Day
+                    </button>
+                  </div>
+                </div>
+
+                {/* Attendance Logs Table */}
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">📅 History Ledger Logs</h4>
+                  <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm max-h-80 overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-100">
+                          <th className="p-3">Date</th>
+                          <th className="p-3">Status</th>
+                          <th className="p-3">Logged By</th>
+                          <th className="p-3">Remarks / Details</th>
+                          <th className="p-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {attendanceList.filter(a => a.studentId === editingStudent?.id).length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="p-6 text-center text-slate-400 font-medium">
+                              No daily attendance records logged in database. Mark a record above.
+                            </td>
+                          </tr>
+                        ) : (
+                          [...attendanceList.filter(a => a.studentId === editingStudent?.id)]
+                            .sort((a, b) => b.date.localeCompare(a.date))
+                            .map(a => {
+                              const isEditingThis = editingAttendanceId === a.id;
+                              return (
+                                <tr key={a.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                                  <td className="p-3 font-mono font-medium">
+                                    {isEditingThis ? (
+                                      <input
+                                        type="date"
+                                        value={editAttDate}
+                                        onChange={(e) => setEditAttDate(e.target.value)}
+                                        className="rounded border border-slate-200 px-1 py-0.5 text-xs font-mono"
+                                      />
+                                    ) : (
+                                      a.date
+                                    )}
+                                  </td>
+                                  <td className="p-3">
+                                    {isEditingThis ? (
+                                      <select
+                                        value={editAttStatus}
+                                        onChange={(e) => setEditAttStatus(e.target.value as any)}
+                                        className="rounded border border-slate-200 px-1 py-0.5 text-xs"
+                                      >
+                                        <option value="PRESENT">PRESENT</option>
+                                        <option value="ABSENT">ABSENT</option>
+                                        <option value="LATE">LATE</option>
+                                        <option value="LEAVE">LEAVE</option>
+                                      </select>
+                                    ) : (
+                                      <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold ${
+                                        a.status === 'PRESENT' ? 'bg-emerald-50 text-emerald-700' :
+                                        a.status === 'ABSENT' ? 'bg-rose-50 text-rose-700' :
+                                        a.status === 'LATE' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-700'
+                                      }`}>
+                                        {a.status}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="p-3 text-slate-500 font-medium">{a.markedBy}</td>
+                                  <td className="p-3 text-slate-600 italic">
+                                    {isEditingThis ? (
+                                      <input
+                                        type="text"
+                                        value={editAttRemarks}
+                                        onChange={(e) => setEditAttRemarks(e.target.value)}
+                                        className="w-full rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-700"
+                                      />
+                                    ) : (
+                                      a.remarks || '—'
+                                    )}
+                                  </td>
+                                  <td className="p-3 text-right">
+                                    {isEditingThis ? (
+                                      <div className="flex gap-1.5 justify-end">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSaveAttendance(a.id)}
+                                          className="text-emerald-600 hover:text-emerald-700 font-bold px-1.5 py-0.5 border border-emerald-200 rounded hover:bg-emerald-50 cursor-pointer"
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingAttendanceId(null)}
+                                          className="text-slate-500 hover:text-slate-600 px-1.5 py-0.5 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex gap-2 justify-end">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingAttendanceId(a.id);
+                                            setEditAttDate(a.date);
+                                            setEditAttStatus(a.status as any);
+                                            setEditAttRemarks(a.remarks || '');
+                                          }}
+                                          className="text-indigo-900 hover:text-indigo-950 font-semibold cursor-pointer"
+                                        >
+                                          Edit
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteAttendance(a.id)}
+                                          className="text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
+                                        >
+                                          Delete
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Footer close button only */}
+                <div className="flex gap-2 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingStudent(null);
+                      stopCamera();
+                    }}
+                    className="flex-1 rounded-xl bg-slate-900 hover:bg-black text-white font-bold py-2.5 text-xs transition-colors cursor-pointer"
+                  >
+                    Close Profile Hub
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT: ACADEMIC PERFORMANCE (Scorecard) */}
+            {profileActiveTab === 'academic' && (
+              <div className="space-y-6">
+                {/* Form to log a new mark scorecard entry */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 font-display">➕ Add New Academic Test Score Card</h4>
+                  
+                  {tests.length === 0 ? (
+                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 p-2.5 rounded-xl font-medium">
+                      ⚠️ No tests are registered globally in the ERP. Please register some standard exams/tests first to record specific grades, or select standard generic tests from other modules.
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="flex-1 min-w-[200px]">
+                        <label className="block text-[10px] text-slate-500 mb-1 font-semibold">Select Test Paper</label>
+                        <select
+                          value={newMarkTestId}
+                          onChange={(e) => {
+                            setNewMarkTestId(e.target.value);
+                            const matchedT = tests.find(t => t.id === e.target.value);
+                            if (matchedT) {
+                              setNewMarkTotal(matchedT.totalMarks);
+                            }
+                          }}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-indigo-900 cursor-pointer"
+                        >
+                          <option value="">-- Choose registered Test --</option>
+                          {tests.map(t => (
+                            <option key={t.id} value={t.id}>{t.title} - {t.subject} ({t.totalMarks} Marks)</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="w-32">
+                        <label className="block text-[10px] text-slate-500 mb-1 font-semibold">Marks Obtained</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={newMarkTotal}
+                          value={newMarkObtained}
+                          onChange={(e) => setNewMarkObtained(Number(e.target.value))}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-indigo-900 font-mono"
+                        />
+                      </div>
+                      <div className="w-24">
+                        <label className="block text-[10px] text-slate-500 mb-1 font-semibold">Total Marks</label>
+                        <input
+                          type="number"
+                          disabled
+                          value={newMarkTotal}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs text-slate-500 font-mono outline-none"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-[140px]">
+                        <label className="block text-[10px] text-slate-500 mb-1 font-semibold">Teacher Remarks</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Excellent progress in Mathematics"
+                          value={newMarkRemarks}
+                          onChange={(e) => setNewMarkRemarks(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-indigo-900"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        id="btn-add-mark"
+                        onClick={() => handleAddMark(editingStudent!.id, editingStudent!.name, editingStudent!.class)}
+                        className="rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold px-4 py-2 text-xs h-9 transition-colors cursor-pointer"
+                      >
+                        Record Score
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Scorecard table */}
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 font-display">📝 Academic Exam Report Card</h4>
+                  <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-100">
+                          <th className="p-3">Test / Paper Name</th>
+                          <th className="p-3">Subject</th>
+                          <th className="p-3">Exam Date</th>
+                          <th className="p-3">Score Card (Obtained/Total)</th>
+                          <th className="p-3">Percentage</th>
+                          <th className="p-3">Feedback Remarks</th>
+                          <th className="p-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {studentMarks.filter(m => m.studentId === editingStudent?.id).length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="p-6 text-center text-slate-400 font-medium">
+                              No examination test records linked to this student.
+                            </td>
+                          </tr>
+                        ) : (
+                          studentMarks.filter(m => m.studentId === editingStudent?.id).map(m => {
+                            const matchingTest = tests.find(t => t.id === m.testId);
+                            const testTitle = matchingTest ? matchingTest.title : 'Custom Evaluation Test';
+                            const testSubject = matchingTest ? matchingTest.subject : 'General Subject';
+                            const testDate = matchingTest ? matchingTest.date : '—';
+                            const totalM = matchingTest ? matchingTest.totalMarks : 100;
+                            const scorePercentage = Math.round((m.marksObtained / totalM) * 100);
+                            const isEditingThis = editingMarkId === m.id;
+
+                            return (
+                              <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                                <td className="p-3 font-semibold text-slate-800">{testTitle}</td>
+                                <td className="p-3 text-slate-600">{testSubject}</td>
+                                <td className="p-3 text-slate-500 font-mono">{testDate}</td>
+                                <td className="p-3 font-mono">
+                                  {isEditingThis ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <input
+                                        type="number"
+                                        max={totalM}
+                                        value={editMarkObtained}
+                                        onChange={(e) => setEditMarkObtained(Number(e.target.value))}
+                                        className="w-16 rounded border border-slate-200 px-1 py-0.5 text-xs font-mono"
+                                      />
+                                      <span className="text-slate-400">/ {totalM}</span>
+                                    </div>
+                                  ) : (
+                                    <strong className="text-slate-800 font-bold">{m.marksObtained}</strong>
+                                  )}
+                                  {!isEditingThis && <span className="text-slate-400"> / {totalM}</span>}
+                                </td>
+                                <td className="p-3">
+                                  <span className={`px-2 py-0.5 rounded-full font-bold font-mono text-[9px] ${
+                                    scorePercentage >= 75 ? 'bg-emerald-50 text-emerald-700' :
+                                    scorePercentage >= 40 ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'
+                                  }`}>
+                                    {scorePercentage}%
+                                  </span>
+                                </td>
+                                <td className="p-3 italic text-slate-600">
+                                  {isEditingThis ? (
+                                    <input
+                                      type="text"
+                                      value={editMarkRemarks}
+                                      onChange={(e) => setEditMarkRemarks(e.target.value)}
+                                      className="w-full rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-700"
+                                    />
+                                  ) : (
+                                    m.remarks || 'No feedback logged'
+                                  )}
+                                </td>
+                                <td className="p-3 text-right">
+                                  {isEditingThis ? (
+                                    <div className="flex gap-1.5 justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveMark(m.id)}
+                                        className="text-emerald-600 hover:text-emerald-700 font-bold px-1.5 py-0.5 border border-emerald-200 rounded hover:bg-emerald-50 cursor-pointer"
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingMarkId(null)}
+                                        className="text-slate-500 hover:text-slate-600 px-1.5 py-0.5 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex gap-2 justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingMarkId(m.id);
+                                          setEditMarkObtained(m.marksObtained);
+                                          setEditMarkRemarks(m.remarks || '');
+                                        }}
+                                        className="text-indigo-900 hover:text-indigo-950 font-semibold cursor-pointer"
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteMark(m.id)}
+                                        className="text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Footer close button only */}
+                <div className="flex gap-2 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingStudent(null);
+                      stopCamera();
+                    }}
+                    className="flex-1 rounded-xl bg-slate-900 hover:bg-black text-white font-bold py-2.5 text-xs transition-colors cursor-pointer"
+                  >
+                    Close Profile Hub
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -61,6 +61,24 @@ export function compareMonths(a: string, b: string): number {
 }
 
 /**
+ * Returns the Current Month and Next Month formatted strings (e.g. "July 2026", "August 2026").
+ * It ensures we always operate in the current month and next month dynamically.
+ */
+export function getCurrentAndNextMonths(): { currentMonth: string; nextMonth: string } {
+  const d = new Date();
+  const y = d.getFullYear() < 2026 ? 2026 : d.getFullYear();
+  const m = d.getMonth();
+  
+  const currentMonth = formatMonthYear(m, y);
+  
+  const nextM = (m + 1) % 12;
+  const nextY = y + (m === 11 ? 1 : 0);
+  const nextMonth = formatMonthYear(nextM, nextY);
+  
+  return { currentMonth, nextMonth };
+}
+
+/**
  * Calculates a standard "YYYY-MM-DD" due date string for a given month and day of month.
  */
 export function calculateDueDate(monthStr: string, dueDay: number): string {

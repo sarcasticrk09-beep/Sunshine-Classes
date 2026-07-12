@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Upload, 
@@ -9,18 +9,33 @@ import {
   AlertCircle, 
   Trash2, 
   File, 
-  Eye 
+  Eye,
+  Crop,
+  RotateCw,
+  Plus
 } from "lucide-react";
 import { cloudinaryService, getPublicIdFromUrl, getOptimizedImageUrl } from "../services/cloudinaryService";
 
 interface CloudinaryUploadProps {
   id: string;
-  context: "students" | "teachers" | "documents" | "study-material" | "assignments" | "results" | "notices" | "gallery" | "settings";
+  // Backward compatibility with first interface:
+  context?: "students" | "teachers" | "documents" | "study-material" | "assignments" | "results" | "notices" | "gallery" | "settings";
   value?: string;
-  onChange: (url: string) => void;
+  onChange?: (url: string) => void;
+  
+  // Backward compatibility with second interface:
+  folder?: "students" | "teachers" | "documents" | "study-material" | "assignments" | "results" | "notices" | "gallery" | "settings" | "homework";
+  cloudName?: string;
+  uploadPreset?: string;
+  apiKey?: string;
+  apiSecret?: string;
+  maxSizeMB?: number;
+  initialUrl?: string;
+  onUploadSuccess?: (url: string) => void;
+  onFileDeleted?: () => void;
   allowedTypes?: string[]; // e.g. ["jpg", "jpeg", "png", "webp", "pdf", "docx", "xlsx"]
-  maxSizeMB?: number; // defaults to 10MB
   label?: string;
+  multiple?: boolean;
 }
 
 export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
@@ -28,15 +43,58 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
   context,
   value,
   onChange,
-  allowedTypes = ["jpg", "jpeg", "png", "webp", "pdf", "docx", "xlsx"],
+  folder,
   maxSizeMB = 10,
-  label = "Upload File"
+  initialUrl,
+  onUploadSuccess,
+  onFileDeleted,
+  allowedTypes = ["jpg", "jpeg", "png", "webp", "pdf", "docx", "xlsx"],
+  label,
+  multiple
 }) => {
+  // Normalize inputs: support both signature styles seamlessly
+  const resolvedFolder = folder || context || "documents";
+  const resolvedValue = value !== undefined ? value : (initialUrl !== undefined ? initialUrl : "");
+  
+  const resolvedOnChange = (newUrl: string) => {
+    if (onChange) onChange(newUrl);
+    if (onUploadSuccess) onUploadSuccess(newUrl);
+    if (newUrl === "" && onFileDeleted) onFileDeleted();
+  };
+
+  const isMultipleMode = multiple || resolvedFolder === "assignments" || resolvedFolder === "homework";
+
+  // Split value into multiple files if multiple mode
+  const fileUrls = isMultipleMode 
+    ? resolvedValue.split(",").map(url => url.trim()).filter(Boolean)
+    : resolvedValue ? [resolvedValue] : [];
+
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [currentFile, setCurrentFile] = useState<File | null>(null);
+  
+  // Cropping Tool States
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cropImageRef = useRef<HTMLImageElement>(null);
+  const cropContainerRef = useRef<HTMLDivElement>(null);
+
+  // Clean up object URLs to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (cropImageSrc && cropImageSrc.startsWith("blob:")) {
+        URL.revokeObjectURL(cropImageSrc);
+      }
+    };
+  }, [cropImageSrc]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -52,24 +110,25 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
     setIsDragOver(false);
     const file = e.dataTransfer.files[0];
     if (file) {
-      processFile(file);
+      preProcessFile(file);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      processFile(file);
+      preProcessFile(file);
     }
   };
 
-  const processFile = async (file: File) => {
+  const preProcessFile = (file: File) => {
     setError(null);
     setCurrentFile(file);
-    setUploadProgress(0);
 
-    const folderName = cloudinaryService.getFolderByContext(context);
-    const maxSizeBytes = maxSizeMB * 1024 * 1024;
+    // Validate size and format
+    const isPdf = file.name.split(".").pop()?.toLowerCase() === "pdf";
+    const actualMaxMB = isPdf ? 20 : maxSizeMB; // PDFs allowed up to 20MB, others up to maxSizeMB (default 10MB)
+    const maxSizeBytes = actualMaxMB * 1024 * 1024;
 
     const validation = cloudinaryService.validateFile(file, {
       allowedTypes,
@@ -77,10 +136,32 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
     });
 
     if (!validation.isValid) {
-      setError(validation.error || "Invalid file.");
-      setUploadProgress(null);
+      setError(validation.error || "Invalid file size or format.");
       return;
     }
+
+    // Circular crop is ONLY for Student or Teacher profile photos
+    const isProfileContext = resolvedFolder === "students" || resolvedFolder === "teachers";
+    const isImage = file.type.startsWith("image/");
+
+    if (isProfileContext && isImage) {
+      const imageUrl = URL.createObjectURL(file);
+      setCropImageSrc(imageUrl);
+      setZoom(1);
+      setRotation(0);
+      setOffset({ x: 0, y: 0 });
+      setShowCropModal(true);
+    } else {
+      uploadProcessedFile(file);
+    }
+  };
+
+  const uploadProcessedFile = async (file: File) => {
+    setUploadProgress(0);
+    const isPdf = file.name.split(".").pop()?.toLowerCase() === "pdf";
+    const actualMaxMB = isPdf ? 20 : maxSizeMB;
+    const maxSizeBytes = actualMaxMB * 1024 * 1024;
+    const folderName = cloudinaryService.getFolderByContext(resolvedFolder as any) || resolvedFolder;
 
     try {
       const result = await cloudinaryService.uploadFile(file, {
@@ -92,11 +173,17 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
         },
       });
 
-      onChange(result.secure_url);
+      if (isMultipleMode) {
+        const updatedUrls = [...fileUrls, result.secure_url];
+        resolvedOnChange(updatedUrls.join(","));
+      } else {
+        resolvedOnChange(result.secure_url);
+      }
       setUploadProgress(null);
+      setCurrentFile(null);
     } catch (err: any) {
       console.error("Cloudinary upload failed:", err);
-      setError(err.message || "Something went wrong during file upload. Please retry.");
+      setError(err.message || "Failed to upload file. Please try again.");
       setUploadProgress(null);
     }
   };
@@ -110,9 +197,10 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
     }
   };
 
-  const handleDelete = async () => {
-    if (value) {
-      const publicId = getPublicIdFromUrl(value);
+  const handleDelete = async (indexToDelete: number) => {
+    const urlToDelete = fileUrls[indexToDelete];
+    if (urlToDelete) {
+      const publicId = getPublicIdFromUrl(urlToDelete);
       if (publicId) {
         setUploadProgress(0);
         try {
@@ -124,223 +212,435 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
         }
       }
     }
-    onChange("");
-    setCurrentFile(null);
+
+    if (isMultipleMode) {
+      const updatedUrls = fileUrls.filter((_, idx) => idx !== indexToDelete);
+      resolvedOnChange(updatedUrls.join(","));
+    } else {
+      resolvedOnChange("");
+    }
+
     setError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
-  const fileExtension = value ? value.split(".").pop()?.toLowerCase() : "";
-  const isImageValue = value && ["jpg", "jpeg", "png", "webp"].includes(fileExtension || "");
-  const isPdfValue = value && fileExtension === "pdf";
+  // Crop Canvas Math
+  const handleCropSave = async () => {
+    if (!cropImageRef.current || !currentFile) return;
+
+    const img = cropImageRef.current;
+    const canvas = document.createElement("canvas");
+    canvas.width = 300;
+    canvas.height = 300;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Calculations based on 200x200px crop circle container
+    const cropBoxSize = 200;
+    const containerSize = 280;
+    
+    // Original image physical vs display scale
+    const displayWidth = img.width;
+    const displayHeight = img.height;
+    
+    // Scale factor
+    const scaleX = img.naturalWidth / displayWidth;
+    const scaleY = img.naturalHeight / displayHeight;
+
+    // Middle coordinate of crop circle relative to display image top-left
+    const centerX = containerSize / 2;
+    const centerY = containerSize / 2;
+
+    // Display coordinates of cropping region center (adjusted for dragging offsets)
+    const cropDisplayX = centerX - offset.x;
+    const cropDisplayY = centerY - offset.y;
+
+    // Crop box width/height in display size
+    const displayCropW = cropBoxSize / zoom;
+    const displayCropH = cropBoxSize / zoom;
+
+    // Map back to natural image coordinates
+    const sourceX = (cropDisplayX - displayCropW / 2) * scaleX;
+    const sourceY = (cropDisplayY - displayCropH / 2) * scaleY;
+    const sourceW = displayCropW * scaleX;
+    const sourceH = displayCropH * scaleY;
+
+    // Render onto canvas
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, 300, 300);
+
+    // Apply rotation if any
+    if (rotation !== 0) {
+      ctx.translate(150, 150);
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.translate(-150, -150);
+    }
+
+    ctx.drawImage(
+      img,
+      Math.max(0, sourceX),
+      Math.max(0, sourceY),
+      Math.min(img.naturalWidth, sourceW),
+      Math.min(img.naturalHeight, sourceH),
+      0,
+      0,
+      300,
+      300
+    );
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const croppedFile = new File([blob], `cropped_${currentFile.name}`, {
+          type: "image/jpeg",
+        });
+        setShowCropModal(false);
+        uploadProcessedFile(croppedFile);
+      }
+    }, "image/jpeg", 0.95);
+  };
+
+  // Drag listeners inside Crop Modal
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setOffset({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y,
+    });
+  };
+
+  const handleMouseUpOrLeave = () => {
+    setIsDragging(false);
+  };
+
+  // Touch handlers for mobile cropping
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      setIsDragging(true);
+      const touch = e.touches[0];
+      setDragStart({ x: touch.clientX - offset.x, y: touch.clientY - offset.y });
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    setOffset({
+      x: touch.clientX - dragStart.x,
+      y: touch.clientY - dragStart.y,
+    });
+  };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 text-left">
       {label && (
-        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+        <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide">
           {label}
         </label>
       )}
 
-      <div
-        id={`cloudinary-upload-container-${id}`}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className={`relative border-2 border-dashed rounded-2xl p-5 text-center transition-all duration-200 bg-slate-50/50 dark:bg-slate-900/30 ${
-          isDragOver
-            ? "border-brand-blue bg-blue-50/30 dark:bg-blue-900/10 scale-[0.99]"
-            : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
-        }`}
-      >
-        <input
-          id={id}
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          accept={allowedTypes.map((t) => `.${t}`).join(",")}
-          className="hidden"
-        />
+      {/* Grid of uploaded files in multiple mode */}
+      {fileUrls.length > 0 && (
+        <div className="grid gap-2.5 sm:grid-cols-2 mb-2">
+          {fileUrls.map((url, idx) => {
+            const ext = url.split(".").pop()?.toLowerCase() || "";
+            const isImageFile = ["jpg", "jpeg", "png", "webp", "gif"].includes(ext);
+            const isPdfFile = ext === "pdf";
 
-        <AnimatePresence mode="wait">
-          {/* 1. Value preview (Image / File uploaded) */}
-          {value && !uploadProgress ? (
-            <motion.div
-              key="preview"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="flex flex-col items-center justify-center space-y-4"
-            >
-              {isImageValue ? (
-                <div className="relative group rounded-xl overflow-hidden shadow-md max-w-xs border border-slate-100 dark:border-slate-800">
-                  <img
-                    src={getOptimizedImageUrl(value, context === "students" || context === "teachers" ? "profile" : "thumbnail")}
-                    alt="Upload Preview"
-                    className="h-32 w-auto object-cover rounded-xl"
-                    referrerPolicy="no-referrer"
-                    loading="lazy"
-                  />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-3">
-                    <a
-                      href={value}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-1.5 bg-white text-slate-800 rounded-full hover:bg-slate-100 shadow-sm transition-colors"
-                      title="View Image"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </a>
-                    <button
-                      type="button"
-                      onClick={handleDelete}
-                      className="p-1.5 bg-red-600 text-white rounded-full hover:bg-red-700 shadow-sm transition-colors"
-                      title="Remove Image"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              ) : isPdfValue ? (
-                <div className="flex items-center gap-3 bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs max-w-sm w-full justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 bg-red-50 dark:bg-red-950/30 text-red-600 rounded-lg">
+            return (
+              <div 
+                key={idx} 
+                className="flex items-center gap-2.5 bg-slate-50/75 dark:bg-slate-900/40 p-2.5 rounded-xl border border-slate-150 dark:border-slate-800 justify-between shadow-3xs"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {isImageFile ? (
+                    <img
+                      src={getOptimizedImageUrl(url, "thumbnail")}
+                      alt={`Preview ${idx + 1}`}
+                      className="h-9 w-9 object-cover rounded-lg border border-slate-200 shrink-0 bg-white"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className={`p-2 rounded-lg shrink-0 ${isPdfFile ? "bg-red-50 text-red-600" : "bg-indigo-50 text-indigo-600"}`}>
                       <FileText className="h-5 w-5" />
                     </div>
-                    <div className="text-left">
-                      <span className="block text-xs font-bold text-slate-700 dark:text-slate-200 truncate max-w-[180px]">
-                        {value.split("/").pop() || "Document.pdf"}
-                      </span>
-                      <span className="text-[10px] text-slate-400">PDF Document</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <a
-                      href={value}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                      title="Open PDF"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </a>
-                    <button
-                      type="button"
-                      onClick={handleDelete}
-                      className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors"
-                      title="Delete file"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                  )}
+                  <div className="text-left min-w-0">
+                    <span className="block text-[10.5px] font-bold text-slate-700 dark:text-slate-200 truncate max-w-[140px]" title={url}>
+                      {url.split("/").pop() || `File_${idx + 1}.${ext}`}
+                    </span>
+                    <span className="text-[9px] text-slate-400 font-medium uppercase tracking-wider">
+                      {isImageFile ? "Image Asset" : isPdfFile ? "PDF Document" : `${ext} File`}
+                    </span>
                   </div>
                 </div>
-              ) : (
-                <div className="flex items-center gap-3 bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs max-w-sm w-full justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 bg-slate-100 dark:bg-slate-700 text-slate-600 rounded-lg">
-                      <File className="h-5 w-5" />
-                    </div>
-                    <div className="text-left">
-                      <span className="block text-xs font-bold text-slate-700 dark:text-slate-200 truncate max-w-[180px]">
-                        {value.split("/").pop() || "Attachment"}
-                      </span>
-                      <span className="text-[10px] text-slate-400 uppercase">{fileExtension || "FILE"}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <a
-                      href={value}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </a>
-                    <button
-                      type="button"
-                      onClick={handleDelete}
-                      className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              )}
 
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="text-[10px] font-bold text-brand-blue hover:underline cursor-pointer"
-              >
-                Replace file with another
-              </button>
-            </motion.div>
-          ) : uploadProgress !== null ? (
-            /* 2. Uploading state with cancellation */
-            <motion.div
-              key="uploading"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="py-4 flex flex-col items-center"
-            >
-              <RefreshCw className="h-7 w-7 text-brand-blue animate-spin mb-3" />
-              <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                Uploading {currentFile?.name || "file"}...
-              </p>
-              
-              <div className="w-full max-w-xs bg-slate-100 dark:bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
-                <div 
-                  className="bg-brand-blue h-full transition-all duration-150" 
-                  style={{ width: `${uploadProgress}%` }}
-                />
+                <div className="flex items-center gap-1">
+                  <a
+                    id={`${id}-preview-btn-${idx}`}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors cursor-pointer"
+                    title="View Full Size"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                  </a>
+                  <button
+                    id={`${id}-delete-btn-${idx}`}
+                    type="button"
+                    onClick={() => handleDelete(idx)}
+                    className="p-1.5 text-red-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg transition-colors cursor-pointer"
+                    title="Remove Attachment"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
-              
-              <div className="flex justify-between w-full max-w-xs mt-1.5 px-0.5 text-[10px]">
-                <span className="text-slate-400">{uploadProgress}%</span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Upload Zone */}
+      {(!resolvedValue || isMultipleMode || uploadProgress !== null) && (
+        <div
+          id={`cloudinary-upload-container-${id}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`relative border-2 border-dashed rounded-xl p-4 text-center transition-all duration-200 bg-slate-50/20 dark:bg-slate-950/10 ${
+            isDragOver
+              ? "border-emerald-600 bg-emerald-50/10 scale-[0.99]"
+              : "border-slate-200 dark:border-slate-850 hover:border-slate-300 dark:hover:border-slate-800"
+          }`}
+        >
+          <input
+            id={id}
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept={allowedTypes.map((t) => `.${t}`).join(",")}
+            className="hidden"
+          />
+
+          <AnimatePresence mode="wait">
+            {uploadProgress !== null ? (
+              /* Uploading State */
+              <motion.div
+                key="uploading"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="py-3 flex flex-col items-center justify-center"
+              >
+                <RefreshCw className="h-6 w-6 text-emerald-600 animate-spin mb-2" />
+                <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                  Uploading {currentFile?.name || "file"} ({uploadProgress}%)
+                </p>
+                <div className="w-full max-w-xs bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 mt-2 overflow-hidden">
+                  <div 
+                    className="bg-emerald-600 h-full transition-all duration-150" 
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
                 <button
+                  id={`${id}-cancel-upload`}
                   type="button"
                   onClick={handleCancel}
-                  className="text-red-500 hover:text-red-600 hover:underline cursor-pointer font-bold"
+                  className="text-[9.5px] font-bold text-red-500 hover:underline mt-1.5"
                 >
                   Cancel
                 </button>
-              </div>
-            </motion.div>
-          ) : (
-            /* 3. Empty state */
-            <motion.div
-              key="empty"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => fileInputRef.current?.click()}
-              className="cursor-pointer py-3 flex flex-col items-center"
-            >
-              <div className="h-10 w-10 rounded-full bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center text-brand-blue mb-2">
-                <Upload className="h-5 w-5" />
-              </div>
-              <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Drag and drop your file here, or <span className="text-brand-blue hover:underline">browse</span>
-              </p>
-              <p className="text-[10px] text-slate-400 mt-1">
-                Supports: {allowedTypes.join(", ").toUpperCase()} (Max {maxSizeMB}MB)
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+              </motion.div>
+            ) : (
+              /* Empty state / Trigger Upload */
+              <motion.div
+                key="empty"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => fileInputRef.current?.click()}
+                className="cursor-pointer py-2.5 flex flex-col items-center justify-center"
+              >
+                <div className="h-8 w-8 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center text-emerald-600 mb-1.5">
+                  {isMultipleMode && fileUrls.length > 0 ? <Plus className="h-4.5 w-4.5" /> : <Upload className="h-4 w-4" />}
+                </div>
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  {isMultipleMode && fileUrls.length > 0 
+                    ? "Click or drag to attach another sheet/file"
+                    : "Drag and drop your file here, or browse"
+                  }
+                </p>
+                <p className="text-[9.5px] text-slate-400 mt-1">
+                  Supports: {allowedTypes.join(", ").toUpperCase()} (Max {resolvedFolder === "assignments" ? "20MB PDF, 10MB Images" : `${maxSizeMB}MB`})
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
 
+      {/* Crop Modal Overlay */}
+      <AnimatePresence>
+        {showCropModal && cropImageSrc && (
+          <div className="fixed inset-0 bg-slate-900/85 flex items-center justify-center z-50 p-4 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 overflow-hidden"
+            >
+              <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-4">
+                <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                  <Crop className="h-4 w-4 text-emerald-600" /> Adjust Profile Photo
+                </h4>
+                <button
+                  id="btn-close-crop-modal"
+                  type="button"
+                  onClick={() => {
+                    setShowCropModal(false);
+                    setCurrentFile(null);
+                  }}
+                  className="p-1 rounded-lg text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Viewport for cropping */}
+              <div className="flex flex-col items-center">
+                <div
+                  ref={cropContainerRef}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUpOrLeave}
+                  onMouseLeave={handleMouseUpOrLeave}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleMouseUpOrLeave}
+                  className="relative h-[280px] w-[280px] bg-slate-100 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing border border-slate-200/60"
+                  style={{ touchAction: "none" }}
+                >
+                  {/* The Image */}
+                  <img
+                    ref={cropImageRef}
+                    src={cropImageSrc}
+                    alt="Source to Crop"
+                    onMouseDown={handleMouseDown}
+                    onTouchStart={handleTouchStart}
+                    className="absolute max-w-none origin-center pointer-events-auto select-none"
+                    style={{
+                      transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom}) rotate(${rotation}deg)`,
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "contain",
+                      top: 0,
+                      left: 0,
+                    }}
+                    referrerPolicy="no-referrer"
+                  />
+
+                  {/* Circle Mask Overlay */}
+                  <div className="absolute inset-0 pointer-events-none border-[40px] border-black/50 flex items-center justify-center">
+                    <div className="h-[200px] w-[200px] rounded-full border border-white shadow-[0_0_0_999px_rgba(0,0,0,0.4)]" />
+                  </div>
+                </div>
+
+                <p className="text-[10px] text-slate-400 font-semibold mt-2.5">
+                  Drag photo to position. Use sliders to scale/rotate.
+                </p>
+
+                {/* Controls */}
+                <div className="w-full mt-4 space-y-3.5">
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px] font-bold text-slate-600">
+                      <span>Zoom Level</span>
+                      <span>{Math.round(zoom * 100)}%</span>
+                    </div>
+                    <input
+                      id="crop-zoom-slider"
+                      type="range"
+                      min="1"
+                      max="3.5"
+                      step="0.05"
+                      value={zoom}
+                      onChange={(e) => setZoom(parseFloat(e.target.value))}
+                      className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px] font-bold text-slate-600">
+                      <span>Rotate Angle</span>
+                      <span>{rotation}°</span>
+                    </div>
+                    <div className="flex gap-2.5 items-center">
+                      <input
+                        id="crop-rotate-slider"
+                        type="range"
+                        min="0"
+                        max="360"
+                        step="10"
+                        value={rotation}
+                        onChange={(e) => setRotation(parseInt(e.target.value))}
+                        className="flex-1 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+                      />
+                      <button
+                        id="btn-crop-rotate-step"
+                        type="button"
+                        onClick={() => setRotation((prev) => (prev + 90) % 360)}
+                        className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold"
+                        title="Rotate 90 degrees"
+                      >
+                        <RotateCw className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Save Buttons */}
+                <div className="grid grid-cols-2 gap-3.5 w-full mt-5 pt-3 border-t border-slate-100">
+                  <button
+                    id="btn-crop-skip"
+                    type="button"
+                    onClick={() => {
+                      setShowCropModal(false);
+                      if (currentFile) uploadProcessedFile(currentFile);
+                    }}
+                    className="py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 hover:text-slate-600 cursor-pointer"
+                  >
+                    Skip & Upload Original
+                  </button>
+                  <button
+                    id="btn-crop-apply"
+                    type="button"
+                    onClick={handleCropSave}
+                    className="py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-xs font-bold text-white shadow-md cursor-pointer"
+                  >
+                    Apply Crop & Save
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Error Alert with Close button */}
       {error && (
-        <div className="flex items-center gap-1.5 text-[10px] font-medium text-red-500 mt-1 bg-red-50/50 dark:bg-red-950/20 px-2 py-1 rounded-md border border-red-100/30">
+        <div className="flex items-center gap-1.5 text-[10px] font-bold text-red-500 mt-1 bg-red-50 px-2.5 py-2 rounded-xl border border-red-100/40">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-          <span>{error}</span>
+          <span className="flex-1">{error}</span>
           <button
             type="button"
             onClick={() => setError(null)}
-            className="ml-auto text-slate-400 hover:text-slate-600"
+            className="text-slate-400 hover:text-slate-600 cursor-pointer"
           >
             <X className="h-3 w-3" />
           </button>

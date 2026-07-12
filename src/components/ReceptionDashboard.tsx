@@ -32,6 +32,7 @@ import { Admission, Student, FeeStatus, FeeReceipt, Inquiry, Batch, StudentSubsc
 import { getFeeForClass } from '../data';
 import SunshineLogo from './SunshineLogo';
 import { WhatsAppCommunication } from './WhatsAppCommunication';
+import { getCurrentAndNextMonths } from '../lib/feeUtils';
 
 interface ReceptionDashboardProps {
   students: Student[];
@@ -607,7 +608,7 @@ export default function ReceptionDashboard({
 
   // Fee Collection States
   const [selectedStudentId, setSelectedStudentId] = useState('');
-  const [feeMonth, setFeeMonth] = useState('June 2026');
+  const [feeMonth, setFeeMonth] = useState(() => getCurrentAndNextMonths().currentMonth);
   const [feeAmount, setFeeAmount] = useState(1200);
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI' | 'ONLINE'>('UPI');
   const [transactionId, setTransactionId] = useState('');
@@ -1133,9 +1134,15 @@ export default function ReceptionDashboard({
                         onChange={(e) => setFeeMonth(e.target.value)}
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-amber-600 focus:bg-white"
                       >
-                        <option value="June 2026">June 2026 Cycle</option>
-                        <option value="July 2026">July 2026 Cycle</option>
-                        <option value="August 2026">August 2026 Cycle</option>
+                        {(() => {
+                          const { currentMonth, nextMonth } = getCurrentAndNextMonths();
+                          return (
+                            <>
+                              <option value={currentMonth}>{currentMonth} Cycle (Current)</option>
+                              <option value={nextMonth}>{nextMonth} Cycle (Next)</option>
+                            </>
+                          );
+                        })()}
                       </select>
                     </div>
 

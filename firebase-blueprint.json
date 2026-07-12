@@ -8,16 +8,199 @@
         "username": { "type": "string" },
         "name": { "type": "string" },
         "email": { "type": "string" },
-        "role": { "type": "string", "enum": ["super_admin", "admin", "reception", "teacher", "student"] },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "ADMIN", "reception", "teacher", "student", "TEACHER", "RECEPTIONIST", "STUDENT"] },
         "active": { "type": "boolean" }
       },
       "required": ["username", "name", "email", "role", "active"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Active coaching student profiles.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "rollNo": { "type": "string" },
+        "name": { "type": "string" },
+        "class": { "type": "string" },
+        "fatherName": { "type": "string" },
+        "motherName": { "type": "string" },
+        "dob": { "type": "string" },
+        "gender": { "type": "string" },
+        "address": { "type": "string" },
+        "mobile": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "parentMobile: ": { "type": "string" },
+        "email": { "type": "string" },
+        "preferredBatch": { "type": "string" },
+        "preferredTiming": { "type": "string" },
+        "admissionDate": { "type": "string" },
+        "attendancePercentage": { "type": "number" },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
+        "feeStartMonth": { "type": "string" },
+        "monthlyFee": { "type": "number" },
+        "feePlanId": { "type": "string" },
+        "currentBalance": { "type": "number" },
+        "admissionFee": { "type": "number" },
+        "registrationFee": { "type": "number" },
+        "discount": { "type": "number" },
+        "scholarship": { "type": "number" },
+        "dueDay": { "type": "number" }
+      },
+      "required": ["rollNo", "name", "class", "fatherName", "mobile"]
+    },
+    "Class": {
+      "title": "Class",
+      "description": "Master classes or standard learning cohorts from Class 1 to Class 10.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "feeStartsFrom": { "type": "string" },
+        "monthlyFee": { "type": "number" }
+      },
+      "required": ["name", "monthlyFee"]
+    },
+    "FeePlan": {
+      "title": "FeePlan",
+      "description": "Tuition package offerings mapping class types to fees.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "monthlyFee": { "type": "number" },
+        "subjects": { "type": "array" },
+        "features": { "type": "array" }
+      },
+      "required": ["name", "monthlyFee"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Faculty and instructors database.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "qualification": { "type": "string" },
+        "specialty": { "type": "array" },
+        "batches": { "type": "array" }
+      },
+      "required": ["name", "email", "phone"]
+    },
+    "StudentFee": {
+      "title": "StudentFee",
+      "description": "Monthly coaching tuition fee obligations ledger.",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "class": { "type": "string" },
+        "month": { "type": "string" },
+        "totalFee": { "type": "number" },
+        "discount": { "type": "number" },
+        "scholarship": { "type": "number" },
+        "paidFee": { "type": "number" },
+        "pendingFee": { "type": "number" },
+        "status": { "type": "string", "enum": ["PAID", "PARTIAL", "PENDING"] },
+        "dueDate": { "type": "string" },
+        "isWaived": { "type": "boolean" },
+        "isSkipped": { "type": "boolean" },
+        "billingMonth": { "type": "string" },
+        "billingYear": { "type": "string" }
+      },
+      "required": ["studentId", "month", "totalFee", "pendingFee", "status", "dueDate"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Detailed payments transaction records.",
+      "type": "object",
+      "properties": {
+        "subscriptionId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "admissionNo": { "type": "string" },
+        "batchId": { "type": "string" },
+        "batchName": { "type": "string" },
+        "month": { "type": "string" },
+        "amountPaid": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["CASH", "UPI", "ONLINE", "CARD", "NET_BANKING"] },
+        "transactionId": { "type": "string" },
+        "paymentDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["SUCCESS", "FAILED", "PENDING"] }
+      },
+      "required": ["studentId", "amountPaid", "paymentMethod", "paymentDate"]
+    },
+    "Receipt": {
+      "title": "Receipt",
+      "description": "Receipt vouchers printed or generated for students.",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "class": { "type": "string" },
+        "month": { "type": "string" },
+        "amountPaid": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "date": { "type": "string" },
+        "transactionId": { "type": "string" },
+        "receivedBy": { "type": "string" }
+      },
+      "required": ["studentId", "amountPaid", "date"]
+    },
+    "FeeSettings": {
+      "title": "FeeSettings",
+      "description": "Global subscription and payment configs.",
+      "type": "object",
+      "properties": {
+        "billingDate": { "type": "number" },
+        "gracePeriod": { "type": "number" },
+        "lateFee": { "type": "number" },
+        "enableOnlinePayments": { "type": "boolean" },
+        "paymentGatewayProvider": { "type": "string" },
+        "upiId": { "type": "string" },
+        "upiMerchantName": { "type": "string" },
+        "bankAccountHolder": { "type": "string" },
+        "bankAccountNumber": { "type": "string" },
+        "bankName": { "type": "string" },
+        "bankIfsc": { "type": "string" }
+      }
     }
   },
   "firestore": {
     "users/{userId}": {
       "schema": "User",
       "description": "Registered active users ledger by Firebase Auth UID."
+    },
+    "students/{studentId}": {
+      "schema": "Student",
+      "description": "Student profiles database collection."
+    },
+    "classes/{classId}": {
+      "schema": "Class",
+      "description": "Standard school grades/classes configuration."
+    },
+    "feePlans/{feePlanId}": {
+      "schema": "FeePlan",
+      "description": "Configured tuition plans for classes."
+    },
+    "teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Teaching staff details."
+    },
+    "studentFees/{feeId}": {
+      "schema": "StudentFee",
+      "description": "Individual monthly dues billing collection."
+    },
+    "payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Financial payment transaction vouchers."
+    },
+    "receipts/{receiptId}": {
+      "schema": "Receipt",
+      "description": "Individual cash or bank receipt records."
+    },
+    "feeSettings/{configId}": {
+      "schema": "FeeSettings",
+      "description": "System fee billing configuration parameters."
     }
   }
 }

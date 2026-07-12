@@ -76,7 +76,7 @@ import {
   interpolateTemplate
 } from './data';
 
-import { migrateExistingData, generateFeeRecords } from './lib/feeUtils';
+import { migrateExistingData, generateFeeRecords, getCurrentAndNextMonths } from './lib/feeUtils';
 
 import LandingPage from './components/LandingPage';
 import StudentDashboard from './components/StudentDashboard';
@@ -509,6 +509,14 @@ export default function App() {
       case 'departed_students':
         setDepartedStudents(data);
         syncState('departed_students', data);
+        break;
+      case 'attendance':
+        setAttendance(data);
+        syncState('attendance', data);
+        break;
+      case 'student_marks':
+        setStudentMarks(data);
+        syncState('student_marks', data);
         break;
       case 'audit_logs':
         setAuditLogs(data);
@@ -1373,6 +1381,8 @@ export default function App() {
 
     // 2. Register into student database
     const nextRollNum = 1000 + students.length + 1;
+    const currentBillingMonth = getCurrentAndNextMonths().currentMonth;
+    const classTuitionFee = getFeeForClass(adm.className);
     const newStudent: Student = {
       id: `s-new-${Date.now()}`,
       userId: `u-new-std-${Date.now()}`,
@@ -1388,12 +1398,20 @@ export default function App() {
       whatsapp: adm.whatsapp,
       parentMobile: adm.parentMobile,
       email: adm.email,
-      preferredBatch: adm.preferredBatch,
-      preferredTiming: adm.preferredTiming,
+      preferredBatch: adm.className, // Keep compliant with AGENTS.md rule! Use class name.
+      preferredTiming: adm.preferredTiming || '04:00 PM - 06:30 PM',
       admissionDate: new Date().toISOString().split('T')[0],
       attendancePercentage: 100,
       photoUrl: adm.photoUrl,
-      documentUrl: adm.documentUrl
+      documentUrl: adm.documentUrl,
+      feeStartMonth: currentBillingMonth,
+      monthlyFee: classTuitionFee,
+      dueDay: 10,
+      admissionFee: 0,
+      registrationFee: 0,
+      discount: 0,
+      scholarship: 0,
+      currentBalance: 0
     };
 
     const updatedStudents = [...students, newStudent];
@@ -1417,22 +1435,9 @@ export default function App() {
     setUsers(updatedUsers);
     syncState('users', updatedUsers);
 
-    // 4. Create Initial Fee Status
-    const newFee: FeeStatus = {
-      id: `fs-new-${Date.now()}`,
-      studentId: newStudent.id,
-      studentName: newStudent.name,
-      class: newStudent.class,
-      month: 'July 2026',
-      totalFee: getFeeForClass(adm.className),
-      discount: 0,
-      scholarship: 0,
-      paidFee: 0,
-      pendingFee: getFeeForClass(adm.className),
-      status: 'PENDING',
-      dueDate: '2026-07-10'
-    };
-    const updatedFees = [...feeStatuses, newFee];
+    // 4. Generate Initial Fee Records starting from Fee Starts From
+    const newFeeRecords = generateFeeRecords(newStudent, 12);
+    const updatedFees = [...feeStatuses, ...newFeeRecords];
     setFeeStatuses(updatedFees);
     syncState('fee_statuses', updatedFees);
 

@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Calendar,
   BookOpen,
@@ -41,6 +41,8 @@ interface TeacherDashboardProps {
   studentMarks: StudentMark[];
   onAddAttendance: (attendance: Omit<Attendance, 'id'>[]) => void;
   onAddHomework: (homework: Omit<Homework, 'id' | 'teacherId' | 'teacherName'>) => void;
+  onEditHomework?: (homework: Homework) => void;
+  onDeleteHomework?: (id: string) => void;
   onAddTest: (test: Omit<Test, 'id'>) => void;
   onAddMarks: (marks: Omit<StudentMark, 'id'>[]) => void;
   onReviewSubmission: (submissionId: string, remarks: string, score: string) => void;
@@ -62,6 +64,8 @@ export default function TeacherDashboard({
   studentMarks,
   onAddAttendance,
   onAddHomework,
+  onEditHomework,
+  onDeleteHomework,
   onAddTest,
   onAddMarks,
   onReviewSubmission,
@@ -89,6 +93,18 @@ export default function TeacherDashboard({
   const [hwFileUrl, setHwFileUrl] = useState('');
   const [viewerFileUrl, setViewerFileUrl] = useState<string | null>(null);
   const [viewerFileTitle, setViewerFileTitle] = useState<string>('');
+
+  // Homework Management & Filters States
+  const [filterHwClass, setFilterHwClass] = useState('All');
+  const [filterHwSubject, setFilterHwSubject] = useState('All');
+  const [filterHwDate, setFilterHwDate] = useState('');
+  const [editingHomework, setEditingHomework] = useState<Homework | null>(null);
+  const [editHwTitle, setEditHwTitle] = useState('');
+  const [editHwDesc, setEditHwDesc] = useState('');
+  const [editHwSubject, setEditHwSubject] = useState('Mathematics');
+  const [editHwClass, setEditHwClass] = useState('Class 10 Board Specialists');
+  const [editHwDueDate, setEditHwDueDate] = useState('');
+  const [editHwFileUrl, setEditHwFileUrl] = useState('');
 
   // Batch Bulletin States
   const [bulletinInputText, setBulletinInputText] = useState('');
@@ -251,6 +267,34 @@ export default function TeacherDashboard({
     setHwDueDate('');
     setHwFileUrl('');
     alert("New homework uploaded and sent to board students.");
+  };
+
+  const handleSaveEditHomework = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingHomework) return;
+    if (onEditHomework) {
+      onEditHomework({
+        ...editingHomework,
+        title: editHwTitle,
+        description: editHwDesc,
+        class: editHwClass,
+        subject: editHwSubject,
+        dueDate: editHwDueDate,
+        fileUrl: editHwFileUrl || undefined
+      });
+    }
+    setEditingHomework(null);
+    alert("Homework assignment updated successfully.");
+  };
+
+  const handleTriggerEditHomework = (hw: Homework) => {
+    setEditingHomework(hw);
+    setEditHwTitle(hw.title);
+    setEditHwDesc(hw.description);
+    setEditHwSubject(hw.subject);
+    setEditHwClass(hw.class);
+    setEditHwDueDate(hw.dueDate);
+    setEditHwFileUrl(hw.fileUrl || '');
   };
 
   const handleCreateTest = (e: React.FormEvent) => {
@@ -844,18 +888,342 @@ export default function TeacherDashboard({
                   />
                 </div>
 
+                {hwFileUrl && (
+                  <div className="mt-2.5 p-3 rounded-xl border border-slate-150 bg-slate-50/50 max-w-lg">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Preview uploaded files before publishing:</span>
+                    <div className="flex flex-wrap gap-2">
+                      {hwFileUrl.split(',').filter(Boolean).map((url, idx) => (
+                        <button
+                          key={idx}
+                          id={`btn-preview-publishing-${idx}`}
+                          type="button"
+                          onClick={() => {
+                            setViewerFileUrl(url);
+                            setViewerFileTitle(`Pre-publish Preview ${idx + 1}`);
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                        >
+                          👁 Preview Attachment {idx + 1}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex justify-end pt-2">
                   <button
                     id="btn-hw-assign-submit"
                     type="submit"
-                    className="rounded-xl bg-emerald-750 bg-emerald-700 hover:bg-emerald-800 px-5 py-2.5 text-xs font-bold text-white shadow-md transition-colors"
+                    className="rounded-xl bg-emerald-750 bg-emerald-700 hover:bg-emerald-800 px-5 py-2.5 text-xs font-bold text-white shadow-md transition-colors cursor-pointer"
                   >
                     Broadcast Homework Assignment
                   </button>
                 </div>
               </form>
+
+              {/* Assigned Homework List Section */}
+              <div className="mt-10 border-t border-slate-150 pt-8">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+                  <div>
+                    <h4 className="font-display font-bold text-base text-slate-800">Assigned Homeworks Registry</h4>
+                    <p className="text-xs text-slate-500">Manage, filter, edit, or remove class syllabus tasks previously sent to your cohorts.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {/* Filter Class */}
+                    <select
+                      id="filter-assigned-class"
+                      value={filterHwClass}
+                      onChange={(e) => setFilterHwClass(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-700"
+                    >
+                      <option value="All">All Classes</option>
+                      <option value="Class 10 Board Specialists">Class 10 Board</option>
+                      <option value="Class 9 Foundation Course">Class 9 Foundation</option>
+                      <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8</option>
+                      <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4</option>
+                    </select>
+
+                    {/* Filter Subject */}
+                    <select
+                      id="filter-assigned-subject"
+                      value={filterHwSubject}
+                      onChange={(e) => setFilterHwSubject(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-700"
+                    >
+                      <option value="All">All Subjects</option>
+                      <option value="Mathematics">Mathematics</option>
+                      <option value="Science">Science</option>
+                      <option value="English">English</option>
+                    </select>
+
+                    {/* Filter Date */}
+                    <input
+                      id="filter-assigned-date"
+                      type="date"
+                      value={filterHwDate}
+                      onChange={(e) => setFilterHwDate(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-700"
+                    />
+                  </div>
+                </div>
+
+                {/* Homework Cards */}
+                {(() => {
+                  const filteredHws = homeworkList.filter(hw => {
+                    // Check if assigned by this teacher
+                    const isMyHw = hw.teacherId === teacher.id;
+                    if (!isMyHw) return false;
+                    
+                    const matchesClass = filterHwClass === 'All' || hw.class === filterHwClass;
+                    const matchesSubject = filterHwSubject === 'All' || hw.subject === filterHwSubject;
+                    const matchesDate = !filterHwDate || hw.date === filterHwDate || hw.dueDate === filterHwDate;
+                    return matchesClass && matchesSubject && matchesDate;
+                  });
+
+                  if (filteredHws.length === 0) {
+                    return (
+                      <div className="text-center py-8 rounded-xl border-2 border-dashed border-slate-100 bg-slate-50/20 text-slate-400 text-xs font-bold">
+                        No assigned homework matching the filters found.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {filteredHws.map((hw) => {
+                        const attachments = hw.fileUrl ? hw.fileUrl.split(',').filter(Boolean) : [];
+                        return (
+                          <div key={hw.id} className="rounded-xl border border-slate-150 p-4 bg-slate-50/15 flex flex-col justify-between gap-3 shadow-3xs hover:shadow-2xs transition-shadow">
+                            <div>
+                              <div className="flex justify-between items-start gap-2 mb-2">
+                                <div className="flex flex-wrap gap-1.5">
+                                  <span className="inline-block rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[9px] font-bold text-emerald-800 uppercase">
+                                    {hw.subject}
+                                  </span>
+                                  <span className="inline-block rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-700 truncate max-w-[130px]">
+                                    {hw.class}
+                                  </span>
+                                </div>
+                                <span className="text-[9.5px] font-medium text-slate-400">Assigned: {hw.date}</span>
+                              </div>
+
+                              <h5 className="text-xs font-black text-slate-800 leading-snug">{hw.title}</h5>
+                              <p className="text-[11px] text-slate-600 mt-1 line-clamp-3 whitespace-pre-line leading-relaxed">{hw.description}</p>
+
+                              {/* Attachments List */}
+                              {attachments.length > 0 && (
+                                <div className="mt-3 space-y-1.5">
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Attached sheets ({attachments.length}):</span>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {attachments.map((url, idx) => {
+                                      const ext = url.split('.').pop()?.toLowerCase() || '';
+                                      const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
+                                      return (
+                                        <button
+                                          key={idx}
+                                          id={`btn-view-attached-${hw.id}-${idx}`}
+                                          type="button"
+                                          onClick={() => {
+                                            setViewerFileUrl(url);
+                                            setViewerFileTitle(`Assigned Attachment ${idx + 1}: ${hw.title}`);
+                                          }}
+                                          className="inline-flex items-center gap-1 text-[9.5px] font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 px-2 py-1 rounded-md transition-all cursor-pointer"
+                                        >
+                                          👁 sheet {idx + 1} ({isImage ? 'image' : 'pdf'})
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex items-center justify-between border-t border-slate-100 pt-3 mt-1">
+                              <span className="text-[10px] font-bold text-amber-600">Due: {hw.dueDate}</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  id={`btn-hw-edit-${hw.id}`}
+                                  type="button"
+                                  onClick={() => handleTriggerEditHomework(hw)}
+                                  className="text-[10px] font-bold text-slate-600 hover:text-emerald-700 bg-white border border-slate-200 hover:border-slate-300 px-3 py-1.5 rounded-lg shadow-3xs cursor-pointer"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  id={`btn-hw-delete-${hw.id}`}
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm(`Are you absolutely sure you want to delete the assignment "${hw.title}"? This cannot be undone.`)) {
+                                      if (onDeleteHomework) onDeleteHomework(hw.id);
+                                    }
+                                  }}
+                                  className="text-[10px] font-bold text-white bg-red-650 bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-lg shadow-3xs cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           )}
+
+          {/* Edit Homework Modal Popup */}
+          <AnimatePresence>
+            {editingHomework && (
+              <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center z-40 p-4 backdrop-blur-xs">
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 overflow-y-auto max-h-[90vh]"
+                >
+                  <div className="flex justify-between items-center pb-3 border-b border-slate-150 mb-4">
+                    <h4 className="font-display font-bold text-sm text-slate-800">Edit Homework Assignment</h4>
+                    <button
+                      id="btn-close-edit-hw-modal"
+                      type="button"
+                      onClick={() => setEditingHomework(null)}
+                      className="p-1 rounded-lg text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-colors cursor-pointer"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveEditHomework} className="space-y-4 text-left">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Homework Title</label>
+                        <input
+                          id="edit-input-hw-title"
+                          type="text"
+                          required
+                          value={editHwTitle}
+                          onChange={(e) => setEditHwTitle(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Subject Specialty</label>
+                        <select
+                          id="edit-select-hw-subject"
+                          value={editHwSubject}
+                          onChange={(e) => setEditHwSubject(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                        >
+                          <option value="Mathematics">Mathematics</option>
+                          <option value="Science">Science (Phy/Chem/Bio)</option>
+                          <option value="English">English</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Assigned Cohort Class</label>
+                        <select
+                          id="edit-select-hw-class"
+                          value={editHwClass}
+                          onChange={(e) => setEditHwClass(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                        >
+                          <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
+                          <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
+                          <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
+                          <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Submission Due Date</label>
+                        <input
+                          id="edit-input-hw-due-date"
+                          type="date"
+                          required
+                          value={editHwDueDate}
+                          onChange={(e) => setEditHwDueDate(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-700">Homework Conceptual Guidelines</label>
+                      <textarea
+                        id="edit-ta-hw-desc"
+                        required
+                        rows={4}
+                        value={editHwDesc}
+                        onChange={(e) => setEditHwDesc(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-emerald-700 focus:bg-white"
+                      ></textarea>
+                    </div>
+
+                    <div className="space-y-1">
+                      <CloudinaryUpload
+                        id="edit-homework-upload-cloudinary"
+                        folder="assignments"
+                        cloudName={subConfig.cloudinaryCloudName}
+                        uploadPreset={subConfig.cloudinaryUploadPreset}
+                        apiKey={subConfig.cloudinaryApiKey}
+                        apiSecret={subConfig.cloudinaryApiSecret}
+                        maxSizeMB={subConfig.cloudinaryMaxFileSize}
+                        initialUrl={editHwFileUrl}
+                        onUploadSuccess={(url) => setEditHwFileUrl(url)}
+                        onFileDeleted={() => setEditHwFileUrl('')}
+                        allowedTypes={['jpg', 'jpeg', 'png', 'webp', 'pdf', 'docx', 'xlsx']}
+                        label="Attach Question Paper / PDF / Image (Optional)"
+                      />
+                    </div>
+
+                    {editHwFileUrl && (
+                      <div className="p-3 rounded-xl border border-slate-150 bg-slate-50/50">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Preview current files:</span>
+                        <div className="flex flex-wrap gap-2">
+                          {editHwFileUrl.split(',').filter(Boolean).map((url, idx) => (
+                            <button
+                              key={idx}
+                              id={`btn-preview-edit-publishing-${idx}`}
+                              type="button"
+                              onClick={() => {
+                                setViewerFileUrl(url);
+                                setViewerFileTitle(`Edit Preview ${idx + 1}`);
+                              }}
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                            >
+                              👁 Preview Attachment {idx + 1}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 mt-4">
+                      <button
+                        id="btn-edit-hw-cancel"
+                        type="button"
+                        onClick={() => setEditingHomework(null)}
+                        className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        id="btn-edit-hw-submit"
+                        type="submit"
+                        className="rounded-xl bg-emerald-750 bg-emerald-700 hover:bg-emerald-800 px-5 py-2 text-xs font-bold text-white shadow-md transition-colors cursor-pointer"
+                      >
+                        Save Homework Updates
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
 
           {/* TAB 4: HOMEWORK REVIEW SUBMISSIONS */}
           {activeTab === 'homework-review' && (

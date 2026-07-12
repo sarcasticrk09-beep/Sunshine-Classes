@@ -480,9 +480,9 @@ How can I help you towards your academic success today? Feel free to ask!`;
     ].includes(fileType) || fileType === "" || !fileType; // Fallback for raw files with empty types
     
     // Max sizes (in bytes)
-    const maxSizeBytes = isImage ? 5 * 1024 * 1024 : 10 * 1024 * 1024; // 5MB for images, 10MB for documents
+    const maxSizeBytes = isImage ? 10 * 1024 * 1024 : 20 * 1024 * 1024; // 10MB for images, 20MB for documents
     if (Number(fileSize) > maxSizeBytes) {
-      return res.status(400).json({ error: `File size exceeds permissible limit. Limit is ${isImage ? '5MB' : '10MB'}.` });
+      return res.status(400).json({ error: `File size exceeds permissible limit. Limit is ${isImage ? '10MB' : '20MB'}.` });
     }
 
     try {

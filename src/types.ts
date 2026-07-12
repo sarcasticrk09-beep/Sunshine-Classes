@@ -232,6 +232,7 @@ export interface Attendance {
   date: string; // YYYY-MM-DD
   status: 'PRESENT' | 'ABSENT' | 'LATE' | 'LEAVE';
   markedBy: string;
+  remarks?: string;
 }
 
 export interface FeeReceipt {
@@ -275,6 +276,18 @@ export interface FeeStatus {
   receiptIds?: string[];
   isWaived?: boolean;
   isSkipped?: boolean;
+}
+
+export interface EmailLog {
+  id: string;
+  dateTime: string;
+  recipient: string;
+  studentName: string;
+  amount: number;
+  month: string;
+  status: 'Sent' | 'Failed';
+  errorMessage?: string;
+  feeStatusId?: string;
 }
 
 export interface Test {

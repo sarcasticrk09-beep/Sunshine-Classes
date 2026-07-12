@@ -1619,72 +1619,60 @@ export default function StudentDashboard({
                           <p className="mt-1 text-xs text-slate-600 leading-relaxed">{hw.description}</p>
 
                           {hw.fileUrl && (
-                            <div className="mt-3 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 max-w-lg">
-                              <span className="text-[10px] font-bold text-indigo-800 uppercase block mb-1.5">📂 Attached Question Sheet:</span>
-                              {hw.fileUrl.match(/\.(jpg|jpeg|png|webp|gif)/i) || hw.fileUrl.startsWith('data:image/') ? (
-                                <div className="space-y-2">
-                                  <img
-                                    id={`img-question-preview-${hw.id}`}
-                                    src={hw.fileUrl}
-                                    alt="Homework Question Attachment"
-                                    className="max-h-48 rounded-lg border border-slate-200 object-contain shadow-sm bg-white"
-                                    referrerPolicy="no-referrer"
-                                  />
-                                  <div className="flex flex-wrap gap-2.5 mt-1.5">
-                                    <button
-                                      id={`btn-view-question-modal-${hw.id}`}
-                                      type="button"
-                                      onClick={() => {
-                                        setViewerFileUrl(hw.fileUrl!);
-                                        setViewerFileTitle(`Question Sheet: ${hw.subject} - ${hw.title}`);
-                                      }}
-                                      className="inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-all"
-                                    >
-                                      👁 View Directly in Browser
-                                    </button>
-                                    <a
-                                      id={`link-question-photo-view-${hw.id}`}
-                                      href={hw.fileUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:underline pt-1"
-                                    >
-                                      Open New Tab ↗
-                                    </a>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-2">
-                                  <div className="p-2 bg-indigo-100 rounded-lg text-indigo-700">
-                                    <FileText size={18} />
-                                  </div>
-                                  <div>
-                                    <span className="block text-xs font-semibold text-slate-800">Homework Document File</span>
-                                    <div className="flex flex-wrap gap-2.5 mt-1">
-                                      <button
-                                        id={`btn-view-question-modal-pdf-${hw.id}`}
-                                        type="button"
-                                        onClick={() => {
-                                          setViewerFileUrl(hw.fileUrl!);
-                                          setViewerFileTitle(`Question Sheet: ${hw.subject} - ${hw.title}`);
-                                        }}
-                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-all"
-                                      >
-                                        👁 View Directly in Browser
-                                      </button>
-                                      <a
-                                        id={`link-question-pdf-view-${hw.id}`}
-                                        href={hw.fileUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:underline pt-1"
-                                      >
-                                        Download/New Tab ↗
-                                      </a>
+                            <div className="mt-3 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 max-w-lg text-left">
+                              <span className="text-[10px] font-bold text-indigo-800 uppercase block mb-2">📂 Attached Question Sheets ({hw.fileUrl.split(',').filter(Boolean).length}):</span>
+                              <div className="grid gap-2.5 sm:grid-cols-2">
+                                {hw.fileUrl.split(',').filter(Boolean).map((url, idx) => {
+                                  const ext = url.split('.').pop()?.toLowerCase() || '';
+                                  const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
+                                  return (
+                                    <div key={idx} className="bg-white p-2 rounded-xl border border-slate-150 flex flex-col justify-between gap-1 shadow-3xs">
+                                      {isImage ? (
+                                        <img
+                                          id={`img-question-preview-${hw.id}-${idx}`}
+                                          src={url}
+                                          alt={`Sheet ${idx + 1}`}
+                                          className="h-24 w-full object-contain rounded-lg bg-slate-50 border border-slate-100 cursor-pointer"
+                                          referrerPolicy="no-referrer"
+                                          onClick={() => {
+                                            setViewerFileUrl(url);
+                                            setViewerFileTitle(`Question Sheet ${idx + 1}: ${hw.subject} - ${hw.title}`);
+                                          }}
+                                        />
+                                      ) : (
+                                        <div className="h-24 w-full rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-indigo-500">
+                                          <FileText size={24} />
+                                        </div>
+                                      )}
+                                      <div className="flex items-center justify-between text-[9px] font-bold mt-1">
+                                        <span className="text-slate-600 truncate max-w-[80px]">sheet_${idx + 1}.${ext}</span>
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            id={`btn-view-question-modal-${hw.id}-${idx}`}
+                                            type="button"
+                                            onClick={() => {
+                                              setViewerFileUrl(url);
+                                              setViewerFileTitle(`Question Sheet ${idx + 1}: ${hw.subject} - ${hw.title}`);
+                                            }}
+                                            className="text-indigo-700 hover:underline cursor-pointer"
+                                          >
+                                            View 👁
+                                          </button>
+                                          <a
+                                            id={`link-question-photo-view-${hw.id}-${idx}`}
+                                            href={url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-slate-400 hover:text-slate-600"
+                                          >
+                                            ↗
+                                          </a>
+                                        </div>
+                                      </div>
                                     </div>
-                                  </div>
-                                </div>
-                              )}
+                                  );
+                                })}
+                              </div>
                             </div>
                           )}
                           
@@ -1717,77 +1705,66 @@ export default function StudentDashboard({
  
                       {/* Submitted Solutions Block */}
                       {hw.submission && (
-                        <div className="mt-4 p-4 rounded-xl border border-slate-150 bg-slate-50/40">
+                        <div className="mt-4 p-4 rounded-xl border border-slate-150 bg-slate-50/40 text-left">
                           <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Your Submitted Solutions:</span>
                           {hw.submission.textAnswer && (
                             <p className="text-xs text-slate-700 whitespace-pre-line bg-white p-2.5 rounded-lg border border-slate-100 mb-2">{hw.submission.textAnswer}</p>
                           )}
                           {hw.submission.fileUrl && (
-                            <div className="mt-2.5 p-2 bg-white rounded-lg border border-slate-150 max-w-md">
-                              {hw.submission.fileUrl.match(/\.(jpg|jpeg|png|webp|gif)/i) || hw.submission.fileUrl.startsWith('data:image/') ? (
-                                <div className="space-y-1.5">
-                                  <img
-                                    id={`img-submitted-preview-${hw.id}`}
-                                    src={hw.submission.fileUrl}
-                                    alt="Your Homework Submission Preview"
-                                    className="max-h-36 rounded-lg object-contain border border-slate-100"
-                                    referrerPolicy="no-referrer"
-                                  />
-                                  <div className="flex flex-wrap gap-2.5 mt-1.5">
-                                    <button
-                                      id={`btn-view-submission-modal-${hw.id}`}
-                                      type="button"
-                                      onClick={() => {
-                                        setViewerFileUrl(hw.submission!.fileUrl!);
-                                        setViewerFileTitle(`Your Submission: ${hw.subject} - ${hw.title}`);
-                                      }}
-                                      className="inline-flex items-center gap-1.5 text-[11px] font-bold text-brand-orange bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-lg transition-all"
-                                    >
-                                      👁 View Solutions in Browser
-                                    </button>
-                                    <a
-                                      id={`link-submitted-photo-view-${hw.id}`}
-                                      href={hw.submission.fileUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:underline pt-1"
-                                    >
-                                      Open New Tab ↗
-                                    </a>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-2">
-                                  <div className="p-1.5 bg-rose-50 text-rose-600 rounded">
-                                    <FileText size={16} />
-                                  </div>
-                                  <div>
-                                    <span className="block text-xs font-semibold text-slate-700">Submitted Document File</span>
-                                    <div className="flex flex-wrap gap-2.5 mt-1">
-                                      <button
-                                        id={`btn-view-submission-modal-pdf-${hw.id}`}
-                                        type="button"
-                                        onClick={() => {
-                                          setViewerFileUrl(hw.submission!.fileUrl!);
-                                          setViewerFileTitle(`Your Submission: ${hw.subject} - ${hw.title}`);
-                                        }}
-                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold text-brand-orange bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-lg transition-all"
-                                      >
-                                        👁 View Solutions in Browser
-                                      </button>
-                                      <a
-                                        id={`link-submitted-pdf-view-${hw.id}`}
-                                        href={hw.submission.fileUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:underline pt-1"
-                                      >
-                                        Download/New Tab ↗
-                                      </a>
+                            <div className="mt-2.5 p-3 bg-white rounded-xl border border-slate-150 max-w-lg">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Attached answer sheets ({hw.submission.fileUrl.split(',').filter(Boolean).length}):</span>
+                              <div className="grid gap-2.5 sm:grid-cols-2">
+                                {hw.submission.fileUrl.split(',').filter(Boolean).map((url, idx) => {
+                                  const ext = url.split('.').pop()?.toLowerCase() || '';
+                                  const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
+                                  return (
+                                    <div key={idx} className="bg-slate-50 p-2 rounded-xl border border-slate-150 flex flex-col justify-between gap-1 shadow-3xs">
+                                      {isImage ? (
+                                        <img
+                                          id={`img-submitted-preview-${hw.id}-${idx}`}
+                                          src={url}
+                                          alt={`Answer Sheet ${idx + 1}`}
+                                          className="h-24 w-full object-contain rounded-lg bg-white border border-slate-100 cursor-pointer"
+                                          referrerPolicy="no-referrer"
+                                          onClick={() => {
+                                            setViewerFileUrl(url);
+                                            setViewerFileTitle(`Your Submission Sheet ${idx + 1}: ${hw.subject} - ${hw.title}`);
+                                          }}
+                                        />
+                                      ) : (
+                                        <div className="h-24 w-full rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-500">
+                                          <FileText size={24} />
+                                        </div>
+                                      )}
+                                      <div className="flex items-center justify-between text-[9px] font-bold mt-1">
+                                        <span className="text-slate-600 truncate max-w-[80px]">answer_${idx + 1}.${ext}</span>
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            id={`btn-view-submission-modal-${hw.id}-${idx}`}
+                                            type="button"
+                                            onClick={() => {
+                                              setViewerFileUrl(url);
+                                              setViewerFileTitle(`Your Submission Sheet ${idx + 1}: ${hw.subject} - ${hw.title}`);
+                                            }}
+                                            className="text-brand-orange hover:underline cursor-pointer"
+                                          >
+                                            View 👁
+                                          </button>
+                                          <a
+                                            id={`link-submitted-photo-view-${hw.id}-${idx}`}
+                                            href={url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-slate-400 hover:text-slate-600"
+                                          >
+                                            ↗
+                                          </a>
+                                        </div>
+                                      </div>
                                     </div>
-                                  </div>
-                                </div>
-                              )}
+                                  );
+                                })}
+                              </div>
                             </div>
                           )}
                         </div>
@@ -2371,6 +2348,7 @@ export default function StudentDashboard({
                   onFileDeleted={() => setHwFileUrl('')}
                   allowedTypes={['jpg', 'jpeg', 'png', 'webp', 'pdf', 'docx', 'xlsx']}
                   label="Attach Photograph of Copy / Document (Optional)"
+                  multiple={true}
                 />
               </div>
 
