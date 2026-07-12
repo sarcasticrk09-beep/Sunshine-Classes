@@ -2060,6 +2060,7 @@ export default function AdminDashboard({
   const [quickCollectTxnId, setQuickCollectTxnId] = useState('');
   const [showQuickCollectHistory, setShowQuickCollectHistory] = useState(false);
   const [quickCollectSendWhatsApp, setQuickCollectSendWhatsApp] = useState(true);
+  const [quickCollectShowQR, setQuickCollectShowQR] = useState(false);
 
   // Student Profile Edit State Variables
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -2412,6 +2413,7 @@ export default function AdminDashboard({
     setQuickCollectStudent(student);
     setShowQuickCollectHistory(false);
     setQuickCollectSendWhatsApp(true);
+    setQuickCollectShowQR(false);
     // Find first month with pending fee for this student in feeStatuses
     const studentPendingStatuses = feeStatuses.filter(f => f.studentId === student.id && f.pendingFee > 0);
     let initialMonth = 'July 2026';
@@ -16125,7 +16127,13 @@ ${data.log}`
                 <select
                   required
                   value={quickCollectMethod}
-                  onChange={(e) => setQuickCollectMethod(e.target.value as 'CASH' | 'UPI' | 'ONLINE')}
+                  onChange={(e) => {
+                    const method = e.target.value as 'CASH' | 'UPI' | 'ONLINE';
+                    setQuickCollectMethod(method);
+                    if (method !== 'UPI') {
+                      setQuickCollectShowQR(false);
+                    }
+                  }}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
                 >
                   <option value="UPI">UPI (GPay / PhonePe / Paytm)</option>
@@ -16133,6 +16141,62 @@ ${data.log}`
                   <option value="ONLINE">Bank Transfer / NetBanking</option>
                 </select>
               </div>
+
+              {/* Dynamic QR Code Section */}
+              {quickCollectMethod === 'UPI' && (
+                <div className="space-y-3 bg-slate-50/50 border border-slate-150 p-3 rounded-2xl">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                      📲 UPI Collection QR
+                    </span>
+                    <button
+                      id="btn-quick-collect-toggle-qr"
+                      type="button"
+                      onClick={() => setQuickCollectShowQR(!quickCollectShowQR)}
+                      className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer border border-emerald-100 shadow-3xs"
+                    >
+                      {quickCollectShowQR ? 'Hide QR Code' : 'Show QR Code'}
+                    </button>
+                  </div>
+
+                  {quickCollectShowQR && (
+                    <div className="bg-white border border-slate-200 p-4 rounded-xl text-center space-y-3 animate-in fade-in slide-in-from-top-1 duration-150 shadow-3xs flex flex-col items-center justify-center">
+                      {quickCollectAmount && Number(quickCollectAmount) > 0 ? (
+                        <>
+                          <div className="relative p-2 bg-white border border-slate-200 rounded-xl shadow-3xs">
+                            <img
+                              id="img-quick-collect-upi-qr"
+                              src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(
+                                `upi://pay?pa=${cfgUpiId}&pn=${encodeURIComponent(cfgUpiMerchantName)}&am=${quickCollectAmount}&tn=${encodeURIComponent(`Tuition Fee ${quickCollectMonth}`)}&cu=INR`
+                              )}`}
+                              alt="UPI QR Code"
+                              className="h-40 w-40 object-contain"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                          
+                          <div className="space-y-1 w-full">
+                            <div className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-xs font-bold font-mono">
+                              <span>Payable Amount: ₹{quickCollectAmount}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-medium">
+                              <p className="font-bold text-indigo-950">{cfgUpiMerchantName}</p>
+                              <p className="font-mono text-slate-500 mt-0.5">{cfgUpiId}</p>
+                            </div>
+                            <span className="text-[9px] text-slate-400 block pt-1.5 animate-pulse font-medium">
+                              ⚡ Scan via BHIM, GooglePay, PhonePe, or Paytm
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-[10px] text-slate-400 font-medium italic py-2">
+                          Please enter a valid payment amount above to display the QR Code.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Transaction Ref */}
               {quickCollectMethod !== 'CASH' && (

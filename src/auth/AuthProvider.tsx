@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { onAuthStateChanged, User as FirebaseUser, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { AuthContext } from './AuthContext';
@@ -187,208 +187,186 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         localStorage.setItem('sunshine_remember_me', 'false');
       }
 
-      // Check if it is a username-based login (i.e. contains no '@')
-      const isUsernameLogin = !email.includes('@');
+      const trimmedInput = email.trim();
+      const trimmedPassword = password.trim();
 
-      if (isUsernameLogin) {
-        console.log("Username login detected, bypassing Firebase Auth and executing local fallback check...");
-        const usersDocRef = doc(db, 'sunshine_erp_state', 'users');
-        const usersSnap = await getDoc(usersDocRef);
-        if (usersSnap.exists()) {
-          const usersList = usersSnap.data()?.data || [];
-          const matched = usersList.find((u: any) => 
-            u.username?.toLowerCase() === email.trim().toLowerCase()
-          );
+      let targetEmail = trimmedInput;
+      let matchedUser: any = null;
 
-          if (matched) {
-            const isPasswordCorrect = 
-              matched.plainPassword === password || 
-              matched.password === simpleSecureHash(password) ||
-              matched.password === password ||
-              (matched.username === 'admin' && password === 'admin123') ||
-              (matched.username === 'rajeev' && password === 'rajeev123');
-
-            if (isPasswordCorrect) {
-              if (matched.active === false) {
-                throw new Error("Your account has been disabled.");
-              }
-
-              const dbRole = (matched.role || '').toLowerCase();
-              const isStudent = dbRole === 'student' || dbRole === 'student';
-              const hasNoLinkedEmail = !matched.email || matched.email.includes('@example.com') || matched.email.trim() === '';
-
-              // Require email verification only for non-students with linked, non-dummy emails
-              if (matched.emailVerified === false && !isStudent && !hasNoLinkedEmail) {
-                const verificationToken = `token-verify-${Date.now()}`;
-                const updatedUsers = usersList.map((u: any) => 
-                  u.id === matched.id ? { ...u, verificationToken } : u
-                );
-                await setDoc(usersDocRef, { data: updatedUsers });
-                
-                const verifyLink = `${window.location.origin}/verify-email?token=${verificationToken}&email=${encodeURIComponent(matched.email)}`;
-                sendSimulatedEmail(
-                  matched.email,
-                  "Welcome to Sunshine Classes! Verify your email",
-                  `Hello ${matched.name},\n\nPlease verify your Sunshine Classes account by clicking the link below:`,
-                  verifyLink,
-                  'VERIFICATION'
-                );
-
-                throw new Error(`EMAIL_VERIFICATION_PENDING:${matched.email}`);
-              }
-
-              let mappedRole: UserRole | null = null;
-              if (dbRole === 'super_admin' || dbRole === 'owner') mappedRole = 'SUPER_ADMIN';
-              else if (dbRole === 'admin') mappedRole = 'ADMIN';
-              else if (dbRole === 'reception' || dbRole === 'receptionist') mappedRole = 'RECEPTIONIST';
-              else if (dbRole === 'teacher') mappedRole = 'TEACHER';
-              else if (dbRole === 'student') mappedRole = 'STUDENT';
-
-              if (!mappedRole) {
-                throw new Error("Your account has an invalid role configuration.");
-              }
-
-              const verifiedUser: User = {
-                id: matched.id || `u-mock-${Date.now()}`,
-                username: matched.username,
-                name: matched.name,
-                email: matched.email || '',
-                role: mappedRole,
-                avatarUrl: matched.profilePhoto || '',
-                phone: matched.phone || ''
-              };
-
-              sessionStorage.setItem('sunshine_mock_session', JSON.stringify({
-                user: verifiedUser,
-                role: mappedRole
-              }));
-              setCurrentUser(verifiedUser);
-              setRole(mappedRole);
-              setLoading(false);
-              
-              await writeAuditLog(verifiedUser.id, verifiedUser.username, 'USER_LOGIN', `User ${verifiedUser.username} successfully logged in (Local Fallback).`);
-              return true;
-            } else {
-              throw new Error("Invalid username or password.");
-            }
-          }
-        }
-        throw new Error("Invalid username or password.");
-      }
-
-      // Try Firebase Auth first for standard email login
+      // 1. Try to find the user in the Firestore 'users' collection first (by username or email)
       try {
-        await FirebaseAuthService.loginWithEmail(email, password, remember);
-        return true;
-      } catch (fbError: any) {
-        console.warn("Real Firebase Auth failed, attempting local fallback check...", fbError);
-
-        // Fetch users list from sunshine_erp_state/users
-        const usersDocRef = doc(db, 'sunshine_erp_state', 'users');
-        const usersSnap = await getDoc(usersDocRef);
-        if (usersSnap.exists()) {
-          const usersList = usersSnap.data()?.data || [];
-          const matched = usersList.find((u: any) => 
-            u.email?.toLowerCase() === email.trim().toLowerCase() || 
-            u.username?.toLowerCase() === email.trim().toLowerCase()
-          );
-
-          if (matched) {
-            // Verify password using plainPassword or simple hash
-            const isPasswordCorrect = 
-              matched.plainPassword === password || 
-              matched.password === simpleSecureHash(password) ||
-              matched.password === password ||
-              (matched.username === 'admin' && password === 'admin123') ||
-              (matched.username === 'rajeev' && password === 'rajeev123');
-
-            if (isPasswordCorrect) {
-              if (matched.active === false) {
-                throw new Error("Your account has been disabled.");
-              }
-
-              const dbRole = (matched.role || '').toLowerCase();
-              const isStudent = dbRole === 'student';
-              const hasNoLinkedEmail = !matched.email || matched.email.includes('@example.com') || matched.email.trim() === '';
-
-              // Require email verification only for non-students with linked, non-dummy emails
-              if (matched.emailVerified === false && !isStudent && !hasNoLinkedEmail) {
-                // Send a simulated verification email to make it seamless
-                const verificationToken = `token-verify-${Date.now()}`;
-                const updatedUsers = usersList.map((u: any) => 
-                  u.id === matched.id ? { ...u, verificationToken } : u
-                );
-                await setDoc(usersDocRef, { data: updatedUsers });
-                
-                const verifyLink = `${window.location.origin}/verify-email?token=${verificationToken}&email=${encodeURIComponent(matched.email)}`;
-                sendSimulatedEmail(
-                  matched.email,
-                  "Welcome to Sunshine Classes! Verify your email",
-                  `Hello ${matched.name},\n\nPlease verify your Sunshine Classes account by clicking the link below:`,
-                  verifyLink,
-                  'VERIFICATION'
-                );
-
-                throw new Error(`EMAIL_VERIFICATION_PENDING:${matched.email}`);
-              }
-
-              const dbRoleLower = (matched.role || '').toLowerCase();
-              let mappedRole: UserRole | null = null;
-              if (dbRoleLower === 'super_admin' || dbRoleLower === 'owner') mappedRole = 'SUPER_ADMIN';
-              else if (dbRoleLower === 'admin') mappedRole = 'ADMIN';
-              else if (dbRoleLower === 'reception' || dbRoleLower === 'receptionist') mappedRole = 'RECEPTIONIST';
-              else if (dbRoleLower === 'teacher') mappedRole = 'TEACHER';
-              else if (dbRoleLower === 'student') mappedRole = 'STUDENT';
-
-              if (!mappedRole) {
-                throw new Error("Your account has an invalid role configuration.");
-              }
-
-              const verifiedUser: User = {
-                id: matched.id || `u-mock-${Date.now()}`,
-                username: matched.username,
-                name: matched.name,
-                email: matched.email || '',
-                role: mappedRole,
-                avatarUrl: matched.profilePhoto || '',
-                phone: matched.phone || ''
-              };
-
-              sessionStorage.setItem('sunshine_mock_session', JSON.stringify({
-                user: verifiedUser,
-                role: mappedRole
-              }));
-              setCurrentUser(verifiedUser);
-              setRole(mappedRole);
-              setLoading(false);
-              
-              await writeAuditLog(verifiedUser.id, verifiedUser.username, 'USER_LOGIN', `User ${verifiedUser.username} successfully logged in (Local Fallback).`);
-              return true;
-            } else {
-              throw new Error("Invalid username/email or password.");
+        const usersCol = collection(db, 'users');
+        const qUsername = query(usersCol, where('username', '==', trimmedInput));
+        const qUsernameSnap = await getDocs(qUsername);
+        
+        if (!qUsernameSnap.empty) {
+          matchedUser = qUsernameSnap.docs[0].data();
+          matchedUser.id = qUsernameSnap.docs[0].id; // Capture UID
+          if (matchedUser.email) {
+            targetEmail = matchedUser.email;
+          }
+        } else {
+          const qEmail = query(usersCol, where('email', '==', trimmedInput));
+          const qEmailSnap = await getDocs(qEmail);
+          if (!qEmailSnap.empty) {
+            matchedUser = qEmailSnap.docs[0].data();
+            matchedUser.id = qEmailSnap.docs[0].id;
+            if (matchedUser.email) {
+              targetEmail = matchedUser.email;
             }
           }
         }
-        // If neither worked, throw a cleaner, user-friendly error instead of raw Firebase codes
-        if (fbError.code === "auth/invalid-email" || fbError.code === "auth/user-not-found" || fbError.code === "auth/wrong-password") {
-          throw new Error("Invalid username/email or password.");
-        }
-        throw fbError;
+      } catch (err) {
+        console.warn("Error querying Firestore 'users' collection during login:", err);
       }
+
+      // 2. If not found in Firestore 'users', check in the 'sunshine_erp_state/users' document (local/cloud seed list)
+      if (!matchedUser) {
+        try {
+          const usersDocRef = doc(db, 'sunshine_erp_state', 'users');
+          const usersSnap = await getDoc(usersDocRef);
+          if (usersSnap.exists()) {
+            const usersList = usersSnap.data()?.data || [];
+            const foundLocal = usersList.find((u: any) => 
+              u.username?.toLowerCase() === trimmedInput.toLowerCase() || 
+              u.email?.toLowerCase() === trimmedInput.toLowerCase()
+            );
+            if (foundLocal) {
+              matchedUser = foundLocal;
+              if (matchedUser.email) {
+                targetEmail = matchedUser.email;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Error querying local/cloud fallback state during login:", err);
+        }
+      }
+
+      // If we still don't have an email and the input doesn't look like an email, construct one
+      if (!targetEmail.includes('@')) {
+        targetEmail = `${trimmedInput}@example.com`;
+      }
+
+      console.log(`Prioritizing Firebase Auth login for target email: ${targetEmail}`);
+
+      let firebaseUser: FirebaseUser | null = null;
+      try {
+        // Attempt standard Firebase Auth sign-in
+        firebaseUser = await FirebaseAuthService.loginWithEmail(targetEmail, trimmedPassword, remember);
+      } catch (fbError: any) {
+        console.warn("Standard Firebase Auth sign-in failed, checking password against database records for auto-provisioning...", fbError);
+
+        // Check if the credentials match our found user in database records
+        if (matchedUser) {
+          let isPasswordCorrect = false;
+          
+          const userPwd = matchedUser.password || '';
+          const userPlain = matchedUser.plainPassword || '';
+
+          if (userPwd.startsWith('sha256_mock_')) {
+            isPasswordCorrect = simpleSecureHash(trimmedPassword) === userPwd;
+          } else if (userPwd !== '') {
+            isPasswordCorrect = trimmedPassword === userPwd;
+          } else if (userPlain !== '') {
+            isPasswordCorrect = trimmedPassword === userPlain;
+          } else {
+            // Check fallback passwords based on username
+            const lowerUser = matchedUser.username?.toLowerCase() || '';
+            let fallbackPlain = `${lowerUser}123`;
+            if (lowerUser === 'admin') fallbackPlain = 'admin123';
+            else if (lowerUser === 'teacher') fallbackPlain = 'teacher123';
+            else if (lowerUser === 'reception' || lowerUser === 'receptionist') fallbackPlain = 'reception123';
+            else if (lowerUser === 'student') fallbackPlain = 'student123';
+
+            isPasswordCorrect = trimmedPassword === fallbackPlain || simpleSecureHash(trimmedPassword) === simpleSecureHash(fallbackPlain);
+          }
+
+          if (isPasswordCorrect) {
+            if (matchedUser.active === false) {
+              throw new Error("Your account has been disabled.");
+            }
+
+            console.log("Credentials validated. Auto-provisioning/Creating user in Firebase Auth...");
+            try {
+              // Create user in Firebase Auth dynamically
+              const credential = await createUserWithEmailAndPassword(auth, targetEmail, trimmedPassword);
+              firebaseUser = credential.user;
+
+              // Ensure the profile document exists in the Firestore 'users' collection
+              const uid = firebaseUser.uid;
+              const userDocRef = doc(db, 'users', uid);
+              const initialRole = (matchedUser.role || 'STUDENT').toLowerCase() === 'receptionist' ? 'reception' : (matchedUser.role || 'STUDENT').toLowerCase();
+              
+              await setDoc(userDocRef, {
+                username: matchedUser.username,
+                name: matchedUser.name,
+                email: matchedUser.email || targetEmail,
+                role: initialRole,
+                active: matchedUser.active ?? true,
+                firstLogin: matchedUser.firstLogin ?? false,
+                createdAt: matchedUser.createdAt || new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              });
+              
+              console.log("Dynamically provisioned Firebase Auth and Firestore document successfully.");
+            } catch (createErr: any) {
+              console.error("Failed to dynamically provision user:", createErr);
+              throw new Error(`Auto-provisioning failed: ${createErr.message || createErr}`);
+            }
+          } else {
+            throw new Error("Invalid username/email or password.");
+          }
+        } else {
+          // No matched user found at all, rethrow the original Firebase Auth error cleanly
+          if (fbError.code === "auth/invalid-email" || fbError.code === "auth/user-not-found" || fbError.code === "auth/wrong-password" || fbError.code === "auth/invalid-credential") {
+            throw new Error("Invalid username/email or password.");
+          }
+          throw fbError;
+        }
+      }
+
+      if (firebaseUser) {
+        // If logged in successfully, ensure the user document exists and role redirection can proceed
+        const uid = firebaseUser.uid;
+        const userDocRef = doc(db, 'users', uid);
+        const userDocSnap = await getDoc(userDocRef);
+
+        if (!userDocSnap.exists() && matchedUser) {
+          // Sync profile to Firestore if missing
+          const initialRole = (matchedUser.role || 'STUDENT').toLowerCase() === 'receptionist' ? 'reception' : (matchedUser.role || 'STUDENT').toLowerCase();
+          await setDoc(userDocRef, {
+            username: matchedUser.username,
+            name: matchedUser.name,
+            email: matchedUser.email || targetEmail,
+            role: initialRole,
+            active: matchedUser.active ?? true,
+            firstLogin: matchedUser.firstLogin ?? false,
+            createdAt: matchedUser.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        }
+        
+        // Wait briefly to allow onAuthStateChanged to pick up and process the user session
+        setLoading(false);
+        return true;
+      }
+
+      throw new Error("Invalid username/email or password.");
     } catch (error: any) {
       setLoading(false);
       console.error("Login Error:", error);
       
-      let errorMsg = "Invalid email or password.";
-      if (error.code === "auth/user-not-found" || error.code === "auth/wrong-password") {
-        errorMsg = "Invalid email or password.";
+      let errorMsg = "Invalid username/email or password.";
+      if (error.code === "auth/user-not-found" || error.code === "auth/wrong-password" || error.code === "auth/invalid-credential") {
+        errorMsg = "Invalid username/email or password.";
       } else if (error.code === "auth/network-request-failed") {
         errorMsg = "Unable to connect. Please try again.";
       } else if (error.message) {
         errorMsg = error.message;
       }
       
-      await writeAuditLog('anonymous', email, 'FAILED_LOGIN', `Failed sign-in attempt for email ${email}. Error: ${errorMsg}`);
+      await writeAuditLog('anonymous', email, 'FAILED_LOGIN', `Failed sign-in attempt for ${email}. Error: ${errorMsg}`);
       throw new Error(errorMsg);
     }
   };

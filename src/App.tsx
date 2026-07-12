@@ -94,7 +94,7 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-
 import { FeesPage } from './pages/FeesPage';
 
 import { db, auth, googleSignIn } from './lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { interpolateWhatsAppTemplate, sendWhatsAppMessage } from './lib/whatsappService';
 
@@ -2508,6 +2508,34 @@ export default function App() {
     const trimmedPassword = authPassword.trim();
 
     let email = trimmedUsername;
+    let matchedFirestoreUser: any = null;
+
+    // 1. Check if the user is in the Firestore 'users' collection first (by username or email)
+    try {
+      const usersColRef = collection(db, 'users');
+      const qUsername = query(usersColRef, where('username', '==', trimmedUsername));
+      const qUsernameSnap = await getDocs(qUsername);
+      if (!qUsernameSnap.empty) {
+        matchedFirestoreUser = qUsernameSnap.docs[0].data();
+        matchedFirestoreUser.id = qUsernameSnap.docs[0].id;
+        if (matchedFirestoreUser.email) {
+          email = matchedFirestoreUser.email;
+        }
+      } else {
+        const qEmail = query(usersColRef, where('email', '==', trimmedUsername));
+        const qEmailSnap = await getDocs(qEmail);
+        if (!qEmailSnap.empty) {
+          matchedFirestoreUser = qEmailSnap.docs[0].data();
+          matchedFirestoreUser.id = qEmailSnap.docs[0].id;
+          if (matchedFirestoreUser.email) {
+            email = matchedFirestoreUser.email;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Error querying Firestore users collection in App.tsx:", err);
+    }
+
     let matchedLocal = users.find(
       (u) =>
         (u.username.toLowerCase() === trimmedUsername.toLowerCase() || (u.email && u.email.toLowerCase() === trimmedUsername.toLowerCase())) &&
@@ -2520,10 +2548,12 @@ export default function App() {
       matchedLocal = users.find(u => u.username.toLowerCase() === trimmedUsername.toLowerCase() || (u.email && u.email.toLowerCase() === trimmedUsername.toLowerCase()));
     }
 
-    if (matchedLocal && matchedLocal.email) {
-      email = matchedLocal.email;
-    } else if (!email.includes('@')) {
-      email = `${trimmedUsername}@example.com`;
+    if (!matchedFirestoreUser) {
+      if (matchedLocal && matchedLocal.email) {
+        email = matchedLocal.email;
+      } else if (!email.includes('@')) {
+        email = `${trimmedUsername}@example.com`;
+      }
     }
 
     try {
@@ -2531,21 +2561,36 @@ export default function App() {
       try {
         userCredential = await signInWithEmailAndPassword(auth, email, trimmedPassword);
       } catch (signInErr: any) {
-        // Handle auto registration/provisioning for local seed users to allow seamless testing
+        // Handle auto registration/provisioning for local/firestore seed users to allow seamless testing
         if (
           signInErr.code === 'auth/user-not-found' ||
           signInErr.code === 'auth/invalid-login-credentials' ||
           signInErr.code === 'auth/invalid-credential' ||
           signInErr.code === 'auth/cannot-find-user'
         ) {
-          if (matchedLocal) {
+          const matched = matchedFirestoreUser || matchedLocal;
+          if (matched) {
             let isPasswordCorrect = false;
-            if (matchedLocal.password && matchedLocal.password.startsWith('sha256_mock_')) {
-              isPasswordCorrect = simpleSecureHash(trimmedPassword) === matchedLocal.password;
-            } else if (matchedLocal.password !== undefined) {
-              isPasswordCorrect = trimmedPassword === matchedLocal.password;
-            } else if ((matchedLocal as any).plainPassword) {
-              isPasswordCorrect = trimmedPassword === (matchedLocal as any).plainPassword;
+            
+            const userPwd = matched.password || '';
+            const userPlain = matched.plainPassword || '';
+
+            if (userPwd.startsWith('sha256_mock_')) {
+              isPasswordCorrect = simpleSecureHash(trimmedPassword) === userPwd;
+            } else if (userPwd !== '') {
+              isPasswordCorrect = trimmedPassword === userPwd;
+            } else if (userPlain !== '') {
+              isPasswordCorrect = trimmedPassword === userPlain;
+            } else {
+              // Check fallback passwords based on username
+              const lowerUser = matched.username?.toLowerCase() || '';
+              let fallbackPlain = `${lowerUser}123`;
+              if (lowerUser === 'admin') fallbackPlain = 'admin123';
+              else if (lowerUser === 'teacher') fallbackPlain = 'teacher123';
+              else if (lowerUser === 'reception' || lowerUser === 'receptionist') fallbackPlain = 'reception123';
+              else if (lowerUser === 'student') fallbackPlain = 'student123';
+
+              isPasswordCorrect = trimmedPassword === fallbackPlain || simpleSecureHash(trimmedPassword) === simpleSecureHash(fallbackPlain);
             }
 
             if (isPasswordCorrect) {
@@ -2554,19 +2599,24 @@ export default function App() {
               
               // Seed their document in Firestore users collection
               const uid = userCredential.user.uid;
-              await setDoc(doc(db, 'users', uid), {
-                username: matchedLocal.username,
-                name: matchedLocal.name,
-                email: matchedLocal.email,
-                role: matchedLocal.role.toLowerCase() === 'receptionist' ? 'reception' : matchedLocal.role.toLowerCase(),
-                active: true
+              const userDocRef = doc(db, 'users', uid);
+              const initialRole = (matched.role || authRole).toLowerCase() === 'receptionist' ? 'reception' : (matched.role || authRole).toLowerCase();
+              
+              await setDoc(userDocRef, {
+                username: matched.username,
+                name: matched.name,
+                email: matched.email || email,
+                role: initialRole,
+                active: matched.active ?? true,
+                createdAt: matched.createdAt || new Date().toISOString(),
+                updatedAt: new Date().toISOString()
               });
             } else {
               alert("Incorrect password. Access denied under ERP Strict Security Policy.");
               return;
             }
           } else {
-            alert("No registered account found for this username/email under the selected tab. Please contact Sunshine Classes.");
+            alert("No registered account found for this username/email. Please contact Sunshine Classes.");
             return;
           }
         } else {
