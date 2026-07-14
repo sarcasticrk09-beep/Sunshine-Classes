@@ -21,6 +21,7 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [googleLoginStep, setGoogleLoginStep] = useState<string>('');
+  const [showDemoCreds, setShowDemoCreds] = useState<boolean>(false);
 
   // States for forced password change (firstLogin === true)
   const [newPassword, setNewPassword] = useState<string>('');
@@ -335,6 +336,88 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
             <span>{googleLoginStep}</span>
           </div>
         )}
+
+        <div className="mt-6 pt-4 border-t border-slate-100">
+          <button
+            id="btn-toggle-demo-creds"
+            type="button"
+            onClick={() => setShowDemoCreds(!showDemoCreds)}
+            className="w-full flex items-center justify-between text-slate-500 hover:text-slate-700 text-xs font-bold transition-all"
+          >
+            <span className="flex items-center gap-1.5">
+              <Key size={14} className="text-amber-500" />
+              <span>Show Demo Credentials</span>
+            </span>
+            <span className="text-[10px] font-extrabold uppercase bg-slate-100 px-2 py-0.5 rounded text-slate-500">
+              {showDemoCreds ? 'Hide' : 'Show'}
+            </span>
+          </button>
+
+          {showDemoCreds && (
+            <div className="mt-3 p-3 bg-slate-50 border border-slate-100 rounded-2xl space-y-2.5 text-left text-[11px] text-slate-600 font-medium">
+              <div className="flex justify-between items-center border-b border-slate-200/60 pb-1.5">
+                <span className="font-extrabold text-indigo-950 uppercase tracking-wider text-[9px]">Role</span>
+                <span className="font-extrabold text-indigo-950 uppercase tracking-wider text-[9px]">Username / Password</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-indigo-900">👑 Super Admin</span>
+                <button
+                  type="button"
+                  id="btn-fill-superadmin"
+                  className="font-mono bg-white px-2 py-0.5 border border-slate-200 rounded text-slate-700 cursor-pointer hover:bg-slate-100"
+                  onClick={() => { setEmail('admin'); setPassword('admin123'); }}
+                >
+                  admin / admin123
+                </button>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-indigo-900">💼 Co-Founder / Admin</span>
+                <button
+                  type="button"
+                  id="btn-fill-admin"
+                  className="font-mono bg-white px-2 py-0.5 border border-slate-200 rounded text-slate-700 cursor-pointer hover:bg-slate-100"
+                  onClick={() => { setEmail('rajeev'); setPassword('rajeev123'); }}
+                >
+                  rajeev / rajeev123
+                </button>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-indigo-900">💁 Receptionist</span>
+                <button
+                  type="button"
+                  id="btn-fill-receptionist"
+                  className="font-mono bg-white px-2 py-0.5 border border-slate-200 rounded text-slate-700 cursor-pointer hover:bg-slate-100"
+                  onClick={() => { setEmail('reception'); setPassword('reception123'); }}
+                >
+                  reception / reception123
+                </button>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-indigo-900">👨‍🏫 Teacher</span>
+                <button
+                  type="button"
+                  id="btn-fill-teacher"
+                  className="font-mono bg-white px-2 py-0.5 border border-slate-200 rounded text-slate-700 cursor-pointer hover:bg-slate-100"
+                  onClick={() => { setEmail('teacher'); setPassword('teacher123'); }}
+                >
+                  teacher / teacher123
+                </button>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-indigo-900">🎓 Student</span>
+                <button
+                  type="button"
+                  id="btn-fill-student"
+                  className="font-mono bg-white px-2 py-0.5 border border-slate-200 rounded text-slate-700 cursor-pointer hover:bg-slate-100"
+                  onClick={() => { setEmail('student'); setPassword('student123'); }}
+                >
+                  student / student123
+                </button>
+              </div>
+              <p className="text-[9px] text-slate-400 font-semibold text-center pt-1 italic">Click any button above to instantly fill credentials!</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

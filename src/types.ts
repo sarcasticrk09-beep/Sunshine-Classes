@@ -480,5 +480,22 @@ export interface BatchBulletinPost {
   readBy?: BatchBulletinReadReceipt[];
 }
 
+export interface UPIPayment {
+  id: string;
+  studentId: string;
+  studentName: string;
+  admissionNo: string;
+  class: string;
+  month: string;
+  amount: number;
+  utr: string;
+  screenshot?: string;
+  submissionTime: string;
+  status: 'PENDING_VERIFICATION' | 'APPROVED' | 'REJECTED';
+  feeStatusId: string;
+  rejectionReason?: string;
+}
+
+
 
 

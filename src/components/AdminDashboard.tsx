@@ -53,9 +53,10 @@ import {
   UserPlus,
   ShieldAlert,
   Crown,
-  Lock
+  Lock,
+  QrCode
 } from 'lucide-react';
-import { Student, Teacher, User, UserRole, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig, DepartedStudent, EmailLog } from '../types';
+import { Student, Teacher, User, UserRole, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig, DepartedStudent, EmailLog, UPIPayment } from '../types';
 import { interpolateTemplate, getFeeForClass } from '../data';
 import { sendWhatsAppMessage, interpolateWhatsAppTemplate } from '../lib/whatsappService';
 import { googleSignIn, getCachedAccessToken, clearCachedAccessToken, db } from '../lib/firebase';
@@ -141,6 +142,9 @@ interface AdminDashboardProps {
   onClearTestData?: () => void;
   onForceUpdateUserEmails?: () => void;
   departedStudents?: DepartedStudent[];
+  upiPayments?: UPIPayment[];
+  onVerifyUpiPayment?: (paymentId: string, action: 'APPROVE' | 'REJECT', rejectionReason?: string) => void;
+  onResendReceiptEmail?: (receiptId: string, email: string) => void;
   onUpdateUsers?: (users: User[]) => void;
 }
 
@@ -208,6 +212,9 @@ export default function AdminDashboard({
   onClearTestData,
   onForceUpdateUserEmails,
   departedStudents,
+  upiPayments = [],
+  onVerifyUpiPayment,
+  onResendReceiptEmail,
   onUpdateUsers
 } : AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets' | 'roles' | 'founder-office' | 'cofounder-office' | 'auth-logs'>('overview');
@@ -221,7 +228,8 @@ export default function AdminDashboard({
   const [authEndDate, setAuthEndDate] = useState('');
   const [authActionCategory, setAuthActionCategory] = useState<'all' | 'login' | 'password' | 'role'>('all');
   const [authSearchQuery, setAuthSearchQuery] = useState('');
-  const [feeSubTab, setFeeSubTab] = useState<'board' | 'email-logs'>('board');
+  const [feeSubTab, setFeeSubTab] = useState<'board' | 'email-logs' | 'upi-verification'>('board');
+  const [selectedUpiScreenshot, setSelectedUpiScreenshot] = useState<string | null>(null);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>(() => {
     const saved = localStorage.getItem('sunshine_email_logs');
     return saved ? JSON.parse(saved) : [];
@@ -8396,6 +8404,13 @@ ${data.log}`
                     >
                       📨 Email Reminder Logs ({emailLogs.length})
                     </button>
+                    <button
+                      id="subtab-upi-verification"
+                      onClick={() => setFeeSubTab('upi-verification')}
+                      className={`pb-2 text-sm font-semibold border-b-2 transition-all cursor-pointer ${feeSubTab === 'upi-verification' ? 'border-indigo-900 text-indigo-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                    >
+                      🔍 UPI Verifications ({upiPayments.filter(p => p.status === 'PENDING_VERIFICATION').length})
+                    </button>
                   </div>
 
                   {feeSubTab === 'board' ? (
@@ -8787,7 +8802,7 @@ ${data.log}`
                     </div>
                   </div>
                 </>
-              ) : (
+              ) : feeSubTab === 'email-logs' ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-slate-500">
@@ -8878,6 +8893,192 @@ ${data.log}`
                       </table>
                     </div>
                   </div>
+                </div>
+              ) : (
+                /* UPI DIRECT SETTLEMENT VERIFICATION OFFICE PANEL */
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between bg-slate-50 p-4 border border-slate-250 rounded-2xl">
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900 uppercase">Direct UPI Fee Settlement Desk</h4>
+                      <p className="text-[10px] text-slate-500 mt-1">Review pending fee deposit proofs matching transaction reference IDs (UTR). Direct-deposit settlement avoids gateway service charges.</p>
+                    </div>
+                    <span className="rounded-xl bg-amber-50 text-amber-800 border border-amber-200 px-3 py-1.5 text-xs font-black">
+                      {upiPayments.filter(p => p.status === 'PENDING_VERIFICATION').length} Awaiting Approval
+                    </span>
+                  </div>
+
+                  <div className="overflow-hidden border border-slate-150 rounded-xl bg-white shadow-sm">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-150 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            <th className="px-4 py-3">Student Name / Class</th>
+                            <th className="px-4 py-3 text-center">Cycle Month</th>
+                            <th className="px-4 py-3 text-right">Amount</th>
+                            <th className="px-4 py-3 font-mono">UTR / Ref Number</th>
+                            <th className="px-4 py-3 text-center">Screenshot</th>
+                            <th className="px-4 py-3 text-center">Status</th>
+                            <th className="px-4 py-3 text-center">Audit Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                          {upiPayments.map((payment) => {
+                            const matchedReceipt = feeReceipts.find(r => r.transactionId === payment.utr);
+                            return (
+                              <tr key={payment.id} className="hover:bg-slate-50/60 transition-all">
+                                <td className="px-4 py-3">
+                                  <div className="font-extrabold text-slate-900">{payment.studentName}</div>
+                                  <div className="text-[10px] text-slate-400 font-mono mt-0.5">ID: {payment.studentId} • Class: {payment.class}</div>
+                                </td>
+                                <td className="px-4 py-3 text-center font-bold text-slate-600">
+                                  {payment.month}
+                                </td>
+                                <td className="px-4 py-3 text-right font-black text-slate-950">
+                                  ₹{payment.amount}.00
+                                </td>
+                                <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                                  <div className="flex items-center gap-1 font-bold select-all">
+                                    <span>{payment.utr}</span>
+                                    <button 
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(payment.utr);
+                                        alert("UTR / Reference number copied to clipboard!");
+                                      }}
+                                      className="text-slate-400 hover:text-indigo-600 transition-colors p-0.5"
+                                      title="Copy UTR"
+                                    >
+                                      📋
+                                    </button>
+                                  </div>
+                                  <div className="text-[9px] text-slate-400 font-medium">Submitted: {new Date(payment.submissionTime).toLocaleString()}</div>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {payment.screenshot ? (
+                                    <button
+                                      id={`btn-view-screenshot-proof-${payment.id}`}
+                                      onClick={() => setSelectedUpiScreenshot(payment.screenshot!)}
+                                      className="inline-flex items-center gap-1 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-3 py-1.5 text-[10px] cursor-pointer shadow-sm transition-all"
+                                    >
+                                      👁️ View Screenshot
+                                    </button>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400 italic">No proof attached</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {payment.status === 'PENDING_VERIFICATION' && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
+                                      Pending Verification
+                                    </span>
+                                  )}
+                                  {payment.status === 'APPROVED' && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      Approved
+                                    </span>
+                                  )}
+                                  {payment.status === 'REJECTED' && (
+                                    <span 
+                                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200 cursor-help"
+                                      title={payment.rejectionReason}
+                                    >
+                                      Rejected
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {payment.status === 'PENDING_VERIFICATION' ? (
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      <button
+                                        id={`btn-approve-upi-payment-${payment.id}`}
+                                        onClick={() => {
+                                          if (confirm(`Approve settlement of ₹${payment.amount} for student ${payment.studentName} for cycle ${payment.month}? This action is irreversible and generates a verified official ledger receipt instantly.`)) {
+                                            if (onVerifyUpiPayment) onVerifyUpiPayment(payment.id, 'APPROVE');
+                                          }
+                                        }}
+                                        className="rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1.5 text-[10px] cursor-pointer shadow transition-all hover:scale-105"
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        id={`btn-reject-upi-payment-${payment.id}`}
+                                        onClick={() => {
+                                          const reason = prompt("Provide audit rejection comments for the student (e.g. UTR doesn't match bank logs, transaction was reversed, incorrect amount):", "Bank ledger shows no credit with matching UTR reference");
+                                          if (reason !== null && onVerifyUpiPayment) {
+                                            onVerifyUpiPayment(payment.id, 'REJECT', reason || "Transaction details invalid");
+                                          }
+                                        }}
+                                        className="rounded bg-rose-600 hover:bg-rose-700 text-white font-bold px-2.5 py-1.5 text-[10px] cursor-pointer shadow transition-all hover:scale-105"
+                                      >
+                                        Reject
+                                      </button>
+                                    </div>
+                                  ) : payment.status === 'APPROVED' ? (
+                                    <div className="flex items-center justify-center">
+                                      {matchedReceipt ? (
+                                        <button
+                                          id={`btn-resend-receipt-email-${payment.id}`}
+                                          onClick={() => {
+                                            if (onResendReceiptEmail) {
+                                              const studentRecord = students.find(s => s.id === payment.studentId);
+                                              onResendReceiptEmail(matchedReceipt.id, studentRecord?.email || "");
+                                              alert("Professional PDF receipt resent to student's email successfully!");
+                                            }
+                                          }}
+                                          className="rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1.5 text-[10px] cursor-pointer transition-colors shadow-sm"
+                                        >
+                                          ✉ Resend Receipt
+                                        </button>
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-emerald-700">✓ Settled Ledger Record</span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="text-[10px] font-medium text-slate-500 max-w-[150px] truncate" title={payment.rejectionReason}>
+                                      Reason: {payment.rejectionReason}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+
+                          {upiPayments.length === 0 && (
+                            <tr>
+                              <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                                <QrCode size={32} className="mx-auto text-slate-300 mb-2 animate-pulse" />
+                                No direct UPI payment verification submissions received yet.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Built-in high fidelity screenshot lightbox */}
+                  {selectedUpiScreenshot && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+                      <div className="w-full max-w-2xl bg-white p-5 rounded-2xl shadow-2xl relative text-slate-800">
+                        <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+                          <span className="text-xs font-black text-slate-900 uppercase">Payment Screenshot Auditor Proof</span>
+                          <button 
+                            id="btn-close-screenshot-lightbox"
+                            onClick={() => setSelectedUpiScreenshot(null)}
+                            className="text-slate-400 hover:text-slate-600 font-black text-xs cursor-pointer p-1 hover:bg-slate-50 rounded-full"
+                          >
+                            ✕ CLOSE Proof
+                          </button>
+                        </div>
+                        <div className="flex justify-center bg-slate-50 border border-slate-100 p-2 rounded-xl">
+                          <img 
+                            src={selectedUpiScreenshot} 
+                            alt="Payment Screenshot Proof" 
+                            className="max-h-[70vh] max-w-full object-contain rounded-lg shadow-inner"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

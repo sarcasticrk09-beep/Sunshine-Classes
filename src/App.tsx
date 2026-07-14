@@ -37,7 +37,8 @@ import {
   EmailTemplatesConfig,
   WhatsAppTemplatesConfig,
   BatchBulletinPost,
-  DepartedStudent
+  DepartedStudent,
+  UPIPayment
 } from './types';
 
 import {
@@ -77,6 +78,7 @@ import {
 } from './data';
 
 import { migrateExistingData, generateFeeRecords, getCurrentAndNextMonths } from './lib/feeUtils';
+import { generateReceiptPdf } from './lib/pdfGenerator';
 
 import LandingPage from './components/LandingPage';
 import StudentDashboard from './components/StudentDashboard';
@@ -353,6 +355,7 @@ export default function App() {
   const [attendance, setAttendance] = useState<Attendance[]>(() => getOrSeedLocal('attendance', SEED_ATTENDANCE));
   const [feeStatuses, setFeeStatuses] = useState<FeeStatus[]>(() => getOrSeedLocal('fee_statuses', SEED_FEE_STATUS));
   const [feeReceipts, setFeeReceipts] = useState<FeeReceipt[]>(() => getOrSeedLocal('fee_receipts', SEED_FEE_RECEIPTS));
+  const [upiPayments, setUpiPayments] = useState<UPIPayment[]>(() => getOrSeedLocal('upi_payments', []));
   const [tests, setTests] = useState<Test[]>(() => getOrSeedLocal('tests', SEED_TESTS));
   const [studentMarks, setStudentMarks] = useState<StudentMark[]>(() => getOrSeedLocal('student_marks', SEED_STUDENT_MARKS));
   const [homework, setHomework] = useState<Homework[]>(() => getOrSeedLocal('homework', SEED_HOMEWORK));
@@ -487,6 +490,10 @@ export default function App() {
       case 'fee_receipts':
         setFeeReceipts(data);
         syncState('fee_receipts', data);
+        break;
+      case 'upi_payments':
+        setUpiPayments(data);
+        syncState('upi_payments', data);
         break;
       case 'student_subscriptions':
         setSubscriptions(data);
@@ -632,7 +639,8 @@ export default function App() {
           loadedTimetable,
           loadedEmailTemplates,
           loadedWhatsappTemplates,
-          loadedBatchBulletins
+          loadedBatchBulletins,
+          loadedUpiPayments
         ] = await Promise.all([
           loadOrSeedCloud('students', SEED_STUDENTS),
           loadOrSeedCloud('teachers', SEED_TEACHERS),
@@ -663,7 +671,8 @@ export default function App() {
           loadOrSeedCloud('timetable', SEED_TIMETABLE),
           loadOrSeedCloud('email_templates', SEED_EMAIL_TEMPLATES),
           loadOrSeedCloud('whatsapp_templates', SEED_WHATSAPP_TEMPLATES),
-          loadOrSeedCloud('batch_bulletins', SEED_BATCH_BULLETINS)
+          loadOrSeedCloud('batch_bulletins', SEED_BATCH_BULLETINS),
+          loadOrSeedCloud('upi_payments', [])
         ]);
 
     // Compute updated statuses and days remaining at runtime based on today's date
@@ -916,8 +925,8 @@ export default function App() {
       activeSubConfig.bankAccountHolder = 'Sunshine Classes ERP Solutions';
       migrated = true;
     }
-    if (activeSubConfig.upiId === 'sunshineclasses@okaxis' || !activeSubConfig.upiId || activeSubConfig.upiId === '9161586254@upi') {
-      activeSubConfig.upiId = 'sunshineclasses@upi';
+    if (activeSubConfig.upiId !== '9161586254@upi') {
+      activeSubConfig.upiId = '9161586254@upi';
       migrated = true;
     }
     if (activeSubConfig.allowPartialPayments === undefined) {
@@ -1151,6 +1160,7 @@ export default function App() {
     setEmailTemplates(loadedEmailTemplates);
     setWhatsappTemplates(loadedWhatsappTemplates);
     setBatchBulletins(loadedBatchBulletins);
+    setUpiPayments(loadedUpiPayments || []);
     setCloudOnline(true);
       } catch (err: any) {
         console.warn("[Cloud Firestore] Background synchronization completed with local fallback state:", err);
@@ -1645,6 +1655,286 @@ export default function App() {
     }, ...auditLogs];
     setAuditLogs(updatedLogs);
     syncState('audit_logs', updatedLogs);
+  };
+
+  const handleAddUpiPayment = (payment: Omit<UPIPayment, 'id' | 'submissionTime' | 'status'>) => {
+    // Prevent duplicate UTR submissions
+    const isDuplicate = upiPayments.some(p => p.utr.trim().toLowerCase() === payment.utr.trim().toLowerCase() && p.status !== 'REJECTED') ||
+                        feeReceipts.some(r => r.transactionId?.trim().toLowerCase() === payment.utr.trim().toLowerCase());
+    if (isDuplicate) {
+      alert("This UTR / Transaction Reference Number has already been submitted or approved. Please verify and try again.");
+      return false;
+    }
+
+    const newPayment: UPIPayment = {
+      ...payment,
+      id: `UPI-${Date.now()}`,
+      submissionTime: new Date().toISOString(),
+      status: 'PENDING_VERIFICATION'
+    };
+
+    const updated = [newPayment, ...upiPayments];
+    setUpiPayments(updated);
+    syncState('upi_payments', updated);
+    
+    // Add a notification for admin
+    const adminNotif = {
+      id: `NOTIF-UPI-${Date.now()}`,
+      title: `🔔 New UPI Payment Verification Request`,
+      content: `${payment.studentName} has submitted UTR ${payment.utr} for ${payment.month} fees verification.`,
+      category: 'FEE' as const,
+      targetRole: 'ADMIN' as const,
+      date: new Date().toISOString().split('T')[0],
+      read: false
+    };
+    setNotifications(prev => [adminNotif, ...prev]);
+    return true;
+  };
+
+  const handleVerifyUpiPayment = async (paymentId: string, action: 'APPROVE' | 'REJECT', rejectionReason?: string) => {
+    const updated = upiPayments.map(p => {
+      if (p.id === paymentId) {
+        return {
+          ...p,
+          status: action === 'APPROVE' ? ('APPROVED' as const) : ('REJECTED' as const),
+          rejectionReason: rejectionReason || undefined
+        };
+      }
+      return p;
+    });
+
+    setUpiPayments(updated);
+    syncState('upi_payments', updated);
+
+    const payment = upiPayments.find(p => p.id === paymentId);
+    if (!payment) return;
+
+    if (action === 'APPROVE') {
+      const student = students.find(s => s.id === payment.studentId);
+      const receiptId = `REC-0${feeReceipts.length + 101}`;
+      const newReceipt: FeeReceipt = {
+        id: receiptId,
+        studentId: payment.studentId,
+        studentName: payment.studentName,
+        class: payment.class,
+        month: payment.month,
+        amountPaid: payment.amount,
+        paymentMethod: 'UPI',
+        date: new Date().toISOString().split('T')[0],
+        transactionId: payment.utr,
+        receivedBy: currentUser?.name || 'School Office'
+      };
+
+      const updatedReceipts = [newReceipt, ...feeReceipts];
+      setFeeReceipts(updatedReceipts);
+      syncState('fee_receipts', updatedReceipts);
+
+      const updatedLedgers = feeStatuses.map((f) => {
+        if (f.studentId === payment.studentId && f.month === payment.month) {
+          const nextPaid = f.paidFee + payment.amount;
+          const nextPending = Math.max(0, f.totalFee - f.discount - f.scholarship - nextPaid);
+          return {
+            ...f,
+            paidFee: nextPaid,
+            pendingFee: nextPending,
+            status: nextPending === 0 ? ('PAID' as const) : ('PARTIAL' as const)
+          };
+        }
+        return f;
+      });
+      setFeeStatuses(updatedLedgers);
+      syncState('fee_statuses', updatedLedgers);
+
+      const updatedLogs = [{
+        id: `L-${Date.now()}`,
+        userId: currentUser?.id || 'admin',
+        username: currentUser?.username || 'admin',
+        action: 'COLLECT_FEE',
+        details: `Approved UPI payment of ₹${payment.amount} (UTR: ${payment.utr}) for ${payment.studentName} for cycle: ${payment.month}`,
+        timestamp: new Date().toISOString()
+      }, ...auditLogs];
+      setAuditLogs(updatedLogs);
+      syncState('audit_logs', updatedLogs);
+
+      if (student) {
+        try {
+          const doc = generateReceiptPdf(newReceipt, student);
+          const pdfBase64 = doc.output('datauristring').split(',')[1];
+
+          if (student.email) {
+            const emailSubject = "Sunshine Classes Fee Payment Receipt";
+            const emailBody = `Dear ${payment.studentName},
+
+Your fee payment has been successfully verified.
+
+Receipt Number: ${receiptId}
+Amount Paid: ₹${payment.amount}
+Month: ${payment.month}
+Payment Date: ${newReceipt.date}
+
+Your receipt is attached as a PDF.
+
+Thank you for choosing Sunshine Classes.
+
+Regards,
+Sunshine Classes`;
+
+            fetch("/api/send-email", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                to: student.email,
+                studentName: payment.studentName,
+                amount: payment.amount,
+                month: payment.month,
+                className: payment.class,
+                receiptId: receiptId,
+                paymentMethod: 'UPI',
+                transactionId: payment.utr,
+                date: newReceipt.date,
+                receivedBy: newReceipt.receivedBy,
+                customSubject: emailSubject,
+                customHtml: emailBody.replace(/\n/g, '<br>'),
+                attachments: [
+                  {
+                    filename: `Sunshine_Receipt_${receiptId}.pdf`,
+                    content: pdfBase64,
+                    contentType: 'application/pdf'
+                  }
+                ]
+              })
+            })
+            .then(r => r.json())
+            .then(res => {
+              if (res.success) {
+                console.log("Verified payment receipt email sent successfully!");
+                if (res.isEthereal && res.previewUrl) {
+                  const previewNotif = {
+                    id: `NOTIF-EMAIL-${Date.now()}`,
+                    title: `📧 Receipt Sent to ${payment.studentName}`,
+                    content: `Since you don't have SMTP credentials set, we generated a demo mail. Click here to view the receipt: ${res.previewUrl}`,
+                    category: 'FEE' as const,
+                    targetRole: 'ADMIN' as const,
+                    date: new Date().toISOString().split('T')[0],
+                    read: false
+                  };
+                  setNotifications(prev => [previewNotif, ...prev]);
+                }
+              }
+            })
+            .catch(err => console.error("Error sending verified payment email:", err));
+          }
+        } catch (pdfErr) {
+          console.error("Failed to generate/email PDF receipt:", pdfErr);
+        }
+      }
+    } else {
+      const updatedLogs = [{
+        id: `L-${Date.now()}`,
+        userId: currentUser?.id || 'admin',
+        username: currentUser?.username || 'admin',
+        action: 'REJECT_FEE_VERIFICATION',
+        details: `Rejected UPI payment request of ₹${payment.amount} (UTR: ${payment.utr}) for ${payment.studentName} for cycle: ${payment.month}. Reason: ${rejectionReason || 'None'}`,
+        timestamp: new Date().toISOString()
+      }, ...auditLogs];
+      setAuditLogs(updatedLogs);
+      syncState('audit_logs', updatedLogs);
+
+      const studentNotif = {
+        id: `NOTIF-UPI-REJECT-${Date.now()}`,
+        title: `❌ UPI Payment Rejected`,
+        content: `Your UPI payment submission of ₹${payment.amount} for ${payment.month} was rejected. Reason: ${rejectionReason || 'Incorrect transaction reference (UTR).'}. Please submit again with correct details.`,
+        category: 'FEE' as const,
+        targetRole: 'STUDENT' as const,
+        targetBatch: payment.class,
+        date: new Date().toISOString().split('T')[0],
+        read: false
+      };
+      setNotifications(prev => [studentNotif, ...prev]);
+    }
+  };
+
+  const handleResendReceiptEmail = async (receiptId: string, email: string) => {
+    const receipt = feeReceipts.find(r => r.id === receiptId);
+    if (!receipt) {
+      alert("Receipt not found.");
+      return;
+    }
+    const student = students.find(s => s.id === receipt.studentId);
+    if (!student) {
+      alert("Student profile not found.");
+      return;
+    }
+
+    try {
+      const doc = generateReceiptPdf(receipt, student);
+      const pdfBase64 = doc.output('datauristring').split(',')[1];
+
+      const emailSubject = "Sunshine Classes Fee Payment Receipt (Resent)";
+      const emailBody = `Dear ${receipt.studentName},
+
+Please find attached your resent fee payment receipt for Sunshine Classes.
+
+Receipt Number: ${receipt.id}
+Amount Paid: ₹{receipt.amountPaid}
+Month: ${receipt.month}
+Payment Date: ${receipt.date}
+
+Your receipt is attached as a PDF.
+
+Regards,
+Sunshine Classes`;
+
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to: email,
+          studentName: receipt.studentName,
+          amount: receipt.amountPaid,
+          month: receipt.month,
+          className: receipt.class,
+          receiptId: receipt.id,
+          paymentMethod: receipt.paymentMethod,
+          transactionId: receipt.transactionId,
+          date: receipt.date,
+          receivedBy: receipt.receivedBy,
+          customSubject: emailSubject,
+          customHtml: emailBody.replace(/\n/g, '<br>').replace('₹{receipt.amountPaid}', `₹${receipt.amountPaid}`),
+          attachments: [
+            {
+              filename: `Sunshine_Receipt_${receipt.id}.pdf`,
+              content: pdfBase64,
+              contentType: 'application/pdf'
+            }
+          ]
+        })
+      }).then(r => r.json());
+
+      if (res.success) {
+        alert(`Receipt email resent successfully to ${email}!`);
+        if (res.isEthereal && res.previewUrl) {
+          const previewNotif = {
+            id: `NOTIF-EMAIL-RESEND-${Date.now()}`,
+            title: `📧 Receipt Resent to ${receipt.studentName}`,
+            content: `Mock resent receipt email preview: ${res.previewUrl}`,
+            category: 'FEE' as const,
+            targetRole: 'ADMIN' as const,
+            date: new Date().toISOString().split('T')[0],
+            read: false
+          };
+          setNotifications(prev => [previewNotif, ...prev]);
+        }
+      } else {
+        alert(`Failed to resend email: ${res.error}`);
+      }
+    } catch (err: any) {
+      alert(`Error resending receipt email: ${err.message}`);
+    }
   };
 
   const handleAddAttendance = (attendanceLogs: Omit<Attendance, 'id'>[]) => {
@@ -3258,6 +3548,8 @@ export default function App() {
                       subConfig={subConfig}
                       onPaySubscription={handlePaySubscription}
                       onCollectFee={handleCollectFee}
+                      upiPayments={upiPayments}
+                      onAddUpiPayment={handleAddUpiPayment}
                       timetableList={timetable}
                       studyMaterials={studyMaterials}
                       batchBulletins={batchBulletins}
@@ -3393,6 +3685,9 @@ export default function App() {
                     onUpdateConfig={handleUpdateSubscriptionConfig}
                     onPaySubscription={handlePaySubscription}
                     onCollectFee={handleCollectFee}
+                    upiPayments={upiPayments}
+                    onVerifyUpiPayment={handleVerifyUpiPayment}
+                    onResendReceiptEmail={handleResendReceiptEmail}
                     onUpdateUserPassword={handleUpdateUserPassword}
                     strictMode={strictMode}
                     onToggleStrictMode={handleToggleStrictMode}

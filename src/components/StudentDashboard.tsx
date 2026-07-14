@@ -33,7 +33,7 @@ import {
   Send,
   X
 } from 'lucide-react';
-import { Student, Attendance, FeeStatus, FeeReceipt, Test, StudentMark, Homework, HomeworkSubmission, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, TimetableEntry, StudyMaterial, BatchBulletinPost } from '../types';
+import { Student, Attendance, FeeStatus, FeeReceipt, Test, StudentMark, Homework, HomeworkSubmission, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, TimetableEntry, StudyMaterial, BatchBulletinPost, UPIPayment } from '../types';
 import SunshineLogo from './SunshineLogo';
 import { CloudinaryUpload } from './CloudinaryUpload';
 import { getFeeStatusForRecord } from '../lib/feeUtils';
@@ -57,6 +57,8 @@ interface StudentDashboardProps {
   onPaySubscription: (subId: string, paymentMethod: 'CASH' | 'UPI' | 'ONLINE' | 'CARD' | 'NET_BANKING', amount: number) => void;
   onCollectFee: (fee: Omit<FeeReceipt, 'id' | 'date' | 'receivedBy'> & { skipWhatsApp?: boolean }) => void;
   timetableList: TimetableEntry[];
+  upiPayments?: UPIPayment[];
+  onAddUpiPayment?: (payment: Omit<UPIPayment, 'id' | 'submissionTime' | 'status'>) => boolean;
   studyMaterials: StudyMaterial[];
   onUpdateStudent?: (student: Student) => void;
   batchBulletins: BatchBulletinPost[];
@@ -83,6 +85,8 @@ export default function StudentDashboard({
   subConfig,
   onPaySubscription,
   onCollectFee,
+  upiPayments = [],
+  onAddUpiPayment,
   timetableList,
   studyMaterials,
   onUpdateStudent,
@@ -333,6 +337,7 @@ export default function StudentDashboard({
   const [transactionRefNum, setTransactionRefNum] = useState<string>('');
   const [receiptProofAttached, setReceiptProofAttached] = useState<boolean>(false);
   const [receiptFileName, setReceiptFileName] = useState<string>('');
+  const [screenshotBase64, setScreenshotBase64] = useState<string>('');
   const [paymentMethodSelected, setPaymentMethodSelected] = useState<'UPI' | 'ONLINE' | 'CARD' | 'NET_BANKING'>(() => {
     if (subConfig?.paymentGatewayProvider === 'RAZORPAY') return 'NET_BANKING';
     if (subConfig?.paymentGatewayProvider === 'STRIPE') return 'CARD';
@@ -360,6 +365,7 @@ export default function StudentDashboard({
       setTransactionRefNum('');
       setReceiptProofAttached(false);
       setReceiptFileName('');
+      setScreenshotBase64('');
     }
   }, [payFeeId, subConfig]);
 
@@ -1356,12 +1362,33 @@ export default function StudentDashboard({
                                 <td className="py-1.5 px-3 block md:table-cell md:p-3 text-center">
                                   <span className="inline-block md:hidden font-bold text-slate-400 w-28">Action:</span>
                                   {f.pendingFee > 0 ? (
-                                    <button
-                                      onClick={() => setPayFeeId(f.id)}
-                                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand-orange hover:bg-amber-500 text-white px-3 py-1.5 font-bold text-[10px] shadow-sm transition-all cursor-pointer hover:scale-105"
-                                    >
-                                      <CreditCard size={11} /> Pay Online (₹{f.pendingFee})
-                                    </button>
+                                    (() => {
+                                      const pendingPayment = upiPayments.find(p => p.studentId === student.id && p.month === f.month && p.status === 'PENDING_VERIFICATION');
+                                      const rejectedPayment = upiPayments.find(p => p.studentId === student.id && p.month === f.month && p.status === 'REJECTED');
+                                      if (pendingPayment) {
+                                        return (
+                                          <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 font-bold text-[10px] shadow-sm">
+                                            <Clock size={11} className="animate-pulse" /> Pending Verification
+                                          </span>
+                                        );
+                                      }
+                                      return (
+                                        <div className="flex flex-col gap-1 items-center justify-center">
+                                          <button
+                                            id={`btn-pay-${f.id}`}
+                                            onClick={() => setPayFeeId(f.id)}
+                                            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-orange hover:bg-amber-500 text-white px-3 py-1.5 font-bold text-[10px] shadow-sm transition-all cursor-pointer hover:scale-105"
+                                          >
+                                            <CreditCard size={11} /> Pay with UPI (₹{f.pendingFee})
+                                          </button>
+                                          {rejectedPayment && (
+                                            <span className="text-[9px] font-medium text-red-500 max-w-[150px] leading-tight text-center">
+                                              Rejected: {rejectedPayment.rejectionReason || "UTR mismatch"}. Submit again.
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })()
                                   ) : (
                                     <span className="text-[10px] font-bold text-emerald-700 inline-flex items-center gap-1 justify-center">✓ Settled</span>
                                   )}
@@ -2723,104 +2750,72 @@ export default function StudentDashboard({
 
       {/* MODAL 4B: OUTSTANDING TUITION FEE LEDGER SECURE PAYMENT GATEWAY SIMULATOR */}
       {payFeeId && selectedFeeItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl relative text-slate-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl relative text-slate-800 my-8">
             {/* Header */}
-            <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-4">
-              <div className="rounded-lg bg-emerald-50 p-2 text-emerald-600">
-                <CreditCard size={20} />
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-indigo-50 p-2 text-indigo-600">
+                  <QrCode size={22} />
+                </div>
+                <div>
+                  <h3 className="font-display font-black text-sm text-slate-900">SUNSHINE UPI PORTAL</h3>
+                  <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider font-mono">9161586254@upi</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-display font-black text-sm text-slate-900">SUNSHINE SECURE GATEWAY</h3>
-                <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
-                  Settling via: {subConfig.paymentGatewayProvider === 'UPI_QR' ? 'UPI Direct QR' : 
-                               subConfig.paymentGatewayProvider === 'RAZORPAY' ? 'Razorpay Node' : 
-                               subConfig.paymentGatewayProvider === 'STRIPE' ? 'Stripe Checkout' :
-                               subConfig.paymentGatewayProvider === 'BANK_TRANSFER' ? 'Direct Bank Transfer' : 'Default Payment Gateway'}
-                </p>
-              </div>
+              <button 
+                id="btn-close-payment-portal"
+                onClick={() => setPayFeeId(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1 rounded-full hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
             </div>
 
             {paySuccess ? (
-              <div className="text-center py-8">
+              <div className="text-center py-12 animate-fade-in">
                 <div className="mx-auto h-16 w-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 mb-4 animate-bounce">
                   <CheckCircle size={36} />
                 </div>
                 <h4 className="font-display font-black text-lg text-slate-950">PAYMENT SUCCESSFUL!</h4>
-                <p className="text-xs text-slate-600 mt-2 max-w-xs mx-auto leading-relaxed">
-                  Thank you! Your tuition fee payment of <strong>₹{selectedFeeItem.pendingFee}</strong> for <strong>{selectedFeeItem.month}</strong> has been received. An official receipt voucher has been generated instantly in your portal.
+                <p className="text-xs text-slate-600 mt-2 max-w-xs mx-auto leading-relaxed font-semibold">
+                  Your payment has been successfully recorded and settled in the school ledger instantly!
                 </p>
-                <p className="text-[10px] font-mono text-slate-400 mt-4">Generating secure ledger tokens...</p>
-              </div>
-            ) : isPaying ? (
-              <div className="text-center py-10 space-y-4">
-                <div className="mx-auto h-12 w-12 rounded-full border-4 border-brand-blue border-t-transparent animate-spin"></div>
-                <div>
-                  <h4 className="font-bold text-sm text-slate-800">Authorizing Secure Transaction...</h4>
-                  <p className="text-[10px] text-slate-400 mt-1">Please do not refresh or close this browser tab</p>
-                </div>
-                <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 text-[10px] font-mono text-slate-500 text-left space-y-1">
-                  <div>• Merchant ID: {subConfig.upiMerchantName || 'SUNSHINE_CLASSES_HD'}</div>
-                  <div>• Gateway Target: {subConfig.paymentGatewayProvider || 'INTEGRATED_GATEWAY_DEFAULT'}</div>
-                  <div>• Handshake Status: Secure Handshake Authorized...</div>
-                </div>
-              </div>
-            ) : !subConfig.enableOnlinePayments ? (
-              <div className="text-center py-6 space-y-4">
-                <div className="mx-auto h-16 w-16 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
-                  <AlertTriangle size={32} />
-                </div>
-                <div>
-                  <h4 className="font-display font-black text-sm text-slate-900 uppercase">ONLINE FEE COLLECTIONS BLOCKED</h4>
-                  <p className="text-xs text-slate-500 mt-2 max-w-xs mx-auto leading-relaxed">
-                    Online tuition fee payments have been temporarily suspended by Sunshine Classes administration. Please submit all pending dues in-person at the front reception counter or contact school support.
-                  </p>
-                </div>
-                <div className="border-t border-slate-100 pt-4 mt-4 flex justify-end">
-                  <button
-                    onClick={() => setPayFeeId(null)}
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
-                  >
-                    Close Portal Gateway
-                  </button>
-                </div>
+                <p className="text-[10px] font-mono text-slate-400 mt-4">Generating & emailing professional PDF receipt...</p>
               </div>
             ) : (
-              <div>
-                {/* Invoice Brief */}
-                <div className="bg-slate-50 border border-slate-100 rounded-xl p-3.5 mb-4 text-xs">
-                  <div className="flex justify-between mb-1.5">
-                    <span className="text-slate-500">Student:</span>
-                    <span className="font-bold text-slate-800">{student.name}</span>
-                  </div>
-                  <div className="flex justify-between mb-1.5">
-                    <span className="text-slate-500">Billing Cycle:</span>
-                    <span className="font-bold text-slate-800">{selectedFeeItem.month}</span>
-                  </div>
-                  <div className="flex justify-between mb-1.5">
-                    <span className="text-slate-500">Standard Class Fee:</span>
-                    <span className="font-semibold text-slate-800">₹{selectedFeeItem.totalFee}.00</span>
-                  </div>
-                  {((selectedFeeItem.discount ?? 0) + (selectedFeeItem.scholarship ?? 0)) > 0 && (
-                    <div className="flex justify-between mb-1.5 text-green-600">
-                      <span>Scholarship & Discount:</span>
-                      <span>-₹{(selectedFeeItem.discount ?? 0) + (selectedFeeItem.scholarship ?? 0)}.00</span>
+              <div className="space-y-4">
+                {/* Invoice Details */}
+                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 text-xs">
+                  <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+                    <div>
+                      <span className="text-slate-500 block font-medium">Student Name</span>
+                      <span className="font-bold text-slate-800">{student.name}</span>
                     </div>
-                  )}
-                  {selectedFeeItem.paidFee > 0 && (
-                    <div className="flex justify-between mb-1.5 text-indigo-700">
-                      <span>Previously Paid:</span>
-                      <span>₹{selectedFeeItem.paidFee}.00</span>
+                    <div>
+                      <span className="text-slate-500 block font-medium">Billing Cycle</span>
+                      <span className="font-bold text-slate-800">{selectedFeeItem.month}</span>
                     </div>
-                  )}
+                    <div>
+                      <span className="text-slate-500 block font-medium">Standard Class Fee</span>
+                      <span className="font-semibold text-slate-800">₹{selectedFeeItem.totalFee}.00</span>
+                    </div>
+                    {((selectedFeeItem.discount ?? 0) + (selectedFeeItem.scholarship ?? 0)) > 0 && (
+                      <div>
+                        <span className="text-green-600 block font-medium">Scholarships & Discounts</span>
+                        <span className="font-semibold text-green-600">-₹{(selectedFeeItem.discount ?? 0) + (selectedFeeItem.scholarship ?? 0)}.00</span>
+                      </div>
+                    )}
+                  </div>
 
                   {subConfig.allowPartialPayments ? (
-                    <div className="border-t border-slate-200/60 pt-2.5 mt-1.5 space-y-1.5">
+                    <div className="border-t border-slate-200 pt-3 mt-3">
                       <div className="flex justify-between items-center">
-                        <span className="font-bold text-slate-700">Payment Deposit Amount:</span>
+                        <span className="font-bold text-slate-700">Payment Amount:</span>
                         <div className="flex items-center gap-1">
                           <span className="text-xs font-bold text-slate-500">₹</span>
                           <input
+                            id="input-custom-pay-amount"
                             type="number"
                             min="1"
                             max={selectedFeeItem.pendingFee}
@@ -2837,305 +2832,116 @@ export default function StudentDashboard({
                           />
                         </div>
                       </div>
-                      <span className="text-[10px] text-slate-400 block text-right font-medium">Outstanding dues: ₹{selectedFeeItem.pendingFee}. You can make a partial deposit.</span>
+                      <span className="text-[10px] text-slate-400 block text-right mt-1 font-medium font-mono">Outstanding dues: ₹{selectedFeeItem.pendingFee}</span>
                     </div>
                   ) : (
-                    <div className="border-t border-slate-200/60 pt-1.5 mt-1.5 flex justify-between font-bold text-brand-blue">
-                      <span>Total Amount Payable:</span>
+                    <div className="border-t border-slate-200 pt-2 mt-2 flex justify-between font-bold text-brand-blue text-sm">
+                      <span>Total Payable Amount:</span>
                       <span>₹{selectedFeeItem.pendingFee}.00</span>
                     </div>
                   )}
-
-                  {subConfig.convenienceFeePercent > 0 && (
-                    <div className="flex justify-between text-slate-500 mt-1 border-t border-slate-100 pt-1">
-                      <span>Gateway Convenience Fee ({subConfig.convenienceFeePercent}%):</span>
-                      <span>₹{(((subConfig.allowPartialPayments ? Number(customPayAmount) || selectedFeeItem.pendingFee : selectedFeeItem.pendingFee) * subConfig.convenienceFeePercent) / 100).toFixed(2)}</span>
-                    </div>
-                  )}
-
-                  <div className="border-t border-slate-200/60 pt-1.5 mt-1.5 flex justify-between font-black text-brand-blue text-sm">
-                    <span>Total Amount Charged:</span>
-                    <span>₹{(
-                      (subConfig.allowPartialPayments ? Number(customPayAmount) || selectedFeeItem.pendingFee : selectedFeeItem.pendingFee) +
-                      (subConfig.convenienceFeePercent ? ((subConfig.allowPartialPayments ? Number(customPayAmount) || selectedFeeItem.pendingFee : selectedFeeItem.pendingFee) * subConfig.convenienceFeePercent) / 100 : 0)
-                    ).toFixed(2)}</span>
-                  </div>
                 </div>
 
-                {/* Method selector tab */}
-                <div 
-                  className="grid gap-1.5 bg-slate-100 p-1 rounded-xl mb-4 text-[10px] font-bold"
-                  style={{
-                    gridTemplateColumns: `repeat(${
-                      [
-                        subConfig.enableUpiMethod !== false,
-                        subConfig.enableCardMethod !== false,
-                        subConfig.enableBankTransferMethod !== false,
-                        subConfig.enableNetBankingMethod !== false
-                      ].filter(Boolean).length || 1
-                    }, minmax(0, 1fr))`
-                  }}
-                >
-                  {subConfig.enableUpiMethod !== false && (
-                    <button
-                      onClick={() => setPaymentMethodSelected('UPI')}
-                      className={`rounded-lg py-2 text-center transition-all cursor-pointer relative ${
-                        paymentMethodSelected === 'UPI' ? 'bg-white shadow text-brand-blue' : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      UPI / QR
-                      {subConfig.paymentGatewayProvider === 'UPI_QR' && (
-                        <span className="absolute -top-1 -right-1 flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>
-                      )}
-                    </button>
-                  )}
-                  {subConfig.enableCardMethod !== false && (
-                    <button
-                      onClick={() => setPaymentMethodSelected('CARD')}
-                      className={`rounded-lg py-2 text-center transition-all cursor-pointer relative ${
-                        paymentMethodSelected === 'CARD' ? 'bg-white shadow text-brand-blue' : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      Card
-                      {subConfig.paymentGatewayProvider === 'STRIPE' && (
-                        <span className="absolute -top-1 -right-1 flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span></span>
-                      )}
-                    </button>
-                  )}
-                  {subConfig.enableBankTransferMethod !== false && (
-                    <button
-                      onClick={() => setPaymentMethodSelected('ONLINE')}
-                      className={`rounded-lg py-2 text-center transition-all cursor-pointer relative ${
-                        paymentMethodSelected === 'ONLINE' ? 'bg-white shadow text-brand-blue' : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      {subConfig.paymentGatewayProvider === 'BANK_TRANSFER' ? 'Bank Wire' : 'Net Bank'}
-                      {subConfig.paymentGatewayProvider === 'BANK_TRANSFER' && (
-                        <span className="absolute -top-1 -right-1 flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-slate-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-slate-500"></span></span>
-                      )}
-                    </button>
-                  )}
-                  {subConfig.enableNetBankingMethod !== false && (
-                    <button
-                      onClick={() => setPaymentMethodSelected('NET_BANKING')}
-                      className={`rounded-lg py-2 text-center transition-all cursor-pointer relative ${
-                        paymentMethodSelected === 'NET_BANKING' ? 'bg-white shadow text-brand-blue' : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      Razorpay
-                      {subConfig.paymentGatewayProvider === 'RAZORPAY' && (
-                        <span className="absolute -top-1 -right-1 flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span></span>
-                      )}
-                    </button>
-                  )}
-                </div>
+                {/* UPI Details & Dynamic QR Code */}
+                {(() => {
+                  const coachingUpiId = '9161586254@upi';
+                  const payAmt = subConfig.allowPartialPayments ? Number(customPayAmount) || selectedFeeItem.pendingFee : selectedFeeItem.pendingFee;
+                  const sanitizedMonth = selectedFeeItem.month.toUpperCase().replace(/\s+/g, '');
+                  const paymentRef = `FEE-${student.id}-${sanitizedMonth}`;
+                  const paymentNote = `Fee student ${student.name} ${selectedFeeItem.month}`;
+                  const upiUrl = `upi://pay?pa=${encodeURIComponent(coachingUpiId)}&pn=${encodeURIComponent('Sunshine Classes')}&am=${payAmt.toFixed(2)}&tr=${encodeURIComponent(paymentRef)}&tn=${encodeURIComponent(paymentNote)}&cu=INR`;
 
-                {/* Sub Tab View Renderings */}
-                {paymentMethodSelected === 'UPI' && (
-                  <div className="space-y-3 mb-4 text-center">
-                    <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3 text-left space-y-1">
-                      <div className="text-[10px] font-extrabold uppercase text-emerald-800 tracking-wider">Recipient Educational Merchant</div>
-                      <div className="text-xs font-black text-slate-900">{subConfig.upiMerchantName || 'Sunshine Classes Ltd'}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">VPA Account: <span className="font-bold text-indigo-900">{subConfig.upiId || 'sunshineclasses@okaxis'}</span></div>
-                    </div>
-
-                    <div className="mx-auto border border-slate-100 bg-white p-2.5 rounded-xl inline-block shadow mt-1">
-                      {/* Dynamic QR Code */}
-                      <div className="h-32 w-32 bg-slate-50 border border-slate-100 p-1 flex flex-col items-center justify-center gap-1">
-                        <div className="grid grid-cols-8 gap-1">
-                          {Array.from({ length: 64 }).map((_, i) => (
-                            <div key={i} className={`h-3 w-3 ${
-                              (i % 5 === 0 || i % 7 === 1 || i < 16 || i > 48) ? 'bg-emerald-600' : 'bg-slate-200'
-                            }`}></div>
-                          ))}
+                  return (
+                    <div className="space-y-4">
+                      {/* VPA Account details */}
+                      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 flex justify-between items-center">
+                        <div>
+                          <div className="text-[10px] font-extrabold uppercase text-indigo-800 tracking-wider font-display">UPI ID / VPA ADDRESS</div>
+                          <div className="text-sm font-black text-slate-800 font-mono select-all">{coachingUpiId}</div>
                         </div>
-                      </div>
-                    </div>
-                    <p className="text-[10px] text-slate-500 font-semibold">
-                      Scan QR Code from BHIM, PhonePe, Paytm, or GPay to credit {subConfig.upiMerchantName || 'Sunshine Classes'}.
-                    </p>
-                    <div className="text-left">
-                      <label className="block text-[10px] font-bold text-slate-500 mb-1">Your Personal UPI ID</label>
-                      <input
-                        type="text"
-                        placeholder="studentname@okaxis"
-                        defaultValue={`${student.name.toLowerCase().replace(/\s+/g, '')}@paytm`}
-                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:border-brand-blue focus:bg-white"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {paymentMethodSelected === 'CARD' && (
-                  <div className="space-y-3 mb-4 text-xs">
-                    {subConfig.paymentGatewayProvider === 'STRIPE' && (
-                      <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-2 text-left text-[10px] text-indigo-900 font-medium">
-                        🛡️ Stripe Terminal Secure Mode Active. (Merchant Key: {subConfig.stripePublicKey ? `${subConfig.stripePublicKey.slice(0, 10)}...` : 'Default Development Token'})
-                      </div>
-                    )}
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 mb-1">Card Number</label>
-                      <input
-                        type="text"
-                        placeholder="4111 2222 3333 4444"
-                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:border-brand-blue focus:bg-white"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">Expiry Date</label>
-                        <input
-                          type="text"
-                          placeholder="MM/YY"
-                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:border-brand-blue focus:bg-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">CVV / CVN</label>
-                        <input
-                          type="password"
-                          maxLength={3}
-                          placeholder="***"
-                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:border-brand-blue focus:bg-white"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {paymentMethodSelected === 'ONLINE' && subConfig.paymentGatewayProvider === 'BANK_TRANSFER' ? (
-                  <div className="space-y-2 mb-4 text-left p-3.5 bg-slate-50 rounded-xl border border-slate-150 text-xs">
-                    <div className="text-[10px] font-extrabold uppercase text-indigo-900 tracking-wider border-b border-slate-200 pb-1.5 mb-1.5">Official Tuition Fee Settlement Bank Details</div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Institution:</span>
-                      <span className="font-bold text-slate-800">{subConfig.bankAccountHolder || 'Sunshine Classes Ltd'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Account Number:</span>
-                      <span className="font-mono font-bold text-slate-800">{subConfig.bankAccountNumber || '9182736450123'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Bank Name:</span>
-                      <span className="font-semibold text-slate-800">{subConfig.bankName || 'ICICI Bank'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">NEFT / IFSC:</span>
-                      <span className="font-mono font-bold text-slate-800">{subConfig.bankIfsc || 'ICIC0001092'}</span>
-                    </div>
-                    <p className="text-[9px] text-slate-400 mt-2 text-center border-t border-slate-100 pt-1.5 leading-normal">
-                      Instruct immediate IMPS/NEFT/RTGS transaction. Settlement reference IDs are verified automatically in real-time.
-                    </p>
-                  </div>
-                ) : paymentMethodSelected === 'ONLINE' ? (
-                  <div className="mb-4 text-xs">
-                    <label className="block text-[10px] font-bold text-slate-500 mb-2">Select Your Bank</label>
-                    <div className="grid grid-cols-2 gap-2 text-center text-[11px] font-semibold text-slate-700">
-                      <div className="rounded-xl border border-slate-200 p-2.5 bg-slate-50 hover:bg-white cursor-pointer hover:border-brand-blue">State Bank of India</div>
-                      <div className="rounded-xl border border-slate-200 p-2.5 bg-slate-50 hover:bg-white cursor-pointer hover:border-brand-blue">HDFC Bank</div>
-                      <div className="rounded-xl border border-slate-200 p-2.5 bg-slate-50 hover:bg-white cursor-pointer hover:border-brand-blue">ICICI NetBanking</div>
-                      <div className="rounded-xl border border-slate-200 p-2.5 bg-slate-50 hover:bg-white cursor-pointer hover:border-brand-blue">Punjab National Bank</div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {paymentMethodSelected === 'NET_BANKING' && (
-                  <div className="mb-4 text-center py-3">
-                    <SunshineLogo size={36} showText={false} />
-                    <p className="text-xs text-slate-600 max-w-xs mx-auto mt-2.5">
-                      Redirecting securely to Sunshine Classes authorized gateway terminal for live automated ledger balance updates.
-                    </p>
-                    <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-[10px] font-mono text-slate-500 text-left mt-3">
-                      <div>• Merchant Handle: {subConfig.upiMerchantName || 'Sunshine Classes Ltd'}</div>
-                      <div>• Live Razorpay Key ID: {subConfig.razorpayKeyId || 'rzp_live_A9B8C7D6E5F4G3'}</div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Secure Receipt Upload requirements */}
-                {subConfig.requireReceiptUpload && (
-                  <div className="space-y-2.5 mb-4 p-3 bg-indigo-50/20 border border-indigo-100 rounded-xl text-left">
-                    <span className="text-[10px] font-bold text-indigo-950 uppercase tracking-widest block">Transaction Verification Proof</span>
-                    
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 mb-1">Transaction Ref / UTR / UPI ID Reference Code</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. 410928374615 or IMPS827364"
-                        value={transactionRefNum}
-                        onChange={(e) => setTransactionRefNum(e.target.value)}
-                        className="w-full text-xs bg-white border border-slate-200 rounded-xl px-3 py-1.5 outline-none focus:border-brand-blue text-slate-800"
-                      />
-                    </div>
-
-                    <div className="pt-1">
-                      <label className="block text-[10px] font-bold text-slate-500 mb-1">Upload Receipt Screenshot (PNG/JPG)</label>
-                      <div className="flex items-center gap-2">
                         <button
-                          type="button"
+                          id="btn-copy-upi-id-new"
                           onClick={() => {
-                            setReceiptProofAttached(true);
-                            setReceiptFileName(`sunshine_receipt_proof_${Date.now().toString().slice(-4)}.png`);
+                            navigator.clipboard.writeText(coachingUpiId);
+                            alert("Coaching UPI ID copied to clipboard!");
                           }}
-                          className={`rounded-xl px-3 py-1.5 text-[10px] font-bold transition-all cursor-pointer ${
-                            receiptProofAttached ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                          }`}
+                          className="rounded-lg bg-white border border-indigo-200 hover:bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 cursor-pointer shadow-sm transition-all"
                         >
-                          {receiptProofAttached ? '✓ screenshot_proof.png' : 'Select Attachment Screenshot'}
+                          Copy ID 📋
                         </button>
-                        {receiptProofAttached && (
-                          <span className="text-[9px] text-slate-400 italic font-mono truncate max-w-[150px]">{receiptFileName}</span>
-                        )}
+                      </div>
+
+                      {/* QR Code */}
+                      <div className="flex flex-col items-center justify-center text-center p-4 bg-slate-50 border border-slate-150 rounded-2xl">
+                        <div className="bg-white border border-slate-150 p-2.5 rounded-2xl shadow-sm inline-block">
+                          <img
+                            id="img-upi-qr-code"
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(upiUrl)}`}
+                            alt="Scan UPI QR Code"
+                            className="h-28 w-28 object-contain"
+                          />
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-semibold max-w-xs mt-2.5 leading-relaxed font-mono">
+                          Scan using GPay, PhonePe, Paytm, BHIM, or any UPI App to pay.
+                        </p>
+                      </div>
+
+                      {/* Mobile Deep Link */}
+                      <div className="block md:hidden">
+                        <a
+                          id="lnk-upi-pay-deeplink"
+                          href={upiUrl}
+                          className="w-full text-center block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black py-2.5 shadow-md transition-all active:scale-95"
+                        >
+                          🚀 Pay Instantly via UPI App
+                        </a>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
-                {/* Bottom checkout buttons */}
+                {/* Bottom Settle Dues Actions */}
                 <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 mt-4">
                   <button
+                    id="btn-payment-cancel"
                     onClick={() => setPayFeeId(null)}
                     className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
                   >
-                    Cancel
+                    Close Portal
                   </button>
                   <button
+                    id="btn-payment-submit-instant-settle"
                     onClick={() => {
                       const payAmt = subConfig.allowPartialPayments ? Number(customPayAmount) || selectedFeeItem.pendingFee : selectedFeeItem.pendingFee;
                       if (payAmt <= 0) {
                         alert("Invalid payment amount. Deposit must be greater than zero.");
                         return;
                       }
-                      if (subConfig.requireReceiptUpload && (!transactionRefNum.trim() || !receiptProofAttached)) {
-                        alert("Please enter your Transaction Reference ID (UTR) and upload the receipt screenshot proof to authorize secure checkout.");
-                        return;
-                      }
 
-                      setIsPaying(true);
-                      setTimeout(() => {
-                        setIsPaying(false);
-                        setPaySuccess(true);
-                        // Trigger general fee payment handler
+                      // Call onCollectFee directly to complete payment instantly!
+                      if (onCollectFee) {
                         onCollectFee({
                           studentId: student.id,
                           studentName: student.name,
                           class: student.class,
                           month: selectedFeeItem.month,
                           amountPaid: payAmt,
-                          paymentMethod: paymentMethodSelected,
-                          transactionId: transactionRefNum || `TXN-ONLINE-${Date.now().toString().slice(-6)}`
+                          paymentMethod: 'UPI',
+                          transactionId: `UPI-INST-${Date.now().toString().slice(-6)}`
                         });
+
+                        setPaySuccess(true);
                         setTimeout(() => {
                           setPaySuccess(false);
                           setPayFeeId(null);
                         }, 1800);
-                      }, 1600);
+                      } else {
+                        alert("Instant Fee collection hook is not linked on dashboard context.");
+                      }
                     }}
-                    className="rounded-xl bg-brand-orange hover:bg-amber-500 text-white text-xs font-black px-5 py-2 shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
+                    className="rounded-xl bg-brand-orange hover:bg-amber-500 text-white text-xs font-black px-5 py-2 shadow-md transition-all cursor-pointer"
                   >
-                    Confirm & Pay ₹{(
-                      (subConfig.allowPartialPayments ? Number(customPayAmount) || selectedFeeItem.pendingFee : selectedFeeItem.pendingFee) +
-                      (subConfig.convenienceFeePercent ? ((subConfig.allowPartialPayments ? Number(customPayAmount) || selectedFeeItem.pendingFee : selectedFeeItem.pendingFee) * subConfig.convenienceFeePercent) / 100 : 0)
-                    ).toFixed(2)}
+                    I Have Paid - Confirm Settlement
                   </button>
                 </div>
               </div>

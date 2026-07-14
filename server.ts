@@ -519,6 +519,11 @@ How can I help you towards your academic success today? Feel free to ask!`;
         to,
         subject,
         html: htmlContent,
+        attachments: req.body.attachments ? req.body.attachments.map((att: any) => ({
+          filename: att.filename,
+          content: Buffer.from(att.content, 'base64'),
+          contentType: att.contentType
+        })) : undefined
       });
 
       console.log("Email sent successfully: ", info.messageId);
