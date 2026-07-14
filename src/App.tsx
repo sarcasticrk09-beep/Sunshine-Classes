@@ -94,7 +94,7 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-
 import { FeesPage } from './pages/FeesPage';
 
 import { db, auth, googleSignIn } from './lib/firebase';
-import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { interpolateWhatsAppTemplate, sendWhatsAppMessage } from './lib/whatsappService';
 
@@ -1162,6 +1162,25 @@ export default function App() {
       }
     };
     loadStateAndData();
+  }, []);
+
+  // Real-time listener for admissions submissions from landing page
+  useEffect(() => {
+    try {
+      const docRef = doc(db, 'sunshine_erp_state', 'admissions');
+      const unsub = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists() && docSnap.data()?.data !== undefined) {
+          const cloudData = docSnap.data().data as Admission[];
+          setAdmissions(cloudData);
+          localStorage.setItem('sunshine_admissions', JSON.stringify(cloudData));
+        }
+      }, (error) => {
+        console.warn("[Cloud Firestore] Real-time admissions snapshot sync failed:", error);
+      });
+      return () => unsub();
+    } catch (e) {
+      console.error("[Cloud Firestore] Failed to initialize admissions listener:", e);
+    }
   }, []);
 
   // Update browser tab title and favicon dynamically on mount

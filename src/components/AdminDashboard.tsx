@@ -684,6 +684,51 @@ export default function AdminDashboard({
     }
   };
 
+  const handleExportCredentials = () => {
+    try {
+      const exportData = users.map(user => {
+        const student = students.find(s => s.userId === user.id || s.email?.toLowerCase() === user.email?.toLowerCase());
+        const teacher = teachers.find(t => t.userId === user.id || t.email?.toLowerCase() === user.email?.toLowerCase());
+
+        let phone = user.phone || '';
+        let classOrAffiliation: string = user.role;
+
+        if (student) {
+          if (!phone) {
+            phone = student.mobile || student.whatsapp || student.parentMobile || '';
+          }
+          classOrAffiliation = student.class || 'Student';
+        } else if (teacher) {
+          if (!phone) {
+            phone = teacher.phone || '';
+          }
+          classOrAffiliation = teacher.specialty && teacher.specialty.length > 0 
+            ? teacher.specialty.join(', ') 
+            : 'Faculty';
+        }
+
+        const pass = user.plainPassword || user.password || '';
+
+        return {
+          name: user.name || '',
+          role: user.role || '',
+          username: user.username || '',
+          password: pass,
+          email: user.email || '',
+          phone: phone,
+          classOrAffiliation: classOrAffiliation
+        };
+      });
+
+      const headers = ['Name', 'Role', 'Username', 'Passcode/Password', 'Email', 'Phone', 'Class / Affiliation'];
+      const keys = ['name', 'role', 'username', 'password', 'email', 'phone', 'classOrAffiliation'];
+      exportToCSV(exportData, `system_credentials_${new Date().toISOString().split('T')[0]}.csv`, headers, keys);
+    } catch (err: any) {
+      console.error("Failed to export credentials:", err);
+      alert(`Export failed: ${err.message || err}`);
+    }
+  };
+
   const addSheetsLog = (msg: string) => {
     const timestamp = new Date().toLocaleTimeString();
     setSheetsLog(prev => [...prev, `[${timestamp}] ${msg}`]);
@@ -5725,11 +5770,24 @@ ${data.log}`
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 text-slate-400">
+                    {(() => {
+                      const pendingCount = Array.isArray(admissions) 
+                        ? admissions.filter(a => a.status === 'PENDING').length 
+                        : 0;
+                      if (pendingCount > 0) {
+                        return (
+                          <span id="badge-mobile-btn-pending" className="shrink-0 bg-amber-500 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full animate-bounce">
+                            {pendingCount} Pending App
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
                     <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500 px-2.5 py-1 rounded-full">Menu</span>
                     <ChevronDown size={18} className={`text-slate-500 transition-transform duration-200 ${isTabDropdownOpen ? 'rotate-180' : ''}`} />
                   </div>
                 </button>
-
+ 
                 {isTabDropdownOpen && (
                   <>
                     {/* Backdrop to close dropdown on tap outside */}
@@ -5763,7 +5821,22 @@ ${data.log}`
                               <span className={isSelected ? 'text-white' : 'text-slate-400'}>
                                 {tab.icon}
                               </span>
-                              <span className="text-left font-semibold text-xs flex-1">{tab.label}</span>
+                              <span className="text-left font-semibold text-xs flex-1 flex items-center justify-between gap-1.5">
+                                <span>{tab.label}</span>
+                                {tab.id === 'students' && (() => {
+                                  const pendingCount = Array.isArray(admissions) 
+                                    ? admissions.filter(a => a.status === 'PENDING').length 
+                                    : 0;
+                                  if (pendingCount > 0) {
+                                    return (
+                                      <span id="badge-mobile-opt-pending" className="shrink-0 bg-amber-500 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full animate-pulse">
+                                        {pendingCount} Pending
+                                      </span>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+                              </span>
                               {isSelected && (
                                 <Check size={14} className="text-emerald-400 font-bold" />
                               )}
@@ -5810,7 +5883,22 @@ ${data.log}`
                                 <span className={isSelected ? 'text-white' : 'text-slate-400'}>
                                   {tab.icon}
                                 </span>
-                                <span className="text-left leading-tight flex-1">{tab.label}</span>
+                                <span className="text-left leading-tight flex-1 flex items-center justify-between gap-1.5 min-w-0">
+                                  <span className="truncate">{tab.label}</span>
+                                  {tab.id === 'students' && (() => {
+                                    const pendingCount = Array.isArray(admissions) 
+                                      ? admissions.filter(a => a.status === 'PENDING').length 
+                                      : 0;
+                                    if (pendingCount > 0) {
+                                      return (
+                                        <span id="badge-sidebar-pending-students" className="shrink-0 bg-amber-500 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full animate-pulse">
+                                          {pendingCount} Pending
+                                        </span>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                </span>
                               </button>
                             );
                           })}
@@ -5869,6 +5957,40 @@ ${data.log}`
               <p className="text-xs text-slate-500 leading-relaxed">
                 Welcome to Sunshine Classes premium administrative suite. From this portal, you can monitor student roll counts, view real-time monthly tuition revenues, verify database backup settings, and broadcast critical notice reminders directly to teacher and student dashboards instantly.
               </p>
+
+              {/* PENDING ADMISSIONS BANNER ALERT */}
+              {(() => {
+                const pendingCount = Array.isArray(admissions) 
+                  ? admissions.filter(a => a.status === 'PENDING').length 
+                  : 0;
+                if (pendingCount === 0) return null;
+                return (
+                  <div 
+                    id="banner-pending-admissions-alert" 
+                    className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-xl border border-amber-200 bg-amber-50/50 text-amber-900 shadow-2xs"
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-700 shrink-0 mt-0.5">
+                        <Users size={18} />
+                      </span>
+                      <div>
+                        <h4 className="font-bold text-xs sm:text-sm">Pending Enrollment Applications ({pendingCount})</h4>
+                        <p className="text-[11px] text-amber-700 mt-0.5">
+                          There are pending online admission inquiries submitted from the website awaiting review.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      id="btn-alert-review-admissions"
+                      onClick={() => setActiveTab('students')}
+                      className="shrink-0 text-[11px] font-black uppercase tracking-wider bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-1.5 rounded-lg shadow-sm transition-all cursor-pointer"
+                    >
+                      Review & Approve
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* --- START OF GLOBAL STUDENT SEARCH HUB --- */}
               <div id="global-student-search-hub" className="border border-indigo-100 rounded-2xl p-5 bg-gradient-to-br from-indigo-50/50 via-white to-slate-50 shadow-sm">
@@ -13511,18 +13633,28 @@ ${data.log}`
                       View, reveal, alter authorization roles, or safely decommission registered system user accounts.
                     </p>
                   </div>
-                  <div className="relative w-full sm:w-64">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                      <Search size={14} />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      id="btn-export-credentials"
+                      onClick={handleExportCredentials}
+                      className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 px-3.5 py-2 text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                    >
+                      <Download size={14} /> Export Credentials CSV
+                    </button>
+                    <div className="relative w-full sm:w-64">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                        <Search size={14} />
+                      </div>
+                      <input
+                        type="text"
+                        id="role-table-search-input"
+                        placeholder="Search accounts..."
+                        value={roleSearchQuery}
+                        onChange={(e) => setRoleSearchQuery(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 py-2 text-xs focus:bg-white focus:outline-none"
+                      />
                     </div>
-                    <input
-                      type="text"
-                      id="role-table-search-input"
-                      placeholder="Search accounts..."
-                      value={roleSearchQuery}
-                      onChange={(e) => setRoleSearchQuery(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 py-2 text-xs focus:bg-white focus:outline-none"
-                    />
                   </div>
                 </div>
 
