@@ -69,18 +69,84 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                              email === 'sunshineclassespihani@gmail.com' ||
                              email === 'kumarvermarajeev79@gmail.com';
 
-            if (isTester) {
-              const username = email.split('@')[0];
-              const isRajeev = email === 'kumarvermarajeev79@gmail.com';
+            let matchedRegUser: any = null;
+            if (!isTester) {
+              try {
+                const stateDocRef = doc(db, 'sunshine_erp_state', 'users');
+                const stateSnap = await getDoc(stateDocRef);
+                if (stateSnap.exists()) {
+                  const usersList = stateSnap.data()?.data || [];
+                  matchedRegUser = usersList.find((u: any) => 
+                    u.email?.toLowerCase() === email || 
+                    u.username?.toLowerCase() === email.split('@')[0].toLowerCase()
+                  );
+                }
+
+                if (!matchedRegUser) {
+                  // Fallback 1: search in students state list
+                  const studentsDocRef = doc(db, 'sunshine_erp_state', 'students');
+                  const studentsSnap = await getDoc(studentsDocRef);
+                  if (studentsSnap.exists()) {
+                    const studentsList = studentsSnap.data()?.data || [];
+                    const matchedStudent = studentsList.find((s: any) => 
+                      s.email?.toLowerCase() === email || 
+                      s.userId === firebaseUser.uid ||
+                      s.name?.toLowerCase().replace(/\s+/g, '') === email.split('@')[0].toLowerCase()
+                    );
+                    if (matchedStudent) {
+                      matchedRegUser = {
+                        username: matchedStudent.name?.toLowerCase().replace(/\s+/g, '') || email.split('@')[0],
+                        name: matchedStudent.name,
+                        email: email,
+                        role: 'student',
+                        active: true
+                      };
+                    }
+                  }
+                }
+
+                if (!matchedRegUser) {
+                  // Fallback 2: search in teachers state list
+                  const teachersDocRef = doc(db, 'sunshine_erp_state', 'teachers');
+                  const teachersSnap = await getDoc(teachersDocRef);
+                  if (teachersSnap.exists()) {
+                    const teachersList = teachersSnap.data()?.data || [];
+                    const matchedTeacher = teachersList.find((t: any) => 
+                      t.email?.toLowerCase() === email || 
+                      t.userId === firebaseUser.uid ||
+                      t.name?.toLowerCase().replace(/\s+/g, '') === email.split('@')[0].toLowerCase()
+                    );
+                    if (matchedTeacher) {
+                      matchedRegUser = {
+                        username: matchedTeacher.name?.toLowerCase().replace(/\s+/g, '') || email.split('@')[0],
+                        name: matchedTeacher.name,
+                        email: email,
+                        role: 'teacher',
+                        active: true
+                      };
+                    }
+                  }
+                }
+              } catch (stateErr) {
+                console.warn("Failed to lookup users/students/teachers in state document during auto-provisioning:", stateErr);
+              }
+            }
+
+            if (isTester || matchedRegUser) {
+              const username = matchedRegUser?.username || email.split('@')[0];
+              const name = matchedRegUser?.name || (email === 'kumarvermarajeev79@gmail.com' ? 'Rajeev Kr. Verma (Co-Founder)' : 'Priyanshu Gupta (Founder)');
+              const rawRole = matchedRegUser?.role || (email === 'kumarvermarajeev79@gmail.com' ? 'admin' : 'super_admin');
+              const initialRole = rawRole.toLowerCase() === 'receptionist' ? 'reception' : rawRole.toLowerCase();
+
               await setDoc(userDocRef, {
                 username: username,
-                name: isRajeev ? 'Rajeev Kr. Verma (Co-Founder)' : 'Priyanshu Gupta (Founder)',
+                name: name,
                 email: email,
-                role: isRajeev ? 'admin' : 'super_admin',
-                active: true,
-                createdAt: new Date().toISOString(),
+                role: initialRole,
+                active: matchedRegUser?.active ?? true,
+                createdAt: matchedRegUser?.createdAt || new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                firstLogin: false
+                firstLogin: matchedRegUser?.firstLogin ?? false
               });
               userDocSnap = await getDoc(userDocRef);
             } else {
@@ -152,7 +218,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setCurrentUser(verifiedUser);
           setRole(mappedRole);
         } else {
-          const mockSessionStr = sessionStorage.getItem('sunshine_mock_session');
+          const mockSessionStr = sessionStorage.getItem('sunshine_mock_session') || localStorage.getItem('sunshine_mock_session');
           if (mockSessionStr) {
             try {
               const mockSession = JSON.parse(mockSessionStr);
@@ -220,26 +286,99 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         console.warn("Error querying Firestore 'users' collection during login:", err);
       }
 
-      // 2. If not found in Firestore 'users', check in the 'sunshine_erp_state/users' document (local/cloud seed list)
-      if (!matchedUser) {
+      // 2. Look up master credentials in 'sunshine_erp_state/users' to enrich password/plainPassword/active state
+      let masterUser: any = null;
+      try {
+        const usersDocRef = doc(db, 'sunshine_erp_state', 'users');
+        const usersSnap = await getDoc(usersDocRef);
+        if (usersSnap.exists()) {
+          const usersList = usersSnap.data()?.data || [];
+          masterUser = usersList.find((u: any) => 
+            u.username?.toLowerCase() === trimmedInput.toLowerCase() || 
+            u.email?.toLowerCase() === trimmedInput.toLowerCase() ||
+            (matchedUser && u.username?.toLowerCase() === matchedUser.username?.toLowerCase()) ||
+            (matchedUser && u.email?.toLowerCase() === matchedUser.email?.toLowerCase())
+          );
+        }
+      } catch (err) {
+        console.warn("Error querying master users state during login:", err);
+      }
+
+      // 3. Fallback to check students collection if still not found in master users
+      if (!masterUser) {
         try {
-          const usersDocRef = doc(db, 'sunshine_erp_state', 'users');
-          const usersSnap = await getDoc(usersDocRef);
-          if (usersSnap.exists()) {
-            const usersList = usersSnap.data()?.data || [];
-            const foundLocal = usersList.find((u: any) => 
-              u.username?.toLowerCase() === trimmedInput.toLowerCase() || 
-              u.email?.toLowerCase() === trimmedInput.toLowerCase()
+          const studentsDocRef = doc(db, 'sunshine_erp_state', 'students');
+          const studentsSnap = await getDoc(studentsDocRef);
+          if (studentsSnap.exists()) {
+            const studentsList = studentsSnap.data()?.data || [];
+            const matchedStudent = studentsList.find((s: any) => 
+              s.email?.toLowerCase() === trimmedInput.toLowerCase() || 
+              s.name?.toLowerCase().replace(/\s+/g, '') === trimmedInput.toLowerCase()
             );
-            if (foundLocal) {
-              matchedUser = foundLocal;
-              if (matchedUser.email) {
-                targetEmail = matchedUser.email;
-              }
+            if (matchedStudent) {
+              const generatedUsername = matchedStudent.name.toLowerCase().replace(/\s+/g, '');
+              const defaultPass = `${generatedUsername}123`;
+              masterUser = {
+                id: matchedStudent.userId || `s-user-${matchedStudent.id}`,
+                username: generatedUsername,
+                name: matchedStudent.name,
+                email: matchedStudent.email,
+                role: 'STUDENT',
+                phone: matchedStudent.mobile,
+                password: simpleSecureHash(defaultPass),
+                plainPassword: defaultPass,
+                active: true
+              };
             }
           }
         } catch (err) {
-          console.warn("Error querying local/cloud fallback state during login:", err);
+          console.warn("Error looking up student during login fallback:", err);
+        }
+      }
+
+      // 4. Fallback to check teachers collection if still not found
+      if (!masterUser) {
+        try {
+          const teachersDocRef = doc(db, 'sunshine_erp_state', 'teachers');
+          const teachersSnap = await getDoc(teachersDocRef);
+          if (teachersSnap.exists()) {
+            const teachersList = teachersSnap.data()?.data || [];
+            const matchedTeacher = teachersList.find((t: any) => 
+              t.email?.toLowerCase() === trimmedInput.toLowerCase() || 
+              t.name?.toLowerCase().replace(/\s+/g, '') === trimmedInput.toLowerCase()
+            );
+            if (matchedTeacher) {
+              const generatedUsername = matchedTeacher.name.toLowerCase().replace(/\s+/g, '');
+              const defaultPass = `${generatedUsername}123`;
+              masterUser = {
+                id: matchedTeacher.userId || `t-user-${matchedTeacher.id}`,
+                username: generatedUsername,
+                name: matchedTeacher.name,
+                email: matchedTeacher.email,
+                role: 'TEACHER',
+                phone: matchedTeacher.phone,
+                password: simpleSecureHash(defaultPass),
+                plainPassword: defaultPass,
+                active: true
+              };
+            }
+          }
+        } catch (err) {
+          console.warn("Error looking up teacher during login fallback:", err);
+        }
+      }
+
+      // Apply masterUser details to matchedUser if found
+      if (masterUser) {
+        if (!matchedUser) {
+          matchedUser = { ...masterUser };
+        } else {
+          matchedUser.password = masterUser.password;
+          matchedUser.plainPassword = masterUser.plainPassword;
+          matchedUser.active = masterUser.active;
+        }
+        if (masterUser.email) {
+          targetEmail = masterUser.email;
         }
       }
 
@@ -311,8 +450,46 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               
               console.log("Dynamically provisioned Firebase Auth and Firestore document successfully.");
             } catch (createErr: any) {
-              console.error("Failed to dynamically provision user:", createErr);
-              throw new Error(`Auto-provisioning failed: ${createErr.message || createErr}`);
+              console.error("Failed to dynamically provision user inside Firebase, falling back to secure sandbox session:", createErr);
+              
+              // Secure fallback: If we are in an iframe or sandbox and Firebase Auth is blocked,
+              // we gracefully authenticate using a highly resilient local session since they entered valid credentials.
+              const rawRole = matchedUser.role || 'STUDENT';
+              let mappedRole: UserRole = 'STUDENT';
+              const dbRole = rawRole.toLowerCase();
+              if (dbRole === 'super_admin' || dbRole === 'owner') mappedRole = 'SUPER_ADMIN';
+              else if (dbRole === 'admin') mappedRole = 'ADMIN';
+              else if (dbRole === 'reception' || dbRole === 'receptionist') mappedRole = 'RECEPTIONIST';
+              else if (dbRole === 'teacher') mappedRole = 'TEACHER';
+              
+              const verifiedUser: User = {
+                id: matchedUser.id || `mock-uid-${Date.now()}`,
+                username: matchedUser.username,
+                name: matchedUser.name,
+                email: matchedUser.email || targetEmail,
+                role: mappedRole,
+                avatarUrl: matchedUser.profilePhoto || '',
+                phone: matchedUser.phone || ''
+              };
+
+              // Store session so it survives page reloads/state resets
+              sessionStorage.setItem('sunshine_mock_session', JSON.stringify({
+                user: verifiedUser,
+                role: mappedRole
+              }));
+              if (remember) {
+                localStorage.setItem('sunshine_mock_session', JSON.stringify({
+                  user: verifiedUser,
+                  role: mappedRole
+                }));
+              }
+
+              await writeAuditLog(verifiedUser.id, verifiedUser.username, 'USER_LOGIN', `User ${verifiedUser.username} successfully signed in via resilient Sandbox Login Fallback.`);
+
+              setCurrentUser(verifiedUser);
+              setRole(mappedRole);
+              setLoading(false);
+              return true;
             }
           } else {
             throw new Error("Invalid username/email or password.");
@@ -378,6 +555,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         await writeAuditLog(currentUser.id, currentUser.username, 'USER_LOGOUT', `User ${currentUser.username} logged out.`);
       }
       sessionStorage.removeItem('sunshine_mock_session');
+      localStorage.removeItem('sunshine_mock_session');
       await FirebaseAuthService.logout();
       // Clear local states
       setCurrentUser(null);

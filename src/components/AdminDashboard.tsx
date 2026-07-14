@@ -52,7 +52,8 @@ import {
   UploadCloud,
   UserPlus,
   ShieldAlert,
-  Crown
+  Crown,
+  Lock
 } from 'lucide-react';
 import { Student, Teacher, User, UserRole, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig, DepartedStudent, EmailLog } from '../types';
 import { interpolateTemplate, getFeeForClass } from '../data';
@@ -209,11 +210,17 @@ export default function AdminDashboard({
   departedStudents,
   onUpdateUsers
 } : AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets' | 'roles' | 'founder-office' | 'cofounder-office'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets' | 'roles' | 'founder-office' | 'cofounder-office' | 'auth-logs'>('overview');
   const [dashboardSession, setDashboardSession] = useState('2026-27');
   const [dashboardMonth, setDashboardMonth] = useState('July 2026');
   const [showPendingFeesDetails, setShowPendingFeesDetails] = useState(false);
   const [pendingFeesSearchQuery, setPendingFeesSearchQuery] = useState('');
+
+  // Authentication Logs Filter States
+  const [authStartDate, setAuthStartDate] = useState('');
+  const [authEndDate, setAuthEndDate] = useState('');
+  const [authActionCategory, setAuthActionCategory] = useState<'all' | 'login' | 'password' | 'role'>('all');
+  const [authSearchQuery, setAuthSearchQuery] = useState('');
   const [feeSubTab, setFeeSubTab] = useState<'board' | 'email-logs'>('board');
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>(() => {
     const saved = localStorage.getItem('sunshine_email_logs');
@@ -551,6 +558,18 @@ export default function AdminDashboard({
       const updatedUsers = [...users, newUser];
       if (onUpdateUsers) {
         onUpdateUsers(updatedUsers);
+
+        // Log user role creation
+        const newLog: AuditLog = {
+          id: `AUD-AUTH-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          userId: currentUser?.id || 'admin',
+          username: currentUser?.username || 'admin',
+          action: 'ROLE_MODIFICATION',
+          details: `Provisioned user @${trimmedUsername} with role ${newUserRole}.`,
+          timestamp: new Date().toISOString()
+        };
+        onHealState('audit_logs', [newLog, ...auditLogs]);
+
         alert(`Success: User @${trimmedUsername} successfully created in both Firebase Auth & Firestore with role ${newUserRole}!`);
         setNewUserName('');
         setNewUserUsername('');
@@ -586,6 +605,18 @@ export default function AdminDashboard({
       const updatedUsers = users.map(u => u.id === userId ? { ...u, role: targetRole } : u);
       if (onUpdateUsers) {
         onUpdateUsers(updatedUsers);
+
+        // Log user role modification
+        const newLog: AuditLog = {
+          id: `AUD-AUTH-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          userId: currentUser?.id || 'admin',
+          username: currentUser?.username || 'admin',
+          action: 'ROLE_MODIFICATION',
+          details: `Modified @${user.username}'s role from ${user.role} to ${targetRole}.`,
+          timestamp: new Date().toISOString()
+        };
+        onHealState('audit_logs', [newLog, ...auditLogs]);
+
         alert(`Success: @${user.username}'s role changed to ${targetRole} and synchronized immediately!`);
       }
     } catch (err: any) {
@@ -632,6 +663,18 @@ export default function AdminDashboard({
         const updatedUsers = users.filter(u => u.id !== userId);
         if (onUpdateUsers) {
           onUpdateUsers(updatedUsers);
+
+          // Log user role deletion
+          const newLog: AuditLog = {
+            id: `AUD-AUTH-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+            userId: currentUser?.id || 'admin',
+            username: currentUser?.username || 'admin',
+            action: 'ROLE_MODIFICATION',
+            details: `Deprovisioned user @${user.username} (previously ${user.role}).`,
+            timestamp: new Date().toISOString()
+          };
+          onHealState('audit_logs', [newLog, ...auditLogs]);
+
           alert(`Success: User @${user.username} deleted from Firebase Auth & Firestore.`);
         }
       } catch (err: any) {
@@ -5639,6 +5682,7 @@ ${data.log}`
           { id: 'cofounder-office', label: "Co-Founder's Workspace", icon: <Award size={16} className="text-indigo-500 font-bold" />, category: 'Executive Suite' },
           
           { id: 'roles', label: 'Role Management', icon: <Shield size={16} className="text-indigo-600 font-bold" />, category: 'Integrations & Logs' },
+          { id: 'auth-logs', label: 'Authentication Logs', icon: <Lock size={16} className="text-amber-600 font-bold" />, category: 'Integrations & Logs' },
           { id: 'sheets', label: 'Google Sheets Sync', icon: <FileSpreadsheet size={16} className="text-emerald-600 animate-pulse" />, category: 'Integrations & Logs' },
           { id: 'whatsapp', label: 'WhatsApp Messaging', icon: <MessageSquare size={16} />, category: 'Integrations & Logs' },
           { id: 'audit', label: 'Audit & System Logs', icon: <FileText size={16} />, category: 'Integrations & Logs' },
@@ -5653,7 +5697,7 @@ ${data.log}`
           }
           // Co-Founder has access to standard admin tabs plus his executive workspace
           if (isAdmin) {
-            const allowedAdminTabs = ['overview', 'students', 'fees', 'teachers', 'batches', 'announcements', 'cofounder-office'];
+            const allowedAdminTabs = ['overview', 'students', 'fees', 'teachers', 'batches', 'announcements', 'cofounder-office', 'auth-logs'];
             return allowedAdminTabs.includes(tab.id);
           }
           // Default fallback
@@ -10341,6 +10385,279 @@ ${data.log}`
               </div>
             </div>
           )}
+
+          {/* TAB: AUTHENTICATION LOGS */}
+          {activeTab === 'auth-logs' && (() => {
+            const setAuthPreset = (days: number | 'all' | 'today') => {
+              if (days === 'all') {
+                setAuthStartDate('');
+                setAuthEndDate('');
+              } else if (days === 'today') {
+                const todayStr = new Date().toISOString().split('T')[0];
+                setAuthStartDate(todayStr);
+                setAuthEndDate(todayStr);
+              } else {
+                const end = new Date();
+                const start = new Date();
+                start.setDate(end.getDate() - days);
+                setAuthStartDate(start.toISOString().split('T')[0]);
+                setAuthEndDate(end.toISOString().split('T')[0]);
+              }
+            };
+
+            const filteredAuthLogs = auditLogs.filter(log => {
+              // Category Action filtering
+              if (authActionCategory === 'login') {
+                const isLoginAction = ['USER_LOGIN', 'FAILED_LOGIN', 'USER_LOGOUT'].includes(log.action);
+                if (!isLoginAction) return false;
+              } else if (authActionCategory === 'password') {
+                const isPasswordAction = ['PASSWORD_RESET_REQUEST', 'PASSWORD_RESET_COMPLETED', 'PASSWORD_CHANGE'].includes(log.action);
+                if (!isPasswordAction) return false;
+              } else if (authActionCategory === 'role') {
+                if (log.action !== 'ROLE_MODIFICATION') return false;
+              } else {
+                // Show standard auth actions in the "All" view to avoid general database operations cluttering the view.
+                const isAuthAction = [
+                  'USER_LOGIN', 
+                  'FAILED_LOGIN', 
+                  'USER_LOGOUT', 
+                  'PASSWORD_RESET_REQUEST', 
+                  'PASSWORD_RESET_COMPLETED', 
+                  'PASSWORD_CHANGE', 
+                  'ROLE_MODIFICATION',
+                  'EMAIL_VERIFIED'
+                ].includes(log.action);
+                if (!isAuthAction) return false;
+              }
+
+              // Search filtering
+              if (authSearchQuery.trim()) {
+                const queryStr = authSearchQuery.toLowerCase();
+                const matchUser = log.username.toLowerCase().includes(queryStr) || log.userId.toLowerCase().includes(queryStr);
+                const matchAction = log.action.toLowerCase().includes(queryStr);
+                const matchDetails = log.details.toLowerCase().includes(queryStr);
+                if (!matchUser && !matchAction && !matchDetails) return false;
+              }
+
+              // Timestamp date-range filtering
+              if (authStartDate) {
+                const startMs = new Date(authStartDate + 'T00:00:00').getTime();
+                const logMs = new Date(log.timestamp).getTime();
+                if (logMs < startMs) return false;
+              }
+              if (authEndDate) {
+                const endMs = new Date(authEndDate + 'T23:59:59').getTime();
+                const logMs = new Date(log.timestamp).getTime();
+                if (logMs > endMs) return false;
+              }
+
+              return true;
+            });
+
+            return (
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4 mb-5">
+                    <div>
+                      <h3 className="font-display font-bold text-base text-slate-800 flex items-center gap-2">
+                        <Lock size={18} className="text-amber-500" /> Authentication & Role Audit Trail
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Monitor recent sign-ins, administrative role updates, password resets, and credential security events.
+                      </p>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase">Presets:</span>
+                      <button
+                        type="button"
+                        id="auth-preset-today-btn"
+                        onClick={() => setAuthPreset('today')}
+                        className="rounded-lg bg-slate-50 border border-slate-200 hover:bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600 transition-colors cursor-pointer"
+                      >
+                        Today
+                      </button>
+                      <button
+                        type="button"
+                        id="auth-preset-7d-btn"
+                        onClick={() => setAuthPreset(7)}
+                        className="rounded-lg bg-slate-50 border border-slate-200 hover:bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600 transition-colors cursor-pointer"
+                      >
+                        7 Days
+                      </button>
+                      <button
+                        type="button"
+                        id="auth-preset-30d-btn"
+                        onClick={() => setAuthPreset(30)}
+                        className="rounded-lg bg-slate-50 border border-slate-200 hover:bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600 transition-colors cursor-pointer"
+                      >
+                        30 Days
+                      </button>
+                      <button
+                        type="button"
+                        id="auth-preset-all-btn"
+                        onClick={() => setAuthPreset('all')}
+                        className="rounded-lg bg-slate-50 border border-slate-200 hover:bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600 transition-colors cursor-pointer"
+                      >
+                        All
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Filter Controls Grid */}
+                  <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4 bg-slate-50/50 p-4 rounded-xl border border-slate-100 mb-6">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Search Events</label>
+                      <input
+                        type="text"
+                        id="auth-logs-search-input"
+                        placeholder="Search user, ID or details..."
+                        value={authSearchQuery}
+                        onChange={(e) => setAuthSearchQuery(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700 focus:outline-none focus:border-indigo-300 font-medium"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Event Category</label>
+                      <select
+                        id="auth-logs-category-select"
+                        value={authActionCategory}
+                        onChange={(e) => setAuthActionCategory(e.target.value as any)}
+                        className="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700 focus:outline-none focus:border-indigo-300 font-bold"
+                      >
+                        <option value="all">All Auth Events</option>
+                        <option value="login">Logins & Sessions</option>
+                        <option value="password">Password Resets & Changes</option>
+                        <option value="role">Role Modifications</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Start Date</label>
+                      <input
+                        type="date"
+                        id="auth-logs-start-date-input"
+                        value={authStartDate}
+                        onChange={(e) => setAuthStartDate(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700 focus:outline-none focus:border-indigo-300 font-semibold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">End Date</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          id="auth-logs-end-date-input"
+                          value={authEndDate}
+                          onChange={(e) => setAuthEndDate(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700 focus:outline-none focus:border-indigo-300 font-semibold"
+                        />
+                        {(authSearchQuery || authActionCategory !== 'all' || authStartDate || authEndDate) && (
+                          <button
+                            type="button"
+                            id="auth-logs-clear-filters-btn"
+                            onClick={() => {
+                              setAuthSearchQuery('');
+                              setAuthActionCategory('all');
+                              setAuthStartDate('');
+                              setAuthEndDate('');
+                            }}
+                            className="bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 p-2 rounded-lg text-xs font-bold shrink-0 cursor-pointer transition-colors"
+                            title="Clear all filters"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Logs Table */}
+                  <div className="overflow-x-auto border border-slate-150 rounded-xl bg-white">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                          <th className="p-3">Log ID</th>
+                          <th className="p-3">Timestamp</th>
+                          <th className="p-3">User Access</th>
+                          <th className="p-3">Security Event</th>
+                          <th className="p-3">Details Parameters</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50 text-xs font-medium text-slate-700">
+                        {filteredAuthLogs.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="p-8 text-center text-slate-400 font-semibold">
+                              No matching security or authorization log events found. Try adjusting filters or search query.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredAuthLogs.map((log) => {
+                            let actionBadgeClass = "bg-slate-100 text-slate-800 border-slate-200";
+                            if (log.action.includes("FAILED_LOGIN")) {
+                              actionBadgeClass = "bg-rose-100 text-rose-800 border-rose-200 font-bold";
+                            } else if (log.action.includes("LOGIN")) {
+                              actionBadgeClass = "bg-emerald-100 text-emerald-800 border-emerald-200 font-bold";
+                            } else if (log.action.includes("ROLE")) {
+                              actionBadgeClass = "bg-indigo-100 text-indigo-800 border-indigo-200 font-bold";
+                            } else if (log.action.includes("PASSWORD")) {
+                              actionBadgeClass = "bg-amber-100 text-amber-800 border-amber-200 font-bold";
+                            } else if (log.action.includes("LOGOUT")) {
+                              actionBadgeClass = "bg-slate-100 text-slate-600 border-slate-200";
+                            }
+
+                            return (
+                              <tr key={log.id} className="hover:bg-slate-50/40 transition-colors">
+                                <td className="p-3 font-mono text-[11px] font-bold text-indigo-950 shrink-0">{log.id}</td>
+                                <td className="p-3 text-[11px] font-mono text-slate-400">
+                                  {new Date(log.timestamp).toLocaleString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    second: '2-digit',
+                                    hour12: true
+                                  })}
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex flex-col">
+                                    <span className="font-bold text-slate-800">@{log.username}</span>
+                                    <span className="text-[10px] text-slate-400 font-mono">UID: {log.userId}</span>
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] border font-bold uppercase tracking-wider ${actionBadgeClass}`}>
+                                    {log.action}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-slate-600 text-xs font-semibold max-w-sm break-words">{log.details}</td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Summary / Stats bar */}
+                  <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-3">
+                    <div>
+                      Showing {filteredAuthLogs.length} of {auditLogs.filter(l => [
+                        'USER_LOGIN', 'FAILED_LOGIN', 'USER_LOGOUT', 'PASSWORD_RESET_REQUEST', 'PASSWORD_RESET_COMPLETED', 'PASSWORD_CHANGE', 'ROLE_MODIFICATION', 'EMAIL_VERIFIED'
+                      ].includes(l.action)).length} auth-related log entries.
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                      Real-time Firestore sync active
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* TAB: FOUNDER EXECUTIVE OFFICE */}
           {activeTab === 'founder-office' && (
@@ -16289,16 +16606,17 @@ ${data.log}`
       {/* Quick Collect Fee Modal */}
       {quickCollectStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 w-full max-w-md relative animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 w-full max-w-md relative animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
             <button
+              id="btn-quick-collect-close-icon"
               type="button"
               onClick={() => setQuickCollectStudent(null)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 rounded-lg p-1"
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 rounded-lg p-1 z-10"
             >
               <X size={18} />
             </button>
 
-            <div className="text-center mb-5">
+            <div className="text-center mb-5 shrink-0">
               <span className="inline-flex h-10 w-10 rounded-full bg-emerald-50 text-emerald-600 items-center justify-center mb-2">
                 <CreditCard size={18} />
               </span>
@@ -16308,7 +16626,7 @@ ${data.log}`
               </p>
             </div>
 
-            <form onSubmit={handleQuickCollectSubmit} className="space-y-4">
+            <form onSubmit={handleQuickCollectSubmit} className="space-y-4 overflow-y-auto flex-1 pr-1.5 scrollbar-thin">
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-slate-600 space-y-1 relative">
                 <p><strong>Student:</strong> {quickCollectStudent.name}</p>
                 <p><strong>Class:</strong> {quickCollectStudent.class}</p>

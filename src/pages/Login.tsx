@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../auth/useAuth';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Sun, Eye, EyeOff, Shield, RefreshCw, AlertCircle, Key, Mail, CheckCircle2, Award, User, UserCheck } from 'lucide-react';
+import { Eye, EyeOff, Shield, RefreshCw, AlertCircle, Key, Mail } from 'lucide-react';
 import { motion } from 'motion/react';
 import SunshineLogo from '../components/SunshineLogo';
 
@@ -101,13 +101,6 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
     }
   };
 
-  const selectQuickLogin = (emailVal: string, passVal: string) => {
-    setEmail(emailVal);
-    setPassword(passVal);
-    setError(null);
-    setVerificationPendingEmail(null);
-  };
-
   // If user is authenticated BUT has firstLogin flag set to true, force password change!
   if (currentUser && (currentUser as any).firstLogin === true) {
     return (
@@ -182,7 +175,6 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans selection:bg-amber-100">
-      
       <div className="w-full max-w-md bg-white rounded-3xl border border-slate-100 shadow-xl p-8 relative overflow-hidden">
         <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-amber-400 to-brand-orange"></div>
         
@@ -288,7 +280,7 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
           {/* Compliance Badge */}
           <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[10px] text-slate-500 font-semibold">
             <Shield size={12} className="text-emerald-600 shrink-0" />
-            <span>Encrypted cloud authentication and granular data security active.</span>
+            <span>Encrypted cloud authentication active.</span>
           </div>
 
           {/* Action buttons */}
