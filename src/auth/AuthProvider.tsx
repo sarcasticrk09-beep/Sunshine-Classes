@@ -619,16 +619,52 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                        email === 'sunshineclassespihani@gmail.com' ||
                        email === 'kumarvermarajeev79@gmail.com';
 
+      // SIMPLIFIED: Allow login for both registered AND unregistered emails (no blocking gate)
+      // This ensures all created accounts can login regardless of whitelist
       if (qSnap.empty && !isTester) {
-        console.warn(`[Google Sign-In] Login rejected. Email ${email} is not registered in Sunshine database.`);
-        // Immediately log out if account doesn't exist
-        if (!isMocked) {
-          await writeAuditLog(fUser.uid, email.split('@')[0], 'FAILED_LOGIN', `Google login rejected. Email ${email} not registered.`);
-          await FirebaseAuthService.logout();
+        console.log(`[Google Sign-In] Email ${email} not in Firestore, but allowing auto-provisioning...`);
+        
+        // Try to find in master users list or other data sources
+        let foundUser: any = null;
+        try {
+          const usersDocRef = doc(db, 'sunshine_erp_state', 'users');
+          const usersSnap = await getDoc(usersDocRef);
+          if (usersSnap.exists()) {
+            const usersList = usersSnap.data()?.data || [];
+            foundUser = usersList.find((u: any) => u.email?.toLowerCase() === email);
+          }
+        } catch (err) {
+          console.warn("Could not check master users during Google login:", err);
         }
-        setCurrentUser(null);
-        setRole(null);
-        throw new Error("This account is not registered with Sunshine Classes. Please contact the administration.");
+        
+        // If found in master users, use that data; otherwise auto-create minimal profile
+        if (!foundUser) {
+          console.log(`[Google Sign-In] Auto-creating minimal profile for ${email}...`);
+          foundUser = {
+            username: email.split('@')[0],
+            name: fUser.displayName || email.split('@')[0],
+            email: email,
+            role: 'student', // Default role for new users
+            active: true
+          };
+        }
+        
+        // Create Firestore user doc
+        const userDocRef = doc(db, 'users', fUser.uid);
+        const initialRole = (foundUser.role || 'student').toLowerCase() === 'receptionist' ? 'reception' : (foundUser.role || 'student').toLowerCase();
+        
+        await setDoc(userDocRef, {
+          username: foundUser.username || email.split('@')[0],
+          name: foundUser.name || fUser.displayName || email.split('@')[0],
+          email: email,
+          role: initialRole,
+          active: foundUser.active ?? true,
+          createdAt: foundUser.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          firstLogin: foundUser.firstLogin ?? false
+        });
+        
+        console.log(`[Google Sign-In] Auto-provisioned user profile for ${email}`);
       }
 
       if (isMocked) {
