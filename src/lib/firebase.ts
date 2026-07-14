@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { 
-  getFirestore, 
+  initializeFirestore, 
   collection, 
   getDocs, 
   setDoc, 
@@ -58,7 +58,9 @@ console.error = function (...args) {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+});
 
 import { getAuth, GoogleAuthProvider, signInWithPopup, User } from "firebase/auth";
 export const auth = getAuth(app);

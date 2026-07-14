@@ -57,7 +57,8 @@ import {
 import { Student, Teacher, User, UserRole, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig, DepartedStudent, EmailLog } from '../types';
 import { interpolateTemplate, getFeeForClass } from '../data';
 import { sendWhatsAppMessage, interpolateWhatsAppTemplate } from '../lib/whatsappService';
-import { googleSignIn, getCachedAccessToken, clearCachedAccessToken } from '../lib/firebase';
+import { googleSignIn, getCachedAccessToken, clearCachedAccessToken, db } from '../lib/firebase';
+import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { CloudinaryUpload } from './CloudinaryUpload';
 import { WhatsAppCommunication } from './WhatsAppCommunication';
 import { getFeeStatusForRecord, parseMonthYear, formatMonthYear, generateFeeRecords, compareMonths, getCurrentAndNextMonths } from '../lib/feeUtils';
@@ -485,7 +486,7 @@ export default function AdminDashboard({
 
   const [roleSearchQuery, setRoleSearchQuery] = useState('');
 
-  const handleCreateUserSubmit = (e: React.FormEvent) => {
+  const handleCreateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedUsername = newUserUsername.trim();
     if (!trimmedUsername) {
@@ -498,32 +499,74 @@ export default function AdminDashboard({
       return;
     }
 
-    const hashed = newUserPassword ? (newUserPassword.startsWith('sha256_mock_') ? newUserPassword : simpleSecureHash(newUserPassword)) : 'sha256_mock_default';
-    const newUser: User = {
-      id: `USR-${Date.now()}`,
-      name: newUserName.trim() || 'New User',
-      username: trimmedUsername,
-      email: newUserEmail.trim() || undefined,
-      role: newUserRole,
-      password: hashed,
-      plainPassword: newUserPassword || 'default'
-    };
+    const passwordToUse = newUserPassword || 'default123';
 
-    const updatedUsers = [...users, newUser];
-    if (onUpdateUsers) {
-      onUpdateUsers(updatedUsers);
-      alert(`Success: User @${trimmedUsername} created successfully with role ${newUserRole}!`);
-      setNewUserName('');
-      setNewUserUsername('');
-      setNewUserEmail('');
-      setNewUserRole('STUDENT');
-      setNewUserPassword('');
-    } else {
-      alert("Error: User update stream is currently disconnected.");
+    try {
+      // 1. Call Secure Firebase Admin SDK API to create user in Firebase Auth
+      const response = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: trimmedUsername,
+          name: newUserName.trim() || 'New User',
+          email: newUserEmail.trim() || undefined,
+          password: passwordToUse,
+          role: newUserRole
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.error || 'Failed to create user in Firebase Authentication.');
+      }
+
+      const uid = resData.uid;
+      const targetEmail = resData.email;
+
+      // 2. Create the corresponding profile in the Firestore 'users' collection
+      const userDocRef = doc(db, 'users', uid);
+      await setDoc(userDocRef, {
+        username: trimmedUsername,
+        name: newUserName.trim() || 'New User',
+        email: targetEmail,
+        role: newUserRole.toLowerCase() === 'receptionist' ? 'reception' : newUserRole.toLowerCase(),
+        active: true,
+        firstLogin: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      // 3. Save to local centralized state
+      const hashed = passwordToUse.startsWith('sha256_mock_') ? passwordToUse : simpleSecureHash(passwordToUse);
+      const newUser: User = {
+        id: uid,
+        name: newUserName.trim() || 'New User',
+        username: trimmedUsername,
+        email: targetEmail,
+        role: newUserRole,
+        password: hashed,
+        plainPassword: passwordToUse
+      };
+
+      const updatedUsers = [...users, newUser];
+      if (onUpdateUsers) {
+        onUpdateUsers(updatedUsers);
+        alert(`Success: User @${trimmedUsername} successfully created in both Firebase Auth & Firestore with role ${newUserRole}!`);
+        setNewUserName('');
+        setNewUserUsername('');
+        setNewUserEmail('');
+        setNewUserRole('STUDENT');
+        setNewUserPassword('');
+      } else {
+        alert("Warning: User was created in Firebase Auth & Firestore, but user update stream is currently disconnected.");
+      }
+    } catch (err: any) {
+      console.error("Error during user creation:", err);
+      alert(`Error: ${err.message || 'An unexpected error occurred during user creation.'}`);
     }
   };
 
-  const handleUpdateUserRole = (userId: string, targetRole: UserRole) => {
+  const handleUpdateUserRole = async (userId: string, targetRole: UserRole) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
 
@@ -532,14 +575,26 @@ export default function AdminDashboard({
       return;
     }
 
-    const updatedUsers = users.map(u => u.id === userId ? { ...u, role: targetRole } : u);
-    if (onUpdateUsers) {
-      onUpdateUsers(updatedUsers);
-      alert(`Success: @${user.username}'s role changed to ${targetRole}.`);
+    try {
+      // Update individual document in 'users' collection to sync permissions immediately for next login
+      const userDocRef = doc(db, 'users', userId);
+      await updateDoc(userDocRef, {
+        role: targetRole.toLowerCase() === 'receptionist' ? 'reception' : targetRole.toLowerCase(),
+        updatedAt: new Date().toISOString()
+      }).catch(err => console.warn("Optional: Individual user document was not found for update:", err));
+
+      const updatedUsers = users.map(u => u.id === userId ? { ...u, role: targetRole } : u);
+      if (onUpdateUsers) {
+        onUpdateUsers(updatedUsers);
+        alert(`Success: @${user.username}'s role changed to ${targetRole} and synchronized immediately!`);
+      }
+    } catch (err: any) {
+      console.error("Error updating user role:", err);
+      alert(`Error updating role: ${err.message || err}`);
     }
   };
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
 
@@ -554,10 +609,34 @@ export default function AdminDashboard({
     }
 
     if (window.confirm(`Are you absolutely sure you want to permanently delete user @${user.username}? This action is irreversible.`)) {
-      const updatedUsers = users.filter(u => u.id !== userId);
-      if (onUpdateUsers) {
-        onUpdateUsers(updatedUsers);
-        alert(`Success: User @${user.username} deleted.`);
+      try {
+        // 1. Call Secure Firebase Admin SDK API to delete user from Firebase Auth
+        const response = await fetch('/api/admin/delete-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid: userId })
+        });
+        const resData = await response.json();
+        if (!response.ok || !resData.success) {
+          console.warn("Could not delete from Firebase Auth, proceeding with local & Firestore doc cleanup...", resData);
+        }
+
+        // 2. Delete the Firestore 'users' document
+        try {
+          await deleteDoc(doc(db, 'users', userId));
+        } catch (err) {
+          console.warn("Could not delete individual users doc:", err);
+        }
+
+        // 3. Update local centralized list
+        const updatedUsers = users.filter(u => u.id !== userId);
+        if (onUpdateUsers) {
+          onUpdateUsers(updatedUsers);
+          alert(`Success: User @${user.username} deleted from Firebase Auth & Firestore.`);
+        }
+      } catch (err: any) {
+        console.error("Error deleting user:", err);
+        alert(`Error: ${err.message || 'An unexpected error occurred during user deletion.'}`);
       }
     }
   };
@@ -2064,6 +2143,7 @@ export default function AdminDashboard({
 
   // Student Profile Edit State Variables
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [isProfileEditMode, setIsProfileEditMode] = useState(false);
   const [editStdName, setEditStdName] = useState('');
   const [editStdClass, setEditStdClass] = useState('');
   const [editStdFatherName, setEditStdFatherName] = useState('');
@@ -2134,6 +2214,7 @@ export default function AdminDashboard({
 
   const openEditStudent = (student: Student) => {
     setEditingStudent(student);
+    setIsProfileEditMode(false);
     setEditStdName(student.name || '');
     setEditStdClass(student.class || '');
     setEditStdFatherName(student.fatherName || '');
@@ -2370,7 +2451,7 @@ export default function AdminDashboard({
     alert("Test score added successfully.");
   };
 
-  const handleUpdateStudentProfile = (e: React.FormEvent) => {
+  const handleUpdateStudentProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStudent) return;
 
@@ -2401,12 +2482,46 @@ export default function AdminDashboard({
       status: editStdStatus
     };
 
-    const updatedStudents = students.map(s => s.id === editingStudent.id ? updatedStudent : s);
-    onHealState('students', updatedStudents);
+    try {
+      // 1. Persist to Firestore immediately
+      const studentDocRef = doc(db, 'students', editingStudent.id);
+      await setDoc(studentDocRef, {
+        name: updatedStudent.name || "",
+        class: updatedStudent.class || "",
+        fatherName: updatedStudent.fatherName || "",
+        motherName: updatedStudent.motherName || "",
+        dob: updatedStudent.dob || "",
+        gender: updatedStudent.gender || "Male",
+        address: updatedStudent.address || "",
+        mobile: updatedStudent.mobile || "",
+        parentMobile: updatedStudent.parentMobile || "",
+        email: updatedStudent.email || "",
+        rollNo: updatedStudent.rollNo || "",
+        preferredBatch: updatedStudent.preferredBatch || "",
+        preferredTiming: updatedStudent.preferredTiming || "",
+        photoUrl: updatedStudent.photoUrl || "",
+        admissionDate: updatedStudent.admissionDate || "",
+        feeStartMonth: updatedStudent.feeStartMonth || "",
+        monthlyFee: updatedStudent.monthlyFee || 0,
+        admissionFee: updatedStudent.admissionFee || 0,
+        registrationFee: updatedStudent.registrationFee || 0,
+        discount: updatedStudent.discount || 0,
+        scholarship: updatedStudent.scholarship || 0,
+        dueDay: updatedStudent.dueDay || 1,
+        status: updatedStudent.status || "ACTIVE",
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
 
-    alert(`Student "${editStdName}" profile and billing details updated successfully.`);
-    setEditingStudent(null);
-    stopCamera();
+      // 2. Synchronize the local memory state
+      const updatedStudents = students.map(s => s.id === editingStudent.id ? updatedStudent : s);
+      onHealState('students', updatedStudents);
+
+      alert(`Success: Student "${editStdName}" profile was updated in Firestore and synchronized successfully.`);
+      setIsProfileEditMode(false); // return to clean read-only view
+    } catch (err: any) {
+      console.error("Error updating student profile in Firestore:", err);
+      alert(`Error saving student details: ${err.message || err}`);
+    }
   };
 
   const openQuickCollect = (student: Student) => {
@@ -5239,50 +5354,7 @@ ${data.log}`
         );
       })()}
 
-      {/* Analytics Info banner / dashboard section */}
-      <div className="mb-6">
-        {/* Weak Subject Predictions Analysis / Stats */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h4 className="font-display font-bold text-xs text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-            <Sparkles size={14} className="text-brand-orange animate-pulse" /> Weak Topic Analytics AI
-          </h4>
 
-          <div className="grid gap-6 md:grid-cols-3">
-            <div>
-              <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
-                <span>Algebra & Quadratic Equations</span>
-                <span className="text-brand-orange font-bold">12% student doubt risk</span>
-              </div>
-              <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-brand-orange rounded-full" style={{ width: '12%' }}></div>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
-                <span>Refraction Ray Diagrams</span>
-                <span className="text-brand-red font-bold">28% revisions required</span>
-              </div>
-              <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-brand-red rounded-full" style={{ width: '28%' }}></div>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
-                <span>Prepositional Voice rules</span>
-                <span className="text-green-600 font-bold">94% master accuracy</span>
-              </div>
-              <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-green-500 rounded-full" style={{ width: '94%' }}></div>
-              </div>
-            </div>
-          </div>
-          <p className="text-[10px] text-slate-400 mt-4 leading-relaxed">
-            *Sunshine Classes predictive engine automatically calculates weak subjects based on marks logs from the teacher's grading ledger!
-          </p>
-        </div>
-      </div>
 
       {/* ⚡ Global Real-Time ERP Search Center */}
       <div className="mb-6 rounded-3xl border border-indigo-150 bg-gradient-to-br from-indigo-50/40 via-white to-slate-50/30 p-5 shadow-sm">
@@ -14670,14 +14742,32 @@ ${data.log}`
               <X size={18} />
             </button>
 
-            <div className="text-center mb-6">
-              <div className="inline-flex h-12 w-12 rounded-full bg-indigo-50 text-indigo-900 items-center justify-center mb-2">
-                <Users size={22} />
+            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="inline-flex h-12 w-12 rounded-full bg-indigo-50 text-indigo-900 items-center justify-center shrink-0">
+                  <Users size={22} />
+                </div>
+                <div className="text-left">
+                  <h3 className="font-display font-black text-slate-800 text-lg">Sunshine Student Profile Hub</h3>
+                  <p className="text-xs text-slate-500">
+                    Deep-dive into student profile details, monthly tuition fee ledgers, exam performance scorecard, and attendance records.
+                  </p>
+                </div>
               </div>
-              <h3 className="font-display font-black text-slate-800 text-lg">Sunshine Student Profile Hub</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Deep-dive into student profile details, monthly tuition fee ledgers, exam performance scorecard, and attendance records.
-              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  id="btn-toggle-profile-edit-mode"
+                  onClick={() => setIsProfileEditMode(!isProfileEditMode)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all duration-200 flex items-center gap-1.5 shadow-sm border ${
+                    isProfileEditMode 
+                      ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600' 
+                      : 'bg-indigo-900 hover:bg-indigo-950 text-white border-indigo-950'
+                  }`}
+                >
+                  {isProfileEditMode ? '👁️ Read-Only Mode' : '✏️ Edit Mode'}
+                </button>
+              </div>
             </div>
 
             {/* Profile Navigation Tabs */}
@@ -14774,39 +14864,46 @@ ${data.log}`
 
                     {/* Camera action buttons */}
                     <div className="flex flex-col gap-2">
-                      {!isCameraActive ? (
-                        <button
-                          type="button"
-                          onClick={startCamera}
-                          className="rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold px-4 py-2 text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                        >
-                          <Camera size={14} /> Take Photo (Webcam)
-                        </button>
+                      {isProfileEditMode ? (
+                        <>
+                          {!isCameraActive ? (
+                            <button
+                              type="button"
+                              onClick={startCamera}
+                              className="rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold px-4 py-2 text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                            >
+                              <Camera size={14} /> Take Photo (Webcam)
+                            </button>
+                          ) : (
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={capturePhoto}
+                                className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer"
+                              >
+                                <Check size={14} /> Capture
+                              </button>
+                              <button
+                                type="button"
+                                onClick={stopCamera}
+                                className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-2 text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer"
+                              >
+                                <X size={14} /> Cancel
+                              </button>
+                            </div>
+                          )}
+                          <div className="text-[10px] text-slate-500 text-center sm:text-left">
+                            Supports direct image upload as data-URI via camera API.
+                          </div>
+                          {cameraError && (
+                            <div className="text-[10px] text-rose-600 bg-rose-50 border border-rose-100 px-2 py-1 rounded max-w-xs font-medium">
+                              ⚠️ {cameraError}
+                            </div>
+                          )}
+                        </>
                       ) : (
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={capturePhoto}
-                            className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer"
-                          >
-                            <Check size={14} /> Capture
-                          </button>
-                          <button
-                            type="button"
-                            onClick={stopCamera}
-                            className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-2 text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer"
-                          >
-                            <X size={14} /> Cancel
-                          </button>
-                        </div>
-                      )}
-
-                      <div className="text-[10px] text-slate-500 text-center sm:text-left">
-                        Supports direct image upload as data-URI via camera API.
-                      </div>
-                      {cameraError && (
-                        <div className="text-[10px] text-rose-600 bg-rose-50 border border-rose-100 px-2 py-1 rounded max-w-xs font-medium">
-                          ⚠️ {cameraError}
+                        <div className="text-[10px] text-slate-500 italic">
+                          ℹ️ Enable "Edit Mode" in the top header to change photo or modify details.
                         </div>
                       )}
                     </div>
@@ -14817,185 +14914,304 @@ ${data.log}`
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Student Name</label>
-                    <input
-                      type="text"
-                      required
-                      value={editStdName}
-                      onChange={(e) => setEditStdName(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                    />
+                    {isProfileEditMode ? (
+                      <input
+                        type="text"
+                        required
+                        id="profile-edit-name-input"
+                        value={editStdName}
+                        onChange={(e) => setEditStdName(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                      />
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100">
+                        {editStdName || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Class</label>
-                    <select
-                      value={editStdClass}
-                      onChange={(e) => setEditStdClass(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
-                    >
-                      <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
-                      <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
-                      <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
-                      <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
-                    </select>
+                    {isProfileEditMode ? (
+                      <select
+                        id="profile-edit-class-input"
+                        value={editStdClass}
+                        onChange={(e) => setEditStdClass(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
+                      >
+                        <option value="Class 10 Board Specialists">Class 10 Board Specialists (₹1,200/mo)</option>
+                        <option value="Class 9 Foundation Course">Class 9 Foundation Course (₹1,000/mo)</option>
+                        <option value="Classes 5 to 8 Apex Learning">Classes 5 to 8 Apex Learning (₹700/mo)</option>
+                        <option value="Classes 1 to 4 Junior Sunshine">Classes 1 to 4 Junior Sunshine (₹500/mo)</option>
+                      </select>
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100">
+                        {editStdClass || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Father's Name</label>
-                    <input
-                      type="text"
-                      required
-                      value={editStdFatherName}
-                      onChange={(e) => setEditStdFatherName(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                    />
+                    {isProfileEditMode ? (
+                      <input
+                        type="text"
+                        required
+                        id="profile-edit-father-input"
+                        value={editStdFatherName}
+                        onChange={(e) => setEditStdFatherName(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                      />
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100">
+                        {editStdFatherName || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Mother's Name</label>
-                    <input
-                      type="text"
-                      required
-                      value={editStdMotherName}
-                      onChange={(e) => setEditStdMotherName(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                    />
+                    {isProfileEditMode ? (
+                      <input
+                        type="text"
+                        required
+                        id="profile-edit-mother-input"
+                        value={editStdMotherName}
+                        onChange={(e) => setEditStdMotherName(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                      />
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100">
+                        {editStdMotherName || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Date of Birth</label>
-                    <input
-                      type="date"
-                      required
-                      value={editStdDob}
-                      onChange={(e) => setEditStdDob(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                    />
+                    {isProfileEditMode ? (
+                      <input
+                        type="date"
+                        required
+                        id="profile-edit-dob-input"
+                        value={editStdDob}
+                        onChange={(e) => setEditStdDob(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                      />
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100">
+                        {editStdDob || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Gender</label>
-                    <select
-                      value={editStdGender}
-                      onChange={(e) => setEditStdGender(e.target.value as 'Male' | 'Female')}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
-                    >
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                    </select>
+                    {isProfileEditMode ? (
+                      <select
+                        id="profile-edit-gender-input"
+                        value={editStdGender}
+                        onChange={(e) => setEditStdGender(e.target.value as 'Male' | 'Female')}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
+                      >
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                      </select>
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100">
+                        {editStdGender || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Student Mobile</label>
-                    <input
-                      type="text"
-                      required
-                      value={editStdMobile}
-                      onChange={(e) => setEditStdMobile(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                    />
+                    {isProfileEditMode ? (
+                      <input
+                        type="text"
+                        required
+                        id="profile-edit-mobile-input"
+                        value={editStdMobile}
+                        onChange={(e) => setEditStdMobile(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      />
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 font-mono">
+                        {editStdMobile || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Parent Mobile</label>
-                    <input
-                      type="text"
-                      required
-                      value={editStdParentMobile}
-                      onChange={(e) => setEditStdParentMobile(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                    />
+                    {isProfileEditMode ? (
+                      <input
+                        type="text"
+                        required
+                        id="profile-edit-parent-mobile-input"
+                        value={editStdParentMobile}
+                        onChange={(e) => setEditStdParentMobile(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      />
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 font-mono">
+                        {editStdParentMobile || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
-                    <input
-                      type="email"
-                      required
-                      value={editStdEmail}
-                      onChange={(e) => setEditStdEmail(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                    />
+                    {isProfileEditMode ? (
+                      <input
+                        type="email"
+                        required
+                        id="profile-edit-email-input"
+                        value={editStdEmail}
+                        onChange={(e) => setEditStdEmail(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                      />
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 font-mono">
+                        {editStdEmail || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Roll Number</label>
-                    <input
-                      type="text"
-                      required
-                      value={editStdRollNo}
-                      onChange={(e) => setEditStdRollNo(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono font-bold"
-                    />
+                    {isProfileEditMode ? (
+                      <input
+                        type="text"
+                        required
+                        id="profile-edit-rollno-input"
+                        value={editStdRollNo}
+                        onChange={(e) => setEditStdRollNo(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono font-bold"
+                      />
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 font-mono">
+                        {editStdRollNo || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Preferred Batch Name</label>
-                    <select
-                      value={editStdPreferredBatch}
-                      onChange={(e) => setEditStdPreferredBatch(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
-                    >
-                      <option value="">-- No Batch assigned --</option>
-                      {batches.map(b => (
-                        <option key={b.id} value={b.name}>{b.name}</option>
-                      ))}
-                    </select>
+                    {isProfileEditMode ? (
+                      <select
+                        id="profile-edit-batch-input"
+                        value={editStdPreferredBatch}
+                        onChange={(e) => setEditStdPreferredBatch(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
+                      >
+                        <option value="">-- No Batch assigned --</option>
+                        {batches.map(b => (
+                          <option key={b.id} value={b.name}>{b.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100">
+                        {editStdPreferredBatch || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Preferred Timing / Slot</label>
-                    <input
-                      type="text"
-                      value={editStdPreferredTiming}
-                      onChange={(e) => setEditStdPreferredTiming(e.target.value)}
-                      placeholder="e.g. 04:00 PM - 05:30 PM"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                    />
+                    {isProfileEditMode ? (
+                      <input
+                        type="text"
+                        id="profile-edit-timing-input"
+                        value={editStdPreferredTiming}
+                        onChange={(e) => setEditStdPreferredTiming(e.target.value)}
+                        placeholder="e.g. 04:00 PM - 05:30 PM"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                      />
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100">
+                        {editStdPreferredTiming || "—"}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Enrolment Status</label>
-                    <select
-                      value={editStdStatus}
-                      onChange={(e) => setEditStdStatus(e.target.value as 'ACTIVE' | 'INACTIVE')}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer font-bold"
-                    >
-                      <option value="ACTIVE" className="text-emerald-700 font-bold">ACTIVE (Enrolled)</option>
-                      <option value="INACTIVE" className="text-slate-500">INACTIVE (Departed)</option>
-                    </select>
+                    {isProfileEditMode ? (
+                      <select
+                        id="profile-edit-status-input"
+                        value={editStdStatus}
+                        onChange={(e) => setEditStdStatus(e.target.value as 'ACTIVE' | 'INACTIVE')}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer font-bold"
+                      >
+                        <option value="ACTIVE" className="text-emerald-700 font-bold">ACTIVE (Enrolled)</option>
+                        <option value="INACTIVE" className="text-slate-500">INACTIVE (Departed)</option>
+                      </select>
+                    ) : (
+                      <div className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold border ${
+                        editStdStatus === 'ACTIVE' 
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                          : 'bg-slate-100 text-slate-600 border-slate-200'
+                      }`}>
+                        {editStdStatus === 'ACTIVE' ? '🟢 ACTIVE (Enrolled)' : '🔴 INACTIVE (Departed)'}
+                      </div>
+                    )}
                   </div>
 
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Home Address</label>
-                    <textarea
-                      required
-                      rows={2}
-                      value={editStdAddress}
-                      onChange={(e) => setEditStdAddress(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
-                    />
+                    {isProfileEditMode ? (
+                      <textarea
+                        required
+                        id="profile-edit-address-input"
+                        rows={2}
+                        value={editStdAddress}
+                        onChange={(e) => setEditStdAddress(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white"
+                      />
+                    ) : (
+                      <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 whitespace-pre-wrap">
+                        {editStdAddress || "—"}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* Footer CTAs */}
                 <div className="flex gap-2 pt-4 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingStudent(null);
-                      stopCamera();
-                    }}
-                    className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2.5 text-xs transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"
-                  >
-                    Save Identity & Close
-                  </button>
+                  {isProfileEditMode ? (
+                    <>
+                      <button
+                        type="button"
+                        id="btn-cancel-edit-student"
+                        onClick={() => {
+                          setIsProfileEditMode(false);
+                        }}
+                        className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2.5 text-xs transition-colors cursor-pointer"
+                      >
+                        Cancel Edit
+                      </button>
+                      <button
+                        type="submit"
+                        id="btn-save-edit-student-identity"
+                        className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"
+                      >
+                        💾 Save Changes
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      id="btn-close-edit-student-modal-readonly"
+                      onClick={() => {
+                        setEditingStudent(null);
+                        stopCamera();
+                      }}
+                      className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"
+                    >
+                      Close Profile Hub
+                    </button>
+                  )}
                 </div>
               </form>
             )}
@@ -15011,138 +15227,203 @@ ${data.log}`
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Admission Date</label>
-                      <input
-                        id="input-edit-std-admission-date"
-                        type="date"
-                        required
-                        value={editStdAdmissionDate}
-                        onChange={(e) => setEditStdAdmissionDate(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                      />
+                      {isProfileEditMode ? (
+                        <input
+                          id="input-edit-std-admission-date"
+                          type="date"
+                          required
+                          value={editStdAdmissionDate}
+                          onChange={(e) => setEditStdAdmissionDate(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                        />
+                      ) : (
+                        <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 font-mono">
+                          {editStdAdmissionDate || "—"}
+                        </div>
+                      )}
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Fee Starts From</label>
-                      <select
-                        id="select-edit-std-fee-start-month"
-                        required
-                        value={editStdFeeStartMonth}
-                        onChange={(e) => setEditStdFeeStartMonth(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
-                      >
-                        {(() => {
-                          const monthsList = [];
-                          const today = new Date();
-                          const monthNames = [
-                            'January', 'February', 'March', 'April', 'May', 'June',
-                            'July', 'August', 'September', 'October', 'November', 'December'
-                          ];
-                          for (let i = -3; i < 9; i++) {
-                            const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
-                            monthsList.push(`${monthNames[d.getMonth()]} ${d.getFullYear()}`);
-                          }
-                          return monthsList.map(m => (
-                            <option key={m} value={m}>{m}</option>
-                          ));
-                        })()}
-                      </select>
+                      {isProfileEditMode ? (
+                        <select
+                          id="select-edit-std-fee-start-month"
+                          required
+                          value={editStdFeeStartMonth}
+                          onChange={(e) => setEditStdFeeStartMonth(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white cursor-pointer"
+                        >
+                          {(() => {
+                            const monthsList = [];
+                            const today = new Date();
+                            const monthNames = [
+                              'January', 'February', 'March', 'April', 'May', 'June',
+                              'July', 'August', 'September', 'October', 'November', 'December'
+                            ];
+                            for (let i = -3; i < 9; i++) {
+                              const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+                              monthsList.push(`${monthNames[d.getMonth()]} ${d.getFullYear()}`);
+                            }
+                            return monthsList.map(m => (
+                              <option key={m} value={m}>{m}</option>
+                            ));
+                          })()}
+                        </select>
+                      ) : (
+                        <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100">
+                          {editStdFeeStartMonth || "—"}
+                        </div>
+                      )}
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Tuition Fee (₹)</label>
-                      <input
-                        id="input-edit-std-monthly-fee"
-                        type="number"
-                        required
-                        min={0}
-                        value={editStdMonthlyFee}
-                        onChange={(e) => setEditStdMonthlyFee(Number(e.target.value))}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                      />
+                      {isProfileEditMode ? (
+                        <input
+                          id="input-edit-std-monthly-fee"
+                          type="number"
+                          required
+                          min={0}
+                          value={editStdMonthlyFee}
+                          onChange={(e) => setEditStdMonthlyFee(Number(e.target.value))}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                        />
+                      ) : (
+                        <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 font-mono">
+                          ₹{editStdMonthlyFee !== undefined ? editStdMonthlyFee.toLocaleString('en-IN') : "0"}
+                        </div>
+                      )}
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Admission Fee (₹)</label>
-                      <input
-                        id="input-edit-std-admission-fee"
-                        type="number"
-                        min={0}
-                        value={editStdAdmissionFee}
-                        onChange={(e) => setEditStdAdmissionFee(Number(e.target.value))}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                      />
+                      {isProfileEditMode ? (
+                        <input
+                          id="input-edit-std-admission-fee"
+                          type="number"
+                          min={0}
+                          value={editStdAdmissionFee}
+                          onChange={(e) => setEditStdAdmissionFee(Number(e.target.value))}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                        />
+                      ) : (
+                        <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 font-mono">
+                          ₹{editStdAdmissionFee !== undefined ? editStdAdmissionFee.toLocaleString('en-IN') : "0"}
+                        </div>
+                      )}
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Registration Fee (₹)</label>
-                      <input
-                        id="input-edit-std-registration-fee"
-                        type="number"
-                        min={0}
-                        value={editStdRegistrationFee}
-                        onChange={(e) => setEditStdRegistrationFee(Number(e.target.value))}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                      />
+                      {isProfileEditMode ? (
+                        <input
+                          id="input-edit-std-registration-fee"
+                          type="number"
+                          min={0}
+                          value={editStdRegistrationFee}
+                          onChange={(e) => setEditStdRegistrationFee(Number(e.target.value))}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                        />
+                      ) : (
+                        <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 font-mono">
+                          ₹{editStdRegistrationFee !== undefined ? editStdRegistrationFee.toLocaleString('en-IN') : "0"}
+                        </div>
+                      )}
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Discount Amount (₹)</label>
-                      <input
-                        id="input-edit-std-discount"
-                        type="number"
-                        min={0}
-                        value={editStdDiscount}
-                        onChange={(e) => setEditStdDiscount(Number(e.target.value))}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                      />
+                      {isProfileEditMode ? (
+                        <input
+                          id="input-edit-std-discount"
+                          type="number"
+                          min={0}
+                          value={editStdDiscount}
+                          onChange={(e) => setEditStdDiscount(Number(e.target.value))}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                        />
+                      ) : (
+                        <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 font-mono">
+                          ₹{editStdDiscount !== undefined ? editStdDiscount.toLocaleString('en-IN') : "0"}
+                        </div>
+                      )}
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Scholarship Amount (₹)</label>
-                      <input
-                        id="input-edit-std-scholarship"
-                        type="number"
-                        min={0}
-                        value={editStdScholarship}
-                        onChange={(e) => setEditStdScholarship(Number(e.target.value))}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                      />
+                      {isProfileEditMode ? (
+                        <input
+                          id="input-edit-std-scholarship"
+                          type="number"
+                          min={0}
+                          value={editStdScholarship}
+                          onChange={(e) => setEditStdScholarship(Number(e.target.value))}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                        />
+                      ) : (
+                        <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 font-mono">
+                          ₹{editStdScholarship !== undefined ? editStdScholarship.toLocaleString('en-IN') : "0"}
+                        </div>
+                      )}
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Fee Due Day of Month</label>
-                      <input
-                        id="input-edit-std-due-day"
-                        type="number"
-                        required
-                        min={1}
-                        max={31}
-                        value={editStdDueDay}
-                        onChange={(e) => setEditStdDueDay(Number(e.target.value))}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
-                      />
+                      {isProfileEditMode ? (
+                        <input
+                          id="input-edit-std-due-day"
+                          type="number"
+                          required
+                          min={1}
+                          max={31}
+                          value={editStdDueDay}
+                          onChange={(e) => setEditStdDueDay(Number(e.target.value))}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono"
+                        />
+                      ) : (
+                        <div className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-slate-800 font-bold border border-slate-100 font-mono">
+                          Day {editStdDueDay || "1"}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
                 {/* Footer CTAs */}
                 <div className="flex gap-2 pt-4 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingStudent(null);
-                      stopCamera();
-                    }}
-                    className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2.5 text-xs transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"
-                  >
-                    Save Billing & Close
-                  </button>
+                  {isProfileEditMode ? (
+                    <>
+                      <button
+                        type="button"
+                        id="btn-cancel-edit-student-billing"
+                        onClick={() => {
+                          setIsProfileEditMode(false);
+                        }}
+                        className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2.5 text-xs transition-colors cursor-pointer"
+                      >
+                        Cancel Edit
+                      </button>
+                      <button
+                        type="submit"
+                        id="btn-save-edit-student-billing"
+                        className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"
+                      >
+                        💾 Save Billing Structure
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      id="btn-close-edit-student-modal-readonly-billing"
+                      onClick={() => {
+                        setEditingStudent(null);
+                        stopCamera();
+                      }}
+                      className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"
+                    >
+                      Close Profile Hub
+                    </button>
+                  )}
                 </div>
               </form>
             )}

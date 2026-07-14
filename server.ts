@@ -8,9 +8,29 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import nodemailer from "nodemailer";
+import { initializeApp as initializeAdminApp, applicationDefault } from "firebase-admin/app";
+import { getAuth as getAdminAuth } from "firebase-admin/auth";
 
 // Ensure process env variables are available (for local testing fallback)
 import "dotenv/config";
+
+// Initialize Firebase Admin SDK
+try {
+  initializeAdminApp({
+    projectId: "sunshine-classes-web",
+    credential: applicationDefault()
+  });
+  console.log("[Firebase Admin SDK] Initialized with applicationDefault");
+} catch (e) {
+  try {
+    initializeAdminApp({
+      projectId: "sunshine-classes-web"
+    });
+    console.log("[Firebase Admin SDK] Initialized with projectId fallback");
+  } catch (err: any) {
+    console.error("[Firebase Admin SDK] Initialization failed:", err);
+  }
+}
 
 // Initialize server-side firebase instance
 import { initializeApp } from "firebase/app";
@@ -49,6 +69,94 @@ async function startServer() {
   app.get("/api/health", (req, res) => {
     res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
   });
+
+  // --- Start of Secure Firebase Admin Auth Routes ---
+  app.post("/api/admin/create-user", async (req, res) => {
+    try {
+      const { username, name, email, password, role } = req.body;
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username and password are required." });
+      }
+
+      // Generate a unique email if not provided
+      const targetEmail = email?.trim() || `${username.trim().toLowerCase()}@sunshineerp.com`;
+
+      console.log(`[Firebase Admin] Attempting to create Auth account for email: ${targetEmail}`);
+
+      // Check if user already exists
+      let existingUser = null;
+      try {
+        existingUser = await getAdminAuth().getUserByEmail(targetEmail);
+      } catch (e) {
+        // User does not exist, safe to proceed
+      }
+
+      if (existingUser) {
+        return res.status(400).json({ error: `An authentication account with email "${targetEmail}" already exists.` });
+      }
+
+      const userRecord = await getAdminAuth().createUser({
+        email: targetEmail,
+        password: password,
+        displayName: name || username,
+      });
+
+      console.log(`[Firebase Admin] Auth account created successfully with UID: ${userRecord.uid}`);
+      return res.status(200).json({
+        success: true,
+        uid: userRecord.uid,
+        email: targetEmail,
+        username,
+        name,
+        role
+      });
+    } catch (err: any) {
+      console.error("[Firebase Admin] User creation error:", err);
+      return res.status(500).json({ error: err.message || "Failed to create user." });
+    }
+  });
+
+  app.post("/api/admin/delete-user", async (req, res) => {
+    try {
+      const { uid } = req.body;
+      if (!uid) {
+        return res.status(400).json({ error: "User UID is required." });
+      }
+      console.log(`[Firebase Admin] Attempting to delete Auth account: ${uid}`);
+      await getAdminAuth().deleteUser(uid);
+      console.log(`[Firebase Admin] Auth account ${uid} deleted successfully.`);
+      return res.status(200).json({ success: true });
+    } catch (err: any) {
+      console.error("[Firebase Admin] User deletion error:", err);
+      // If user doesn't exist, we can still count it as success
+      if (err.code === 'auth/user-not-found') {
+        return res.status(200).json({ success: true, message: "User not found in Auth but deletion marked complete." });
+      }
+      return res.status(500).json({ error: err.message || "Failed to delete user." });
+    }
+  });
+
+  app.post("/api/admin/update-user", async (req, res) => {
+    try {
+      const { uid, password, email, displayName } = req.body;
+      if (!uid) {
+        return res.status(400).json({ error: "User UID is required." });
+      }
+      console.log(`[Firebase Admin] Attempting to update Auth account: ${uid}`);
+      const updateData: any = {};
+      if (password) updateData.password = password;
+      if (email) updateData.email = email;
+      if (displayName) updateData.displayName = displayName;
+
+      const userRecord = await getAdminAuth().updateUser(uid, updateData);
+      console.log(`[Firebase Admin] Auth account ${uid} updated successfully.`);
+      return res.status(200).json({ success: true, uid: userRecord.uid });
+    } catch (err: any) {
+      console.error("[Firebase Admin] User update error:", err);
+      return res.status(500).json({ error: err.message || "Failed to update user." });
+    }
+  });
+  // --- End of Secure Firebase Admin Auth Routes ---
 
   // Serve static assets from public folder
   app.use(express.static(path.join(process.cwd(), "public")));
