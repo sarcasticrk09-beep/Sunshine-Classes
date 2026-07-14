@@ -87,8 +87,6 @@ import ChatBot from './components/ChatBot';
 import SunshineLogo from './components/SunshineLogo';
 import { useAuth } from './auth/useAuth';
 import { Login } from './pages/Login';
-import { ForgotPassword } from './pages/ForgotPassword';
-import { VerifyEmail } from './pages/VerifyEmail';
 import { MailSimulatorWidget } from './components/MailSimulatorWidget';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { FeesPage } from './pages/FeesPage';
@@ -1417,7 +1415,7 @@ export default function App() {
       whatsapp: adm.whatsapp,
       parentMobile: adm.parentMobile,
       email: adm.email,
-      preferredBatch: adm.className, // Keep compliant with AGENTS.md rule! Use class name.
+      preferredBatch: adm.preferredBatch || adm.className,
       preferredTiming: adm.preferredTiming || '04:00 PM - 06:30 PM',
       admissionDate: new Date().toISOString().split('T')[0],
       attendancePercentage: 100,
@@ -3203,6 +3201,7 @@ export default function App() {
           <Route path="/about" element={landingPageElement} />
           <Route path="/courses" element={landingPageElement} />
           <Route path="/enroll" element={landingPageElement} />
+          <Route path="/admissions" element={landingPageElement} />
           <Route path="/results" element={landingPageElement} />
           <Route path="/resources" element={landingPageElement} />
           <Route path="/gallery" element={landingPageElement} />
@@ -3227,8 +3226,6 @@ export default function App() {
           <Route path="/login" element={<Login onBackToWebsite={() => navigate('/')} />} />
           <Route path="/student/login" element={<Login onBackToWebsite={() => navigate('/')} />} />
           <Route path="/admin/login" element={<Login onBackToWebsite={() => navigate('/')} />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/verify-email" element={<VerifyEmail />} />
 
           {/* Authenticated Dashboard Routes */}
           <Route

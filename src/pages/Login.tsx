@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../auth/useAuth';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Shield, RefreshCw, AlertCircle, Key, Mail } from 'lucide-react';
+import { Eye, EyeOff, Shield, RefreshCw, AlertCircle, Key } from 'lucide-react';
 import { motion } from 'motion/react';
 import SunshineLogo from '../components/SunshineLogo';
 
@@ -21,7 +21,6 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [googleLoginStep, setGoogleLoginStep] = useState<string>('');
-  const [verificationPendingEmail, setVerificationPendingEmail] = useState<string | null>(null);
 
   // States for forced password change (firstLogin === true)
   const [newPassword, setNewPassword] = useState<string>('');
@@ -32,17 +31,11 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    setVerificationPendingEmail(null);
     setLoading(true);
     try {
       await login(email.trim(), password, rememberMe);
     } catch (err: any) {
-      if (err.message && err.message.startsWith('EMAIL_VERIFICATION_PENDING:')) {
-        const pendingEmail = err.message.split(':')[1];
-        setVerificationPendingEmail(pendingEmail);
-      } else {
-        setError(err.message || 'Authentication failed. Please verify credentials.');
-      }
+      setError(err.message || 'Authentication failed. Please verify credentials.');
     } finally {
       setLoading(false);
     }
@@ -50,7 +43,6 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
 
   const handleGoogleLogin = async () => {
     setError(null);
-    setVerificationPendingEmail(null);
     setLoading(true);
     setGoogleLoginStep('Google Sign-In Initiated');
     console.log('[Google Sign-In] Google Sign-In Initiated');
@@ -196,21 +188,6 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
           </div>
         )}
 
-        {verificationPendingEmail && (
-          <div className="mb-5 p-4 rounded-2xl bg-amber-50 border border-amber-200/70 flex items-start gap-3 text-xs text-slate-700 font-medium leading-relaxed animate-fade-in">
-            <Mail className="shrink-0 h-5 w-5 text-amber-600 mt-0.5 animate-bounce" />
-            <div>
-              <p className="font-extrabold text-amber-800 text-sm">Email Activation Required</p>
-              <p className="mt-1 text-slate-600 text-[11px] leading-relaxed">
-                Your account <strong className="text-slate-950 font-bold">{verificationPendingEmail}</strong> is pending activation. We have sent a simulated link to your inbox.
-              </p>
-              <p className="mt-2 text-[10.5px] text-amber-800 font-extrabold bg-amber-100/50 px-2.5 py-1 rounded-lg border border-amber-200/50 inline-block">
-                Open the "Mail Sandbox" (bottom right) to activate.
-              </p>
-            </div>
-          </div>
-        )}
-
         <form onSubmit={handlePasswordLogin} className="space-y-4">
           <div>
             <label className="mb-1 block text-xs font-bold text-slate-700">Email Address or Username</label>
@@ -228,16 +205,6 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-xs font-bold text-slate-700">Account Password</label>
-              <a
-                href="/forgot-password"
-                className="text-[11px] font-bold text-brand-blue hover:text-blue-700 hover:underline"
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate('/forgot-password');
-                }}
-              >
-                Forgot Password?
-              </a>
             </div>
             <div className="relative">
               <input

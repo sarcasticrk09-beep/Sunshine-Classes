@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Phone,
   MessageSquare,
@@ -122,6 +122,10 @@ export default function LandingPage({
   };
 
   const activeSection = getSectionFromPath(location.pathname);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [activeSection]);
 
   const setActiveSection = (section: 'home' | 'about' | 'courses' | 'admissions' | 'results' | 'resources' | 'gallery' | 'contact') => {
     if (section === 'home') navigate('/');
@@ -899,7 +903,23 @@ export default function LandingPage({
                           <select
                             id="adm-select-class"
                             value={admClass}
-                            onChange={(e) => setAdmClass(e.target.value)}
+                            onChange={(e) => {
+                              const selectedClass = e.target.value;
+                              setAdmClass(selectedClass);
+                              if (selectedClass === 'Class 10') {
+                                setAdmBatch('Class 10 - Evening Stars');
+                                setAdmTiming('04:00 PM - 06:30 PM');
+                              } else if (selectedClass === 'Class 9') {
+                                setAdmBatch('Class 9 - Foundation Group');
+                                setAdmTiming('03:00 PM - 05:00 PM');
+                              } else if (['Class 8', 'Class 7', 'Class 6', 'Class 5'].includes(selectedClass)) {
+                                setAdmBatch('Classes 5 to 8 - Apex Learning');
+                                setAdmTiming('02:00 PM - 04:00 PM');
+                              } else {
+                                setAdmBatch('Classes 1 to 4 - Early Steps');
+                                setAdmTiming('01:00 PM - 02:30 PM');
+                              }
+                            }}
                             className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
                           >
                             <option value="Class 10">Class 10</option>
@@ -913,6 +933,31 @@ export default function LandingPage({
                             <option value="Class 2">Class 2</option>
                             <option value="Class 1">Class 1</option>
                           </select>
+                        </div>
+
+                        <div>
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-700">Previous School</label>
+                          <input
+                            id="adm-input-prev-school"
+                            type="text"
+                            value={admPrevSchool}
+                            onChange={(e) => setAdmPrevSchool(e.target.value)}
+                            placeholder="Type previous school name..."
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-700">Aadhar Card Number</label>
+                          <input
+                            id="adm-input-aadhar"
+                            type="text"
+                            maxLength={12}
+                            value={admAadhar}
+                            onChange={(e) => setAdmAadhar(e.target.value.replace(/\D/g, ''))}
+                            placeholder="12-digit Aadhar number..."
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
+                          />
                         </div>
                       </div>
                     </div>
@@ -1010,17 +1055,50 @@ export default function LandingPage({
                         3. Home address & parameters
                       </h4>
 
-                      <div>
-                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Correspondence Address</label>
-                        <textarea
-                          id="adm-ta-address"
-                          required
-                          rows={2}
-                          value={admAddress}
-                          onChange={(e) => setAdmAddress(e.target.value)}
-                          placeholder="e.g. Mohalla Mishrana, Opposite Subhash Park, Pihani, UP..."
-                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
-                        ></textarea>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="sm:col-span-2">
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-700">Correspondence Address</label>
+                          <textarea
+                            id="adm-ta-address"
+                            required
+                            rows={2}
+                            value={admAddress}
+                            onChange={(e) => setAdmAddress(e.target.value)}
+                            placeholder="e.g. Mohalla Mishrana, Opposite Subhash Park, Pihani, UP..."
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
+                          ></textarea>
+                        </div>
+
+                        <div>
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-700">Preferred Batch</label>
+                          <select
+                            id="adm-select-batch"
+                            value={admBatch}
+                            onChange={(e) => setAdmBatch(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
+                          >
+                            <option value="Class 10 - Evening Stars">Class 10 - Evening Stars</option>
+                            <option value="Class 9 - Foundation Group">Class 9 - Foundation Group</option>
+                            <option value="Classes 5 to 8 - Apex Learning">Classes 5 to 8 - Apex Learning</option>
+                            <option value="Classes 1 to 4 - Early Steps">Classes 1 to 4 - Early Steps</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="mb-1.5 block text-xs font-semibold text-slate-700">Preferred Timing</label>
+                          <select
+                            id="adm-select-timing"
+                            value={admTiming}
+                            onChange={(e) => setAdmTiming(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
+                          >
+                            <option value="04:00 PM - 06:30 PM">04:00 PM - 06:30 PM</option>
+                            <option value="03:00 PM - 05:00 PM">03:00 PM - 05:00 PM</option>
+                            <option value="02:00 PM - 04:00 PM">02:00 PM - 04:00 PM</option>
+                            <option value="01:00 PM - 02:30 PM">01:00 PM - 02:30 PM</option>
+                            <option value="07:00 AM - 09:30 AM">07:00 AM - 09:30 AM</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
 

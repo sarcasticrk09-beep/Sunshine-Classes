@@ -6,13 +6,10 @@ export interface AuthContextType {
   loading: boolean;
   googleLoading: boolean;
   role: UserRole | null;
-  login: (email: string, password: string, remember: boolean) => Promise<boolean>;
+  login: (emailOrUsername: string, password: string, remember: boolean) => Promise<boolean>;
   logout: () => Promise<void>;
   googleLogin: () => Promise<boolean>;
-  resetPassword: (email: string) => Promise<void>;
   changePassword: (newPassword: string) => Promise<void>;
-  verifyAndResetPassword?: (email: string, token: string, newPass: string) => Promise<void>;
-  verifyEmail?: (email: string, token: string) => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);
