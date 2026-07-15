@@ -24,6 +24,7 @@ import {
   Sparkles,
   Search,
   Check,
+  CheckSquare,
   Award,
   FileSpreadsheet,
   Printer,
@@ -222,6 +223,7 @@ export default function AdminDashboard({
   const [dashboardMonth, setDashboardMonth] = useState('July 2026');
   const [showPendingFeesDetails, setShowPendingFeesDetails] = useState(false);
   const [pendingFeesSearchQuery, setPendingFeesSearchQuery] = useState('');
+  const [visiblePasscodes, setVisiblePasscodes] = useState<Record<string, boolean>>({});
 
   // Authentication Logs Filter States
   const [authStartDate, setAuthStartDate] = useState('');
@@ -559,8 +561,7 @@ export default function AdminDashboard({
         username: trimmedUsername,
         email: targetEmail,
         role: newUserRole,
-        password: hashed,
-        plainPassword: passwordToUse
+        password: hashed
       };
 
       const updatedUsers = [...users, newUser];
@@ -705,21 +706,25 @@ export default function AdminDashboard({
             : 'Faculty';
         }
 
-        const pass = user.plainPassword || user.password || '';
+        const status = user.active !== false ? 'Enabled' : 'Disabled';
+        const lockStatus = user.isLocked ? 'Locked' : 'Unlocked';
+        const forceReset = user.forcePasswordChange ? 'Yes' : 'No';
 
         return {
           name: user.name || '',
           role: user.role || '',
           username: user.username || '',
-          password: pass,
           email: user.email || '',
           phone: phone,
-          classOrAffiliation: classOrAffiliation
+          classOrAffiliation: classOrAffiliation,
+          status,
+          lockStatus,
+          forceReset
         };
       });
 
-      const headers = ['Name', 'Role', 'Username', 'Passcode/Password', 'Email', 'Phone', 'Class / Affiliation'];
-      const keys = ['name', 'role', 'username', 'password', 'email', 'phone', 'classOrAffiliation'];
+      const headers = ['Name', 'Role', 'Username', 'Email', 'Phone', 'Class / Affiliation', 'Status', 'Locked', 'Force Password Change'];
+      const keys = ['name', 'role', 'username', 'email', 'phone', 'classOrAffiliation', 'status', 'lockStatus', 'forceReset'];
       exportToCSV(exportData, `system_credentials_${new Date().toISOString().split('T')[0]}.csv`, headers, keys);
     } catch (err: any) {
       console.error("Failed to export credentials:", err);
@@ -2211,11 +2216,72 @@ export default function AdminDashboard({
   // State for Admin resetting another user's password
   const [resettingUser, setResettingUser] = useState<{ userId: string; username: string; name: string } | null>(null);
   const [newPasswordForUser, setNewPasswordForUser] = useState('');
+  const [editUsername, setEditUsername] = useState('');
+  const [userActive, setUserActive] = useState(true);
+  const [userLocked, setUserLocked] = useState(false);
+  const [userForceChange, setUserForceChange] = useState(false);
+
+  // Re-authentication states for revealing passwords
+  const [reauthModalOpen, setReauthModalOpen] = useState(false);
+  const [reauthAdminPassword, setReauthAdminPassword] = useState('');
+  const [reauthTargetUserId, setReauthTargetUserId] = useState<string | null>(null);
+  const [reauthError, setReauthError] = useState<string | null>(null);
+  const [showReauthPassword, setShowReauthPassword] = useState(false);
+
+  const handleTogglePasscodeReveal = (userId: string) => {
+    if (visiblePasscodes[userId]) {
+      // If it's already visible, hide it
+      setVisiblePasscodes(prev => ({ ...prev, [userId]: false }));
+    } else {
+      // It's hidden, require re-authentication
+      setReauthTargetUserId(userId);
+      setReauthAdminPassword('');
+      setReauthError(null);
+      setReauthModalOpen(true);
+      setShowReauthPassword(false);
+    }
+  };
+
+  const handleReauthSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setReauthError(null);
+    
+    const adminUser = users.find(u => u.id === currentUser?.id);
+    if (!adminUser) {
+      setReauthError('Current logged-in administrator account not found in system records.');
+      return;
+    }
+
+    const enteredHash = simpleSecureHash(reauthAdminPassword.trim());
+    if (adminUser.password !== enteredHash) {
+      setReauthError('Invalid administrator credentials. Access denied.');
+      return;
+    }
+
+    if (reauthTargetUserId) {
+      setVisiblePasscodes(prev => ({ ...prev, [reauthTargetUserId]: true }));
+    }
+    
+    setReauthModalOpen(false);
+    setReauthAdminPassword('');
+    setReauthTargetUserId(null);
+  };
 
   // Password Control Center State variables
   const [pwdSearchQuery, setPwdSearchQuery] = useState('');
   const [pwdRoleFilter, setPwdRoleFilter] = useState<'ALL' | 'ADMIN' | 'TEACHER' | 'RECEPTIONIST' | 'STUDENT'>('ALL');
   const [pwdVisibleUsers, setPwdVisibleUsers] = useState<string[]>([]);
+
+  // UPI Verification Board states
+  const [upiSearchQuery, setUpiSearchQuery] = useState('');
+  const [upiFilterStatus, setUpiFilterStatus] = useState<'ALL' | 'PENDING_VERIFICATION' | 'APPROVED' | 'REJECTED' | 'CANCELLED'>('ALL');
+  const [upiFilterClass, setUpiFilterClass] = useState('ALL');
+  const [upiFilterTeacher, setUpiFilterTeacher] = useState('ALL');
+  const [upiFilterMonth, setUpiFilterMonth] = useState('ALL');
+  const [upiSortDirection, setUpiSortDirection] = useState<'asc' | 'desc'>('desc'); // Newest first by default
+  const [rejectionModalPaymentId, setRejectionModalPaymentId] = useState<string | null>(null);
+  const [rejectionCustomReason, setRejectionCustomReason] = useState('');
+  const [rejectionSelectedOption, setRejectionSelectedOption] = useState('Incorrect UTR');
 
   // Quick Fee Collect State Variables
   const [quickCollectStudent, setQuickCollectStudent] = useState<Student | null>(null);
@@ -3524,6 +3590,19 @@ export default function AdminDashboard({
   const [ctrlCycleDiscount, setCtrlCycleDiscount] = useState(0);
   const [ctrlCycleScholarship, setCtrlCycleScholarship] = useState(0);
 
+  // Student Bulk Multi-Select States
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [bulkActionType, setBulkActionType] = useState<'archive' | 'delete' | 'promote' | null>(null);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+
+  const getNextClass = (currentClass: string): string | null => {
+    const match = currentClass.match(/\d+/);
+    if (!match) return null;
+    const num = parseInt(match[0]);
+    if (num >= 10) return null;
+    return `Class ${num + 1}`;
+  };
+
   // Add Teacher Form States
   const [tchName, setTchName] = useState('');
   const [tchEmail, setTchEmail] = useState('');
@@ -4203,6 +4282,8 @@ export default function AdminDashboard({
   const [cfgPaymentGatewayProvider, setCfgPaymentGatewayProvider] = useState<'UPI_QR' | 'RAZORPAY' | 'STRIPE' | 'BANK_TRANSFER' | 'MOCK'>(subConfig.paymentGatewayProvider ?? 'UPI_QR');
   const [cfgUpiId, setCfgUpiId] = useState(subConfig.upiId ?? '9161586254@upi');
   const [cfgUpiMerchantName, setCfgUpiMerchantName] = useState(subConfig.upiMerchantName ?? 'Sunshine Classes Ltd');
+  const [cfgCoachingUpiId, setCfgCoachingUpiId] = useState(subConfig.coachingUpiId ?? '9161586254@upi');
+  const [cfgAccountHolderName, setCfgAccountHolderName] = useState(subConfig.accountHolderName ?? 'Sunshine Classes');
   const [cfgBankAccountHolder, setCfgBankAccountHolder] = useState(subConfig.bankAccountHolder ?? 'Sunshine Classes ERP Solutions');
   const [cfgBankAccountNumber, setCfgBankAccountNumber] = useState(subConfig.bankAccountNumber ?? '33888542347');
   const [cfgBankName, setCfgBankName] = useState(subConfig.bankName ?? 'State Bank of India (Pihani Branch)');
@@ -4972,6 +5053,8 @@ export default function AdminDashboard({
       paymentGatewayProvider: cfgPaymentGatewayProvider,
       upiId: cfgUpiId,
       upiMerchantName: cfgUpiMerchantName,
+      coachingUpiId: cfgCoachingUpiId,
+      accountHolderName: cfgAccountHolderName,
       bankAccountHolder: cfgBankAccountHolder,
       bankAccountNumber: cfgBankAccountNumber,
       bankName: cfgBankName,
@@ -5715,6 +5798,7 @@ ${data.log}`
           { id: 'overview', label: 'Admin Operations Overview', icon: <Activity size={16} />, category: 'Core Operations' },
           { id: 'students', label: `Manage Student ERP (${students.length})`, icon: <Users size={16} />, category: 'Core Operations' },
           { id: 'fees', label: 'Manage Fees & Ledger', icon: <DollarSign size={16} />, category: 'Core Operations' },
+          { id: 'upi-verification', label: `Fee Payment Verification (${upiPayments.filter(p => p.status === 'PENDING_VERIFICATION').length})`, icon: <CheckSquare size={16} />, category: 'Core Operations' },
           
           { id: 'teachers', label: 'Faculty Directory', icon: <BookOpen size={16} />, category: 'Academic & CMS' },
           { id: 'batches', label: 'Batches & Timings', icon: <Calendar size={16} />, category: 'Academic & CMS' },
@@ -5740,11 +5824,11 @@ ${data.log}`
           }
           // Co-Founder has access to standard admin tabs plus his executive workspace
           if (isAdmin) {
-            const allowedAdminTabs = ['overview', 'students', 'fees', 'teachers', 'batches', 'announcements', 'cofounder-office', 'auth-logs'];
+            const allowedAdminTabs = ['overview', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements', 'cofounder-office', 'auth-logs'];
             return allowedAdminTabs.includes(tab.id);
           }
           // Default fallback
-          const allowedAdminTabs = ['overview', 'students', 'fees', 'teachers', 'batches', 'announcements'];
+          const allowedAdminTabs = ['overview', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements'];
           return allowedAdminTabs.includes(tab.id);
         });
 
@@ -7168,10 +7252,91 @@ ${data.log}`
                   </div>
                 </div>
 
+                {/* Bulk Actions Toolbar */}
+                {selectedStudentIds.length > 0 && (
+                  <div id="student-bulk-actions-toolbar" className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-indigo-50 border border-indigo-150 p-4 rounded-xl mb-4 animate-fade-in shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <div className="rounded-lg bg-indigo-100 p-1.5 text-indigo-700">
+                        <Users size={16} />
+                      </div>
+                      <div>
+                        <span className="font-extrabold text-indigo-950 text-xs sm:text-sm block">
+                          {selectedStudentIds.length} Student{selectedStudentIds.length > 1 ? 's' : ''} Selected
+                        </span>
+                        <span className="text-[10px] text-indigo-600 font-semibold font-mono">
+                          Ready for bulk administrative actions
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        id="btn-bulk-promote"
+                        type="button"
+                        onClick={() => {
+                          setBulkActionType('promote');
+                          setIsBulkModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-2 text-xs font-black text-white shadow-sm transition-all active:scale-95 cursor-pointer"
+                      >
+                        <TrendingUp size={13} /> Promote Selected
+                      </button>
+
+                      <button
+                        id="btn-bulk-archive"
+                        type="button"
+                        onClick={() => {
+                          setBulkActionType('archive');
+                          setIsBulkModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 px-3 py-2 text-xs font-black text-white shadow-sm transition-all active:scale-95 cursor-pointer"
+                      >
+                        <Archive size={13} /> Archive Selected
+                      </button>
+
+                      <button
+                        id="btn-bulk-delete"
+                        type="button"
+                        onClick={() => {
+                          setBulkActionType('delete');
+                          setIsBulkModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 px-3 py-2 text-xs font-black text-white shadow-sm transition-all active:scale-95 cursor-pointer"
+                      >
+                        <Trash2 size={13} /> Delete Selected
+                      </button>
+
+                      <button
+                        id="btn-bulk-clear-selection"
+                        type="button"
+                        onClick={() => setSelectedStudentIds([])}
+                        className="rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 cursor-pointer"
+                      >
+                        Clear Selection
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="overflow-x-auto border border-slate-100 rounded-xl">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        <th className="p-3 w-10 text-center select-none">
+                          <input
+                            id="checkbox-select-all-students"
+                            type="checkbox"
+                            checked={filteredStudentsForTable.length > 0 && selectedStudentIds.length === filteredStudentsForTable.length}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedStudentIds(filteredStudentsForTable.map(s => s.id));
+                              } else {
+                                setSelectedStudentIds([]);
+                              }
+                            }}
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer h-4 w-4"
+                          />
+                        </th>
                         <th className="p-3">Roll ID</th>
                         <th className="p-3">Name</th>
                         <th className="p-3">Class</th>
@@ -7183,13 +7348,28 @@ ${data.log}`
                     <tbody className="divide-y divide-slate-50 text-xs">
                       {filteredStudentsForTable.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-xs text-slate-400 font-medium">
+                          <td colSpan={7} className="p-8 text-center text-xs text-slate-400 font-medium">
                             No students match the selected batch, class or search criteria.
                           </td>
                         </tr>
                       ) : (
                         filteredStudentsForTable.map((student) => (
                           <tr key={student.id} className="hover:bg-slate-50/50">
+                            <td className="p-3 text-center select-none w-10">
+                              <input
+                                id={`checkbox-select-student-${student.id}`}
+                                type="checkbox"
+                                checked={selectedStudentIds.includes(student.id)}
+                                onChange={() => {
+                                  setSelectedStudentIds(prev => 
+                                    prev.includes(student.id) 
+                                      ? prev.filter(id => id !== student.id)
+                                      : [...prev, student.id]
+                                  );
+                                }}
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer h-4 w-4"
+                              />
+                            </td>
                             <td className="p-3 font-semibold text-indigo-900 font-mono">{student.rollNo}</td>
                             <td className="p-3 font-bold text-slate-800">
                               <div className="flex items-center gap-2">
@@ -7276,6 +7456,146 @@ ${data.log}`
                   </table>
                 </div>
               </div>
+
+              {/* BULK ACTIONS CONFIRMATION MODAL */}
+              {isBulkModalOpen && bulkActionType && (
+                <div id="bulk-action-modal-overlay" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                  <div id="bulk-action-modal-content" className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-4">
+                    <div className="flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-3">
+                      <div className={`p-2 rounded-lg ${
+                        bulkActionType === 'delete' ? 'bg-rose-50 text-rose-600' :
+                        bulkActionType === 'archive' ? 'bg-amber-50 text-amber-600' :
+                        'bg-indigo-50 text-indigo-600'
+                      }`}>
+                        {bulkActionType === 'delete' ? <Trash2 size={18} /> :
+                         bulkActionType === 'archive' ? <Archive size={18} /> :
+                         <TrendingUp size={18} />}
+                      </div>
+                      <h3 className="font-display font-black text-base uppercase tracking-wider">
+                        Confirm Bulk {bulkActionType === 'delete' ? 'Delete' : bulkActionType === 'archive' ? 'Archive' : 'Promotion'}
+                      </h3>
+                    </div>
+
+                    <div className="space-y-3 text-xs leading-relaxed text-slate-600">
+                      <p className="font-semibold text-slate-700">
+                        You are about to perform a bulk <span className="font-bold underline text-slate-900">{bulkActionType}</span> action on <span className="font-bold text-slate-900">{selectedStudentIds.length} selected student(s)</span>:
+                      </p>
+
+                      {/* Selected Students List Scroll */}
+                      <div className="max-h-40 overflow-y-auto border border-slate-100 rounded-xl bg-slate-50 p-3 space-y-1.5 text-left">
+                        {students.filter(s => selectedStudentIds.includes(s.id)).map(s => {
+                          const nextCls = getNextClass(s.class);
+                          return (
+                            <div key={s.id} className="flex justify-between items-center bg-white border border-slate-100 px-2 py-1.5 rounded-lg font-medium">
+                              <span className="text-slate-800 font-bold">{s.name} <span className="text-slate-400 font-mono font-normal text-[10px] ml-1">{s.rollNo}</span></span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono bg-slate-100 text-slate-600">
+                                {bulkActionType === 'promote' ? (
+                                  <span className="flex items-center gap-1">
+                                    {s.class} → <span className="text-emerald-700 font-bold">{nextCls || 'Graduate (Inactive)'}</span>
+                                  </span>
+                                ) : (
+                                  <span>{s.class} ({s.status})</span>
+                                )}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {bulkActionType === 'delete' && (
+                        <div className="p-3 bg-red-50 text-rose-800 border border-red-100 rounded-xl flex gap-2 text-left">
+                          <span className="font-black">⚠ Warning:</span>
+                          <span>This action is completely permanent and irreversible. All user profiles, log-ins, and fee records associated with these students will be deleted from the Sunshine ERP directory.</span>
+                        </div>
+                      )}
+
+                      {bulkActionType === 'archive' && (
+                        <div className="p-3 bg-amber-50 text-amber-800 border border-amber-100 rounded-xl flex gap-2 text-left">
+                          <span className="font-black">💡 Note:</span>
+                          <span>These student accounts will be marked as INACTIVE. They will be restricted from accessing the Student Portal, but their historic record databases will be preserved for audits.</span>
+                        </div>
+                      )}
+
+                      {bulkActionType === 'promote' && (
+                        <div className="p-3 bg-indigo-50 text-indigo-800 border border-indigo-150 rounded-xl flex gap-2 text-left">
+                          <span className="font-black">📈 Promotion Info:</span>
+                          <span>Selected students will have their standard class level promoted by 1 Grade level. Class 10 students will be automatically archived as "Graduated (Inactive)". New subscription fees can be configured.</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+                      <button
+                        id="btn-confirm-bulk-cancel"
+                        type="button"
+                        onClick={() => {
+                          setIsBulkModalOpen(false);
+                          setBulkActionType(null);
+                        }}
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        id="btn-confirm-bulk-execute"
+                        type="button"
+                        onClick={() => {
+                          let updatedStudents = [...students];
+                          if (bulkActionType === 'delete') {
+                            updatedStudents = students.filter(s => !selectedStudentIds.includes(s.id));
+                            const deletedUserIds = students.filter(s => selectedStudentIds.includes(s.id)).map(s => s.userId);
+                            const updatedUsers = users.filter(u => !deletedUserIds.includes(u.id));
+                            onHealState('users', updatedUsers);
+                          } else if (bulkActionType === 'archive') {
+                            updatedStudents = students.map(s => {
+                              if (selectedStudentIds.includes(s.id)) {
+                                return { ...s, status: 'INACTIVE' as const };
+                              }
+                              return s;
+                            });
+                          } else if (bulkActionType === 'promote') {
+                            updatedStudents = students.map(s => {
+                              if (selectedStudentIds.includes(s.id)) {
+                                const nextCls = getNextClass(s.class);
+                                if (nextCls) {
+                                  return { ...s, class: nextCls };
+                                } else {
+                                  return { ...s, status: 'INACTIVE' as const };
+                                }
+                              }
+                              return s;
+                            });
+                          }
+
+                          onHealState('students', updatedStudents);
+
+                          const newLog: AuditLog = {
+                            id: `log-bulk-${Date.now()}`,
+                            userId: currentUser?.id || 'admin',
+                            username: currentUser?.username || 'admin',
+                            action: `BULK_${bulkActionType.toUpperCase()}_STUDENTS`,
+                            details: `Bulk executed ${bulkActionType} on ${selectedStudentIds.length} students.`,
+                            timestamp: new Date().toISOString()
+                          };
+                          onHealState('audit_logs', [newLog, ...auditLogs]);
+
+                          alert(`Successfully executed bulk ${bulkActionType} on ${selectedStudentIds.length} students!`);
+                          setSelectedStudentIds([]);
+                          setIsBulkModalOpen(false);
+                          setBulkActionType(null);
+                        }}
+                        className={`rounded-xl px-4 py-2 text-xs font-black text-white shadow-sm transition-all active:scale-95 cursor-pointer ${
+                          bulkActionType === 'delete' ? 'bg-rose-600 hover:bg-rose-700' :
+                          bulkActionType === 'archive' ? 'bg-amber-500 hover:bg-amber-600' :
+                          'bg-indigo-600 hover:bg-indigo-700'
+                        }`}
+                      >
+                        Confirm Execution
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -7564,7 +7884,7 @@ ${data.log}`
                         </div>
                       </div>
                     ))}
-                  
+
                   {teachers.filter((t) => t.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
                     <div className="py-10 text-center text-slate-400 font-medium">
                       No matching educators found in directory.
@@ -7574,6 +7894,441 @@ ${data.log}`
               </div>
             </div>
           )}
+
+          {/* TAB 3.4: UPI FEE PAYMENT VERIFICATION */}
+          {activeTab === 'upi-verification' && (() => {
+            const uniqueClasses = Array.from(new Set(students.map(s => s.class))).sort();
+            const uniqueTeachers = Array.from(new Set(teachers.map(t => t.name))).sort();
+            const uniqueMonths = Array.from(new Set(upiPayments.map(p => p.month))).sort();
+
+            const getStudentTeacherName = (studentId: string) => {
+              const s = students.find(x => x.id === studentId);
+              if (!s) return 'Unassigned';
+              const matchedTeacher = teachers.find(t => t.batches.includes(s.preferredBatch));
+              return matchedTeacher ? matchedTeacher.name : 'Office Desk';
+            };
+
+            const filteredUpiPayments = upiPayments.filter(payment => {
+              const s = students.find(x => x.id === payment.studentId);
+              const teacherName = getStudentTeacherName(payment.studentId);
+              
+              const matchesSearch = 
+                payment.studentName.toLowerCase().includes(upiSearchQuery.toLowerCase()) ||
+                payment.studentId.toLowerCase().includes(upiSearchQuery.toLowerCase()) ||
+                (s?.rollNo || '').toLowerCase().includes(upiSearchQuery.toLowerCase()) ||
+                payment.utr.toLowerCase().includes(upiSearchQuery.toLowerCase()) ||
+                `FEE-${payment.studentId}-${payment.month}`.toLowerCase().includes(upiSearchQuery.toLowerCase());
+                
+              const matchesStatus = upiFilterStatus === 'ALL' ? true : payment.status === upiFilterStatus;
+              const matchesClass = upiFilterClass === 'ALL' ? true : payment.class === upiFilterClass;
+              const matchesTeacher = upiFilterTeacher === 'ALL' ? true : teacherName === upiFilterTeacher;
+              const matchesMonth = upiFilterMonth === 'ALL' ? true : payment.month === upiFilterMonth;
+              
+              return matchesSearch && matchesStatus && matchesClass && matchesTeacher && matchesMonth;
+            }).sort((a, b) => {
+              const timeA = new Date(a.submissionTime).getTime();
+              const timeB = new Date(b.submissionTime).getTime();
+              return upiSortDirection === 'desc' ? timeB - timeA : timeA - timeB;
+            });
+
+            const pendingCount = upiPayments.filter(p => p.status === 'PENDING_VERIFICATION').length;
+            const approvedCount = upiPayments.filter(p => p.status === 'APPROVED').length;
+            const rejectedCount = upiPayments.filter(p => p.status === 'REJECTED').length;
+            const totalCount = upiPayments.length;
+
+            return (
+              <div className="space-y-6 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                {/* Stats cards for UPI desk */}
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Submissions</span>
+                      <span className="text-xl font-black text-slate-900 block mt-1">{totalCount} Requests</span>
+                    </div>
+                    <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center text-slate-500 font-bold border border-slate-100 shadow-xs">
+                      📋
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider block">Pending Verification</span>
+                      <span className="text-xl font-black text-amber-900 block mt-1 animate-pulse">{pendingCount} Awaiting</span>
+                    </div>
+                    <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center text-amber-700 font-bold border border-amber-100 shadow-xs">
+                      🟡
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider block">Approved Settlements</span>
+                      <span className="text-xl font-black text-emerald-900 block mt-1">{approvedCount} Verified</span>
+                    </div>
+                    <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center text-emerald-700 font-bold border border-emerald-100 shadow-xs">
+                      ✅
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50/40 p-4 shadow-sm flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider block">Rejected Requests</span>
+                      <span className="text-xl font-black text-rose-900 block mt-1">{rejectedCount} Refused</span>
+                    </div>
+                    <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center text-rose-700 font-bold border border-rose-100 shadow-xs">
+                      ❌
+                    </div>
+                  </div>
+                </div>
+
+                {/* Filter and search bar */}
+                <div className="rounded-2xl border border-slate-150 bg-slate-50/50 p-5 space-y-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <h3 className="font-display font-black text-sm text-slate-800 uppercase tracking-wider">Fee Payment Verification Desk</h3>
+                      <p className="text-xs text-slate-500 mt-1">Audit, approve, or refuse direct UPI bank ledger settlements securely. Approved records immediately credit students and dispatch official receipts.</p>
+                    </div>
+                    <button
+                      id="btn-toggle-sort-direction"
+                      onClick={() => setUpiSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
+                      className="inline-flex items-center gap-1.5 self-start md:self-auto rounded-xl border border-slate-250 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer shadow-xs"
+                    >
+                      {upiSortDirection === 'desc' ? '⏳ Newest First' : '⏳ Oldest First'}
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+                    {/* Search */}
+                    <div className="relative">
+                      <Search size={14} className="absolute left-3.5 top-3 text-slate-400" />
+                      <input
+                        id="input-upi-search"
+                        type="text"
+                        placeholder="Search student, roll, UTR..."
+                        value={upiSearchQuery}
+                        onChange={(e) => setUpiSearchQuery(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-950 shadow-xs"
+                      />
+                    </div>
+
+                    {/* Status filter */}
+                    <div>
+                      <select
+                        id="select-upi-status-filter"
+                        value={upiFilterStatus}
+                        onChange={(e) => setUpiFilterStatus(e.target.value as any)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-950 shadow-xs"
+                      >
+                        <option value="ALL">All Statuses</option>
+                        <option value="PENDING_VERIFICATION">🟡 Pending Verification</option>
+                        <option value="APPROVED">🟢 Approved</option>
+                        <option value="REJECTED">🔴 Rejected</option>
+                        <option value="CANCELLED">⚪ Cancelled</option>
+                      </select>
+                    </div>
+
+                    {/* Class Filter */}
+                    <div>
+                      <select
+                        id="select-upi-class-filter"
+                        value={upiFilterClass}
+                        onChange={(e) => setUpiFilterClass(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-950 shadow-xs"
+                      >
+                        <option value="ALL">All Classes</option>
+                        {uniqueClasses.map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Teacher Filter */}
+                    <div>
+                      <select
+                        id="select-upi-teacher-filter"
+                        value={upiFilterTeacher}
+                        onChange={(e) => setUpiFilterTeacher(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-950 shadow-xs"
+                      >
+                        <option value="ALL">All Faculty</option>
+                        {uniqueTeachers.map(t => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Month Filter */}
+                    <div>
+                      <select
+                        id="select-upi-month-filter"
+                        value={upiFilterMonth}
+                        onChange={(e) => setUpiFilterMonth(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-950 shadow-xs"
+                      >
+                        <option value="ALL">All Cycle Months</option>
+                        {uniqueMonths.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Table card */}
+                <div className="overflow-hidden border border-slate-200 rounded-2xl bg-white shadow-xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          <th className="px-4 py-3.5">Student / Admission</th>
+                          <th className="px-4 py-3.5">Class & Faculty</th>
+                          <th className="px-4 py-3.5">Contact Details</th>
+                          <th className="px-4 py-3.5">Fee Month & Ref ID</th>
+                          <th className="px-4 py-3.5 text-right">Amount</th>
+                          <th className="px-4 py-3.5 font-mono">UTR Reference</th>
+                          <th className="px-4 py-3.5 text-center">Screenshot</th>
+                          <th className="px-4 py-3.5 text-center">Status</th>
+                          <th className="px-4 py-3.5 text-center">Audit Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                        {filteredUpiPayments.map((payment) => {
+                          const s = students.find(x => x.id === payment.studentId);
+                          const teacherName = getStudentTeacherName(payment.studentId);
+                          const matchedReceipt = feeReceipts.find(r => r.transactionId === payment.utr);
+                          const payRefId = `FEE-${payment.studentId}-${payment.month.replace(/\s+/g, '-')}`;
+
+                          return (
+                            <tr key={payment.id} className="hover:bg-slate-50/40 transition-all">
+                              <td className="px-4 py-3.5">
+                                <div className="font-extrabold text-slate-900">{payment.studentName}</div>
+                                <div className="text-[10px] text-slate-400 font-mono mt-0.5">Roll No: {s?.rollNo || 'N/A'} • ID: {payment.studentId}</div>
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <div className="font-semibold text-slate-700">{payment.class}</div>
+                                <div className="text-[10px] text-indigo-600 font-medium mt-0.5">Faculty: {teacherName}</div>
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <div className="text-slate-600 font-medium">{s?.mobile || 'No Phone'}</div>
+                                <div className="text-[10px] text-slate-400">{s?.email || 'No Email'}</div>
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <div className="font-bold text-slate-700">{payment.month}</div>
+                                <div className="text-[9px] text-slate-400 font-mono mt-0.5 select-all" title="Copy Reference ID">{payRefId}</div>
+                              </td>
+                              <td className="px-4 py-3.5 text-right font-black text-slate-950">
+                                ₹{payment.amount}.00
+                              </td>
+                              <td className="px-4 py-3.5 font-mono text-xs text-slate-600">
+                                <div className="flex items-center gap-1 font-bold select-all">
+                                  <span>{payment.utr}</span>
+                                  <button 
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(payment.utr);
+                                      alert("UTR Reference number copied to clipboard!");
+                                    }}
+                                    className="text-slate-400 hover:text-indigo-600 transition-colors p-0.5 cursor-pointer"
+                                    title="Copy UTR"
+                                  >
+                                    📋
+                                  </button>
+                                </div>
+                                <div className="text-[9px] text-slate-400 font-medium">Submitted: {new Date(payment.submissionTime).toLocaleString()}</div>
+                              </td>
+                              <td className="px-4 py-3.5 text-center">
+                                {payment.screenshot ? (
+                                  <button
+                                    id={`btn-board-view-screenshot-${payment.id}`}
+                                    onClick={() => setSelectedUpiScreenshot(payment.screenshot!)}
+                                    className="inline-flex items-center gap-1 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-3 py-1.5 text-[10px] cursor-pointer shadow-sm transition-all"
+                                  >
+                                    👁️ View Proof
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 italic">No proof attached</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3.5 text-center">
+                                {payment.status === 'PENDING_VERIFICATION' && (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
+                                    Awaiting Review
+                                  </span>
+                                )}
+                                {payment.status === 'APPROVED' && (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    Approved
+                                  </span>
+                                )}
+                                {payment.status === 'REJECTED' && (
+                                  <span 
+                                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200 cursor-help"
+                                    title={payment.rejectionReason}
+                                  >
+                                    Rejected
+                                  </span>
+                                )}
+                                {payment.status === 'CANCELLED' && (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-50 text-slate-500 border border-slate-200">
+                                    Cancelled
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3.5 text-center">
+                                {payment.status === 'PENDING_VERIFICATION' ? (
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      id={`btn-board-approve-${payment.id}`}
+                                      onClick={() => {
+                                        if (confirm(`Approve settlement of ₹${payment.amount} for student ${payment.studentName} for cycle ${payment.month}? This action is irreversible and generates a verified official ledger receipt instantly.`)) {
+                                          if (onVerifyUpiPayment) onVerifyUpiPayment(payment.id, 'APPROVE');
+                                        }
+                                      }}
+                                      className="rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1.5 text-[10px] cursor-pointer shadow transition-all hover:scale-105"
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      id={`btn-board-reject-${payment.id}`}
+                                      onClick={() => setRejectionModalPaymentId(payment.id)}
+                                      className="rounded bg-rose-600 hover:bg-rose-700 text-white font-bold px-2.5 py-1.5 text-[10px] cursor-pointer shadow transition-all hover:scale-105"
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                ) : payment.status === 'APPROVED' ? (
+                                  <div className="flex items-center justify-center">
+                                    {matchedReceipt ? (
+                                      <button
+                                        id={`btn-board-resend-receipt-${payment.id}`}
+                                        onClick={() => {
+                                          if (onResendReceiptEmail) {
+                                            const studentRecord = students.find(s => s.id === payment.studentId);
+                                            onResendReceiptEmail(matchedReceipt.id, studentRecord?.email || "");
+                                            alert("Professional PDF receipt resent to student's email successfully!");
+                                          }
+                                        }}
+                                        className="rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1.5 text-[10px] cursor-pointer transition-colors shadow-sm"
+                                      >
+                                        ✉ Resend Receipt
+                                      </button>
+                                    ) : (
+                                      <span className="text-[10px] font-bold text-emerald-700">✓ Ledger Adjusted</span>
+                                    )}
+                                  </div>
+                                ) : payment.status === 'REJECTED' ? (
+                                  <div className="text-[10px] font-medium text-slate-500 max-w-[150px] truncate" title={payment.rejectionReason}>
+                                    Reason: {payment.rejectionReason}
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400">No Actions</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+
+                        {filteredUpiPayments.length === 0 && (
+                          <tr>
+                            <td colSpan={9} className="py-12 text-center text-slate-400 font-medium">
+                              No UPI payment requests match your filter/search criteria.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Inline Rejection Modal popup */}
+                {rejectionModalPaymentId && (() => {
+                  const targetPay = upiPayments.find(p => p.id === rejectionModalPaymentId);
+                  return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
+                      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-4">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-display font-black text-slate-800 text-sm uppercase">Mandatory Rejection Comment</h4>
+                            <p className="text-[10px] text-slate-500 mt-1">Provide a clear explanation for student {targetPay?.studentName}.</p>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              setRejectionModalPaymentId(null);
+                              setRejectionCustomReason('');
+                            }}
+                            className="text-slate-400 hover:text-slate-600 transition-colors p-1 cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div>
+                            <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">Standard Rejection Reason</label>
+                            <select
+                              id="select-rejection-option"
+                              value={rejectionSelectedOption}
+                              onChange={(e) => setRejectionSelectedOption(e.target.value)}
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-950 focus:bg-white"
+                            >
+                              <option value="Incorrect UTR">Incorrect transaction reference (UTR)</option>
+                              <option value="Payment not received">Payment not received in bank logs</option>
+                              <option value="Wrong amount">Incorrect payment amount matching dues</option>
+                              <option value="Duplicate payment">Duplicate submission of UTR code</option>
+                              <option value="Other">Other / Custom explanation</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">Audit Rejection Notes (Optional for standard options, Mandatory for "Other")</label>
+                            <textarea
+                              id="textarea-rejection-notes"
+                              rows={3}
+                              placeholder="Describe the exact issue so the student knows how to fix it..."
+                              value={rejectionCustomReason}
+                              onChange={(e) => setRejectionCustomReason(e.target.value)}
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-950 focus:bg-white resize-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            id="btn-rejection-cancel"
+                            onClick={() => {
+                              setRejectionModalPaymentId(null);
+                              setRejectionCustomReason('');
+                            }}
+                            className="rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold px-4 py-2 text-xs cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            id="btn-rejection-confirm"
+                            onClick={() => {
+                              const finalReason = rejectionSelectedOption === 'Other' 
+                                ? rejectionCustomReason.trim()
+                                : `${rejectionSelectedOption}${rejectionCustomReason.trim() ? ` - ${rejectionCustomReason.trim()}` : ''}`;
+                              
+                              if (rejectionSelectedOption === 'Other' && !rejectionCustomReason.trim()) {
+                                alert("Please write a custom rejection comment.");
+                                return;
+                              }
+
+                              if (onVerifyUpiPayment && rejectionModalPaymentId) {
+                                onVerifyUpiPayment(rejectionModalPaymentId, 'REJECT', finalReason);
+                              }
+                              setRejectionModalPaymentId(null);
+                              setRejectionCustomReason('');
+                            }}
+                            className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold px-4 py-2 text-xs cursor-pointer shadow transition-all"
+                          >
+                            Confirm Rejection
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            );
+          })()}
 
           {/* TAB 3.5: MANAGE FEES & LEDGER */}
           {activeTab === 'fees' && (() => {
@@ -11641,16 +12396,35 @@ ${data.log}`
                             <h5 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">UPI Handle & Instant Transfer Routing</h5>
                             <div className="grid gap-4 sm:grid-cols-2">
                               <div>
-                                <label className="mb-1 block text-[10px] font-bold text-slate-500 uppercase">Primary Recipient UPI ID (VPA)</label>
+                                <label className="mb-1 block text-[10px] font-bold text-slate-500 uppercase">Primary Recipient UPI ID (VPA) *</label>
                                 <input
                                   id="input-cfg-upi-id"
                                   type="text"
                                   placeholder="e.g. sunshineclasses@upi"
                                   value={cfgUpiId}
-                                  onChange={(e) => setCfgUpiId(e.target.value)}
+                                  onChange={(e) => {
+                                    setCfgUpiId(e.target.value);
+                                    setCfgCoachingUpiId(e.target.value); // Keep both in sync for robust integration
+                                  }}
                                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
                                 />
                                 <span className="text-[9px] text-slate-400 mt-1 block">All online payments via BHIM, GPay, PhonePe will settle into this address directly.</span>
+                              </div>
+                              
+                              <div>
+                                <label className="mb-1 block text-[10px] font-bold text-slate-500 uppercase">UPI Merchant Registered Name *</label>
+                                <input
+                                  id="input-cfg-account-holder"
+                                  type="text"
+                                  placeholder="e.g. Sunshine Classes"
+                                  value={cfgAccountHolderName}
+                                  onChange={(e) => {
+                                    setCfgAccountHolderName(e.target.value);
+                                    setCfgUpiMerchantName(e.target.value); // Keep both in sync for robust integration
+                                  }}
+                                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
+                                />
+                                <span className="text-[9px] text-slate-400 mt-1 block">Official name shown to the user on payment screen.</span>
                               </div>
                             </div>
                           </div>
@@ -13857,6 +14631,7 @@ ${data.log}`
                         <th className="p-3">Username</th>
                         <th className="p-3">Assigned Role</th>
                         <th className="p-3">Passcode</th>
+                        <th className="p-3">Account Status</th>
                         <th className="p-3 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -13872,9 +14647,6 @@ ${data.log}`
                           );
                         })
                         .map((user) => {
-                          const isRevealed = pwdVisibleUsers.includes(user.id);
-                          const rawPassword = user.plainPassword || (user.password && !user.password.startsWith('sha256_mock_') ? user.password : `${user.username}123`);
-                          const displayedPassword = isRevealed ? rawPassword : '••••••••';
                           const isSelf = currentUser?.id === user.id;
 
                           return (
@@ -13908,34 +14680,44 @@ ${data.log}`
                                   <option value="SUPER_ADMIN">Super Admin</option>
                                 </select>
                               </td>
-                              <td className="p-3 font-mono">
-                                <div className="flex items-center gap-1.5">
-                                  <input
-                                    type={isRevealed ? "text" : "password"}
-                                    readOnly
-                                    value={displayedPassword}
-                                    className="bg-transparent border-none outline-none font-bold text-xs w-24 text-slate-800"
-                                  />
+                              <td className="p-3">
+                                <div className="flex items-center gap-1.5 font-mono text-xs font-semibold">
+                                  <span>
+                                    {visiblePasscodes[user.id] 
+                                      ? (user.plainPassword || `${user.username}123`) 
+                                      : '••••••••'}
+                                  </span>
                                   <button
-                                    id={`btn-reveal-pwd-${user.id}`}
+                                    id={`btn-toggle-reveal-pass-${user.id}`}
                                     type="button"
-                                    onClick={() => {
-                                      if (isRevealed) {
-                                        setPwdVisibleUsers(pwdVisibleUsers.filter(id => id !== user.id));
-                                      } else {
-                                        setPwdVisibleUsers([...pwdVisibleUsers, user.id]);
-                                      }
-                                    }}
-                                    className="text-slate-400 hover:text-slate-600 rounded p-1 cursor-pointer"
-                                    title={isRevealed ? "Hide Passcode" : "Reveal Passcode"}
+                                    onClick={() => handleTogglePasscodeReveal(user.id)}
+                                    className="p-1 text-slate-400 hover:text-slate-600 transition-colors rounded hover:bg-slate-100"
+                                    title={visiblePasscodes[user.id] ? "Hide Password" : "Show Password"}
                                   >
-                                    {isRevealed ? <EyeOff size={13} /> : <Eye size={13} />}
+                                    {visiblePasscodes[user.id] ? <EyeOff size={14} /> : <Eye size={14} />}
                                   </button>
+                                </div>
+                              </td>
+                              <td className="p-3">
+                                <div className="flex flex-wrap gap-1">
+                                  {user.active !== false ? (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 border border-emerald-200">Enabled</span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold text-rose-700 border border-rose-200">Disabled</span>
+                                  )}
+                                  {user.isLocked ? (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 border border-amber-200">Locked</span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold text-slate-700 border border-slate-200">Unlocked</span>
+                                  )}
+                                  {user.forcePasswordChange && (
+                                    <span className="inline-flex items-center gap-0.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-bold text-indigo-700 border border-indigo-200">Forced reset</span>
+                                  )}
                                 </div>
                               </td>
                               <td className="p-3 text-right flex justify-end gap-2 items-center">
                                 <button
-                                  id={`btn-change-pwd-admin-${user.id}`}
+                                  id={`btn-manage-user-admin-${user.id}`}
                                   type="button"
                                   onClick={() => {
                                     setResettingUser({
@@ -13944,10 +14726,14 @@ ${data.log}`
                                       name: user.name
                                     });
                                     setNewPasswordForUser('');
+                                    setEditUsername(user.username);
+                                    setUserActive(user.active !== false);
+                                    setUserLocked(user.isLocked || false);
+                                    setUserForceChange(user.forcePasswordChange || false);
                                   }}
-                                  className="rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 px-2 py-1 text-[10px] font-bold border border-indigo-150/50 cursor-pointer"
+                                  className="rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 px-2.5 py-1 text-[10px] font-bold border border-indigo-150/50 cursor-pointer"
                                 >
-                                  Set Passcode
+                                  Manage Account
                                 </button>
                                 <button
                                   id={`btn-delete-user-admin-${user.id}`}
@@ -16783,70 +17569,557 @@ ${data.log}`
         </div>
       )}
 
-      {/* Admin Reset Password Modal */}
-      {resettingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 w-full max-w-md relative">
+      {/* Admin Re-authentication Modal for revealing passcodes */}
+      {reauthModalOpen && (
+        <div id="reauth-modal-overlay" className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div id="reauth-modal-content" className="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 w-full max-w-md relative animate-fade-in">
             <button
+              id="btn-close-reauth-modal"
               type="button"
-              onClick={() => setResettingUser(null)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 rounded-lg p-1"
+              onClick={() => {
+                setReauthModalOpen(false);
+                setReauthAdminPassword('');
+                setReauthTargetUserId(null);
+                setReauthError(null);
+              }}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 rounded-lg p-1 cursor-pointer"
             >
               <X size={18} />
             </button>
 
             <div className="text-center mb-5">
-              <span className="inline-flex h-10 w-10 rounded-full bg-amber-50 text-brand-orange items-center justify-center mb-2">
-                <Key size={18} />
+              <span className="inline-flex h-10 w-10 rounded-full bg-rose-50 text-rose-600 items-center justify-center mb-2">
+                <Lock size={18} />
               </span>
-              <h3 className="font-display font-bold text-slate-800 text-base">Reset Account Password</h3>
+              <h3 className="font-display font-bold text-slate-800 text-base">Re-authenticate Required</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Change credentials for <strong>{resettingUser.name}</strong>
+                To view this password, please enter your administrator password to confirm your identity.
+              </p>
+            </div>
+
+            <form onSubmit={handleReauthSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-display">Administrator Password</label>
+                <div className="relative">
+                  <input
+                    id="input-reauth-admin-password"
+                    type={showReauthPassword ? "text" : "password"}
+                    required
+                    placeholder="Enter your administrator password"
+                    value={reauthAdminPassword}
+                    onChange={(e) => setReauthAdminPassword(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-3.5 pr-10 py-2.5 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white transition-all font-semibold"
+                  />
+                  <button
+                    type="button"
+                    id="btn-toggle-reauth-password"
+                    onClick={() => setShowReauthPassword(!showReauthPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
+                    title={showReauthPassword ? "Hide password" : "Show password"}
+                  >
+                    {showReauthPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              {reauthError && (
+                <div id="reauth-error-notice" className="p-3.5 rounded-xl bg-rose-50 border border-rose-100 flex items-start gap-2.5 text-xs text-rose-800 font-medium animate-shake">
+                  <AlertCircle size={14} className="text-rose-600 shrink-0 mt-0.5" />
+                  <span>{reauthError}</span>
+                </div>
+              )}
+
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  id="btn-cancel-reauth"
+                  onClick={() => {
+                    setReauthModalOpen(false);
+                    setReauthAdminPassword('');
+                    setReauthTargetUserId(null);
+                    setReauthError(null);
+                  }}
+                  className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  id="btn-submit-reauth"
+                  className="flex-1 rounded-xl bg-indigo-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-indigo-950 transition-colors"
+                >
+                  Confirm &amp; Reveal
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Reset Password Modal */}
+      {resettingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 w-full max-w-md relative animate-fade-in">
+            <button
+              id="btn-close-manage-user-modal"
+              type="button"
+              onClick={() => setResettingUser(null)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 rounded-lg p-1 cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="text-center mb-5">
+              <span className="inline-flex h-10 w-10 rounded-full bg-indigo-50 text-indigo-900 items-center justify-center mb-2">
+                <ShieldAlert size={18} />
+              </span>
+              <h3 className="font-display font-bold text-slate-800 text-base">Manage System Account</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Configure account properties for <strong>{resettingUser.name}</strong>
               </p>
             </div>
 
             <div className="space-y-4">
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-slate-600">
-                <p><strong>Username:</strong> <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200 font-bold">{resettingUser.username}</span></p>
+              {/* Username Field */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-display">Username</label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-xs">@</span>
+                  <input
+                    id="input-manage-username"
+                    type="text"
+                    required
+                    placeholder="Enter unique username"
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-7 pr-3.5 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-mono font-bold"
+                  />
+                </div>
               </div>
 
+              {/* Password Field (Optional) */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-display">New Password</label>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-display">Reset Password</label>
                 <input
+                  id="input-manage-password"
                   type="text"
-                  required
-                  placeholder="Enter secure new password"
+                  placeholder="Leave blank to keep current password"
                   value={newPasswordForUser}
                   onChange={(e) => setNewPasswordForUser(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-semibold"
                 />
               </div>
 
+              {/* Toggle Switches */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3.5">
+                {/* Active Status */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold text-slate-800 font-display">Enable Account</p>
+                    <p className="text-[10px] text-slate-500">Allow user to authenticate and access dashboard</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      id="toggle-manage-active"
+                      type="checkbox"
+                      checked={userActive}
+                      onChange={(e) => setUserActive(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                {/* Locked Status */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold text-slate-800 font-display">Lock Account</p>
+                    <p className="text-[10px] text-slate-500">Instantly suspend login capabilities for security reasons</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      id="toggle-manage-locked"
+                      type="checkbox"
+                      checked={userLocked}
+                      onChange={(e) => setUserLocked(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
+                  </label>
+                </div>
+
+                {/* Force Password Change */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold text-slate-800 font-display">Force Password Change</p>
+                    <p className="text-[10px] text-slate-500">Require password change upon their next successful login</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      id="toggle-manage-force-change"
+                      type="checkbox"
+                      checked={userForceChange}
+                      onChange={(e) => setUserForceChange(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
               <div className="flex gap-2 pt-2">
                 <button
+                  id="btn-cancel-manage-user"
                   type="button"
                   onClick={() => setResettingUser(null)}
-                  className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2.5 text-xs transition-colors"
+                  className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-2.5 text-xs transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
+                  id="btn-save-manage-user"
                   type="button"
                   onClick={() => {
-                    if (!newPasswordForUser.trim()) {
-                      alert('Please type a valid password!');
+                    const cleanUsername = editUsername.trim().toLowerCase();
+                    if (!cleanUsername) {
+                      alert('Please specify a valid username!');
                       return;
                     }
-                    onUpdateUserPassword(resettingUser.userId, newPasswordForUser.trim());
-                    alert(`Password for ${resettingUser.name} updated successfully!`);
+
+                    // Enforce uniqueness
+                    const isTaken = users.some(u => u.username.toLowerCase() === cleanUsername && u.id !== resettingUser.userId);
+                    if (isTaken) {
+                      alert(`The username "@${cleanUsername}" is already registered to another user!`);
+                      return;
+                    }
+
+                    let hashedNewPassword = '';
+                    if (newPasswordForUser.trim()) {
+                      const newPwd = newPasswordForUser.trim();
+                      if (strictMode) {
+                        if (newPwd.length < 8 || !/[A-Z]/.test(newPwd) || !/[0-9]/.test(newPwd)) {
+                          alert('Security Hardening Policy: Reset passwords must be at least 8 characters long, contain at least one uppercase letter (A-Z) and at least one number (0-9).');
+                          return;
+                        }
+                      }
+                      hashedNewPassword = simpleSecureHash(newPwd);
+                    }
+
+                    const updated = users.map(u => {
+                      if (u.id === resettingUser.userId) {
+                        const updatedUser = {
+                          ...u,
+                          username: cleanUsername,
+                          active: userActive,
+                          isLocked: userLocked,
+                          forcePasswordChange: userForceChange
+                        };
+                        if (hashedNewPassword) {
+                          updatedUser.password = hashedNewPassword;
+                          (updatedUser as any).plainPassword = newPasswordForUser;
+                        }
+                        return updatedUser;
+                      }
+                      return u;
+                    });
+
+                    if (onUpdateUsers) {
+                      onUpdateUsers(updated);
+                    }
+                    alert(`Account properties for ${resettingUser.name} have been updated successfully!`);
                     setResettingUser(null);
                   }}
-                  className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors"
+                  className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"
                 >
-                  Save Password
+                  Save Changes
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Student Dues & Billing Modal */}
+      {billingCtrlRecord && billingCtrlStudent && (
+        <div id="billing-ctrl-modal-overlay" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+          <div id="billing-ctrl-modal-content" className="bg-white rounded-3xl p-6 shadow-2xl border border-slate-200 w-full max-w-xl relative max-h-[90vh] overflow-y-auto animate-fade-in space-y-6">
+            <button
+              type="button"
+              id="btn-close-billing-ctrl-modal"
+              onClick={() => {
+                setBillingCtrlRecord(null);
+                setBillingCtrlStudent(null);
+              }}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 rounded-lg p-1 cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+              <div className="inline-flex h-12 w-12 rounded-full bg-indigo-50 text-indigo-900 items-center justify-center shrink-0">
+                <Settings size={22} className="text-indigo-600" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-display font-black text-slate-800 text-base">Manage Dues & Billing Adjustments</h3>
+                <p className="text-xs text-slate-500">
+                  Student: <strong className="text-indigo-950">{billingCtrlStudent.name}</strong> ({billingCtrlStudent.rollNo}) | Cycle: <strong className="text-indigo-950">{billingCtrlRecord.month}</strong>
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              
+              // 1. Update Student Profile in roster
+              const updatedStudents = students.map(s => {
+                if (s.id === billingCtrlStudent.id) {
+                  return {
+                    ...s,
+                    monthlyFee: ctrlMonthlyFee,
+                    discount: ctrlDiscount,
+                    scholarship: ctrlScholarship,
+                    dueDay: ctrlDueDay,
+                    feeStartMonth: ctrlFeeStartMonth
+                  };
+                }
+                return s;
+              });
+              onHealState('students', updatedStudents);
+
+              // 2. Update This Month's Specific FeeStatus Entry
+              const updatedFeeStatuses = feeStatuses.map(f => {
+                if (f.id === billingCtrlRecord.id) {
+                  const grossTotal = ctrlCycleTotalFee;
+                  const discountVal = ctrlCycleDiscount;
+                  const scholarshipVal = ctrlCycleScholarship;
+                  const paidVal = Number((e.currentTarget.querySelector('#input-ctrl-cycle-paid-fee') as HTMLInputElement)?.value || 0);
+                  const isWaived = ctrlCycleIsWaived;
+                  const isSkipped = ctrlCycleIsSkipped;
+
+                  // Safe net calculation
+                  const netPending = (isWaived || isSkipped) ? 0 : Math.max(0, grossTotal - discountVal - scholarshipVal - paidVal);
+                  const statusVal = isWaived ? 'PAID' : (isSkipped ? 'PAID' : (netPending === 0 ? 'PAID' : (paidVal > 0 ? 'PARTIAL' : 'PENDING')));
+
+                  return {
+                    ...f,
+                    totalFee: grossTotal,
+                    discount: discountVal,
+                    scholarship: scholarshipVal,
+                    paidFee: paidVal,
+                    pendingFee: netPending,
+                    status: statusVal,
+                    isWaived,
+                    isSkipped
+                  };
+                }
+                return f;
+              });
+              onHealState('fee_statuses', updatedFeeStatuses);
+
+              // 3. Handle Receipt Corrections (deletes receipt if paid is corrected to 0)
+              const paidVal = Number((e.currentTarget.querySelector('#input-ctrl-cycle-paid-fee') as HTMLInputElement)?.value || 0);
+              let updatedReceipts = [...feeReceipts];
+              if (paidVal === 0) {
+                updatedReceipts = feeReceipts.filter(r => !(r.studentId === billingCtrlStudent.id && r.month === billingCtrlRecord.month));
+                onHealState('fee_receipts', updatedReceipts);
+              } else if (paidVal !== billingCtrlRecord.paidFee) {
+                const existingIndex = feeReceipts.findIndex(r => r.studentId === billingCtrlStudent.id && r.month === billingCtrlRecord.month);
+                if (existingIndex >= 0) {
+                  updatedReceipts[existingIndex] = {
+                    ...updatedReceipts[existingIndex],
+                    amountPaid: paidVal,
+                    date: new Date().toISOString().split('T')[0]
+                  };
+                } else {
+                  const newReceipt: FeeReceipt = {
+                    id: `rec-${Date.now()}`,
+                    studentId: billingCtrlStudent.id,
+                    studentName: billingCtrlStudent.name,
+                    class: billingCtrlStudent.class,
+                    month: billingCtrlRecord.month,
+                    amountPaid: paidVal,
+                    paymentMethod: 'CASH',
+                    date: new Date().toISOString().split('T')[0],
+                    transactionId: `ADM-CORR-${Date.now().toString().slice(-6)}`,
+                    receivedBy: currentUser?.name || 'Super Admin'
+                  };
+                  updatedReceipts.push(newReceipt);
+                }
+                onHealState('fee_receipts', updatedReceipts);
+              }
+
+              // Audit logging
+              const newLog: AuditLog = {
+                id: `log-billing-${Date.now()}`,
+                userId: currentUser?.id || 'admin',
+                username: currentUser?.username || 'admin',
+                action: 'BILLING_CORRECTION',
+                details: `Corrected billing for ${billingCtrlStudent.name} (${billingCtrlRecord.month}). Paid corrected to ₹${paidVal}.`,
+                timestamp: new Date().toISOString()
+              };
+              onHealState('audit_logs', [newLog, ...auditLogs]);
+
+              alert(`Successfully updated and corrected dues database for ${billingCtrlStudent.name}!`);
+              setBillingCtrlRecord(null);
+              setBillingCtrlStudent(null);
+            }} className="space-y-6">
+              
+              {/* SECTION A: GLOBAL STUDENT BILLING PROFILE */}
+              <div className="space-y-3 bg-slate-50/50 p-4 rounded-2xl border border-slate-100 text-left">
+                <h4 className="text-[10px] font-black uppercase text-indigo-950 tracking-wider flex items-center gap-1.5">
+                  📁 Global Student Billing Configuration <span className="text-[9px] font-medium text-slate-500 uppercase font-sans tracking-normal lowercase">(Affects future cycles)</span>
+                </h4>
+                
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">Monthly Tuition Fee (₹)</label>
+                    <input
+                      id="input-ctrl-monthly-fee"
+                      type="number"
+                      value={ctrlMonthlyFee}
+                      onChange={(e) => setCtrlMonthlyFee(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 focus:border-indigo-900 outline-none font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">Recurring Monthly Discount (₹)</label>
+                    <input
+                      id="input-ctrl-discount"
+                      type="number"
+                      value={ctrlDiscount}
+                      onChange={(e) => setCtrlDiscount(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 focus:border-indigo-900 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">Recurring Scholarship (₹)</label>
+                    <input
+                      id="input-ctrl-scholarship"
+                      type="number"
+                      value={ctrlScholarship}
+                      onChange={(e) => setCtrlScholarship(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 focus:border-indigo-900 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">Monthly Dues Day</label>
+                    <input
+                      id="input-ctrl-due-day"
+                      type="number"
+                      value={ctrlDueDay}
+                      onChange={(e) => setCtrlDueDay(Number(e.target.value))}
+                      min={1}
+                      max={28}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 focus:border-indigo-900 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION B: TARGET CYCLE SPECIFIC ADJUSTMENTS */}
+              <div className="space-y-3 bg-indigo-50/20 p-4 rounded-2xl border border-indigo-100/50 text-left">
+                <h4 className="text-[10px] font-black uppercase text-indigo-950 tracking-wider flex items-center gap-1.5">
+                  ⏱ Target Cycle Corrections <span className="text-[9px] font-medium text-indigo-700 font-sans tracking-normal lowercase">(Affects {billingCtrlRecord.month} only)</span>
+                </h4>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold text-indigo-900 uppercase">Gross Billing Total (₹)</label>
+                    <input
+                      id="input-ctrl-cycle-total-fee"
+                      type="number"
+                      value={ctrlCycleTotalFee}
+                      onChange={(e) => setCtrlCycleTotalFee(Number(e.target.value))}
+                      className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-indigo-950 focus:border-indigo-900 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold text-indigo-900 uppercase">Actual Paid Amount (Correction) (₹)</label>
+                    <input
+                      id="input-ctrl-cycle-paid-fee"
+                      type="number"
+                      defaultValue={billingCtrlRecord.paidFee}
+                      className="w-full rounded-xl border border-emerald-300 bg-emerald-50/20 px-3 py-2 text-xs font-extrabold text-emerald-950 focus:border-emerald-700 outline-none"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Set to 0 if the student's submission was incorrect/not actually paid.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold text-indigo-900 uppercase">Cycle Discount Adjustment (₹)</label>
+                    <input
+                      id="input-ctrl-cycle-discount"
+                      type="number"
+                      value={ctrlCycleDiscount}
+                      onChange={(e) => setCtrlCycleDiscount(Number(e.target.value))}
+                      className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs text-slate-800 focus:border-indigo-900 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold text-indigo-900 uppercase">Cycle Scholarship Adjustment (₹)</label>
+                    <input
+                      id="input-ctrl-cycle-scholarship"
+                      type="number"
+                      value={ctrlCycleScholarship}
+                      onChange={(e) => setCtrlCycleScholarship(Number(e.target.value))}
+                      className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs text-slate-800 focus:border-indigo-900 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-4 pt-2 border-t border-indigo-100/30">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 select-none cursor-pointer">
+                    <input
+                      id="checkbox-ctrl-cycle-waived"
+                      type="checkbox"
+                      checked={ctrlCycleIsWaived}
+                      onChange={(e) => setCtrlCycleIsWaived(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer h-4 w-4"
+                    />
+                    Mark Cycle Waived (₹0 Dues)
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 select-none cursor-pointer">
+                    <input
+                      id="checkbox-ctrl-cycle-skipped"
+                      type="checkbox"
+                      checked={ctrlCycleIsSkipped}
+                      onChange={(e) => setCtrlCycleIsSkipped(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer h-4 w-4"
+                    />
+                    Skip Billing Cycle Month
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+                <button
+                  id="btn-billing-ctrl-cancel"
+                  type="button"
+                  onClick={() => {
+                    setBillingCtrlRecord(null);
+                    setBillingCtrlStudent(null);
+                  }}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  id="btn-billing-ctrl-submit"
+                  type="submit"
+                  className="rounded-xl bg-indigo-900 hover:bg-indigo-950 px-5 py-2 text-xs font-black text-white shadow-md active:scale-95 transition-all cursor-pointer"
+                >
+                  Apply & Correct Ledger
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -15,6 +15,9 @@ export interface User {
   plainPassword?: string;
   avatarUrl?: string;
   phone?: string;
+  active?: boolean;
+  isLocked?: boolean;
+  forcePasswordChange?: boolean;
 }
 
 export interface Student {
@@ -215,6 +218,15 @@ export interface SubscriptionConfig {
   enableUpiMethod?: boolean;
   enableCardMethod?: boolean;
   enableNetBankingMethod?: boolean;
+  // Dynamic payment settings requested
+  enableUpiPayments?: boolean;
+  coachingUpiId?: string;
+  accountHolderName?: string;
+  paymentInstructions?: string;
+  paymentVerificationTimeLimit?: number;
+  receiptPrefix?: string;
+  emailReceiptToggle?: boolean;
+  studentNotificationToggle?: boolean;
   enableBankTransferMethod?: boolean;
   enableAutomatedFeeAlerts?: boolean;
   cloudinaryCloudName?: string;
@@ -491,7 +503,7 @@ export interface UPIPayment {
   utr: string;
   screenshot?: string;
   submissionTime: string;
-  status: 'PENDING_VERIFICATION' | 'APPROVED' | 'REJECTED';
+  status: 'PENDING_VERIFICATION' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
   feeStatusId: string;
   rejectionReason?: string;
 }

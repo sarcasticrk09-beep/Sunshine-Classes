@@ -21,11 +21,12 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [googleLoginStep, setGoogleLoginStep] = useState<string>('');
-  const [showDemoCreds, setShowDemoCreds] = useState<boolean>(false);
 
   // States for forced password change (firstLogin === true)
   const [newPassword, setNewPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
+  const [showNewPassword, setShowNewPassword] = useState<boolean>(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
   const [passChanging, setPassChanging] = useState<boolean>(false);
   const [passError, setPassError] = useState<string | null>(null);
 
@@ -121,28 +122,50 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
           <form onSubmit={handleForceChangePassword} className="space-y-4">
             <div>
               <label className="mb-1 block text-xs font-bold text-slate-700">New Password</label>
-              <input
-                id="force-new-password"
-                type="password"
-                required
-                placeholder="Enter new strong password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
-              />
+              <div className="relative">
+                <input
+                  id="force-new-password"
+                  type={showNewPassword ? "text" : "password"}
+                  required
+                  placeholder="Enter new strong password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-3.5 pr-10 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
+                />
+                <button
+                  type="button"
+                  id="btn-toggle-force-new-pass"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
+                  title={showNewPassword ? "Hide password" : "Show password"}
+                >
+                  {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-bold text-slate-700">Confirm New Password</label>
-              <input
-                id="force-confirm-password"
-                type="password"
-                required
-                placeholder="Re-enter new password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
-              />
+              <div className="relative">
+                <input
+                  id="force-confirm-password"
+                  type={showConfirmPassword ? "text" : "password"}
+                  required
+                  placeholder="Re-enter new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-3.5 pr-10 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white transition-all font-semibold"
+                />
+                <button
+                  type="button"
+                  id="btn-toggle-force-confirm-pass"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
+                  title={showConfirmPassword ? "Hide password" : "Show password"}
+                >
+                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </div>
 
             <button
@@ -188,6 +211,15 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
             <span>{error}</span>
           </div>
         )}
+
+        {/* First-time login credential helper */}
+        <div id="first-time-login-tip" className="mb-5 p-3.5 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-start gap-2.5 text-xs text-indigo-950 font-medium leading-relaxed">
+          <Key size={16} className="text-indigo-600 shrink-0 mt-0.5" />
+          <div>
+            <strong className="font-bold text-indigo-950 block mb-0.5">🔑 First-Time Logging In?</strong>
+            Your default passcode is your username followed by <code className="bg-indigo-100 px-1 py-0.5 rounded font-mono text-[10px] font-bold">123</code> (e.g., if username is <code className="bg-indigo-100 px-1 py-0.5 rounded font-mono text-[10px] font-bold">student</code>, password is <code className="bg-indigo-100 px-1 py-0.5 rounded font-mono text-[10px] font-bold">student123</code>). You will configure your own secure custom passcode after entering this first time!
+          </div>
+        </div>
 
         <form onSubmit={handlePasswordLogin} className="space-y-4">
           <div>
@@ -337,87 +369,6 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
           </div>
         )}
 
-        <div className="mt-6 pt-4 border-t border-slate-100">
-          <button
-            id="btn-toggle-demo-creds"
-            type="button"
-            onClick={() => setShowDemoCreds(!showDemoCreds)}
-            className="w-full flex items-center justify-between text-slate-500 hover:text-slate-700 text-xs font-bold transition-all"
-          >
-            <span className="flex items-center gap-1.5">
-              <Key size={14} className="text-amber-500" />
-              <span>Show Demo Credentials</span>
-            </span>
-            <span className="text-[10px] font-extrabold uppercase bg-slate-100 px-2 py-0.5 rounded text-slate-500">
-              {showDemoCreds ? 'Hide' : 'Show'}
-            </span>
-          </button>
-
-          {showDemoCreds && (
-            <div className="mt-3 p-3 bg-slate-50 border border-slate-100 rounded-2xl space-y-2.5 text-left text-[11px] text-slate-600 font-medium">
-              <div className="flex justify-between items-center border-b border-slate-200/60 pb-1.5">
-                <span className="font-extrabold text-indigo-950 uppercase tracking-wider text-[9px]">Role</span>
-                <span className="font-extrabold text-indigo-950 uppercase tracking-wider text-[9px]">Username / Password</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-indigo-900">👑 Super Admin</span>
-                <button
-                  type="button"
-                  id="btn-fill-superadmin"
-                  className="font-mono bg-white px-2 py-0.5 border border-slate-200 rounded text-slate-700 cursor-pointer hover:bg-slate-100"
-                  onClick={() => { setEmail('admin'); setPassword('admin123'); }}
-                >
-                  admin / admin123
-                </button>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-indigo-900">💼 Co-Founder / Admin</span>
-                <button
-                  type="button"
-                  id="btn-fill-admin"
-                  className="font-mono bg-white px-2 py-0.5 border border-slate-200 rounded text-slate-700 cursor-pointer hover:bg-slate-100"
-                  onClick={() => { setEmail('rajeev'); setPassword('rajeev123'); }}
-                >
-                  rajeev / rajeev123
-                </button>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-indigo-900">💁 Receptionist</span>
-                <button
-                  type="button"
-                  id="btn-fill-receptionist"
-                  className="font-mono bg-white px-2 py-0.5 border border-slate-200 rounded text-slate-700 cursor-pointer hover:bg-slate-100"
-                  onClick={() => { setEmail('reception'); setPassword('reception123'); }}
-                >
-                  reception / reception123
-                </button>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-indigo-900">👨‍🏫 Teacher</span>
-                <button
-                  type="button"
-                  id="btn-fill-teacher"
-                  className="font-mono bg-white px-2 py-0.5 border border-slate-200 rounded text-slate-700 cursor-pointer hover:bg-slate-100"
-                  onClick={() => { setEmail('teacher'); setPassword('teacher123'); }}
-                >
-                  teacher / teacher123
-                </button>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-indigo-900">🎓 Student</span>
-                <button
-                  type="button"
-                  id="btn-fill-student"
-                  className="font-mono bg-white px-2 py-0.5 border border-slate-200 rounded text-slate-700 cursor-pointer hover:bg-slate-100"
-                  onClick={() => { setEmail('student'); setPassword('student123'); }}
-                >
-                  student / student123
-                </button>
-              </div>
-              <p className="text-[9px] text-slate-400 font-semibold text-center pt-1 italic">Click any button above to instantly fill credentials!</p>
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );

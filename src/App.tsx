@@ -210,6 +210,14 @@ export default function App() {
   const [changePasswordNew, setChangePasswordNew] = useState('');
   const [changePasswordConfirm, setChangePasswordConfirm] = useState('');
 
+  // Forced password change form states
+  const [forcePassCurrent, setForcePassCurrent] = useState('');
+  const [forcePassNew, setForcePassNew] = useState('');
+  const [forcePassConfirm, setForcePassConfirm] = useState('');
+  const [showForceCurrent, setShowForceCurrent] = useState(false);
+  const [showForceNew, setShowForceNew] = useState(false);
+  const [showForceConfirm, setShowForceConfirm] = useState(false);
+
   // Password visibility states
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
@@ -315,8 +323,7 @@ export default function App() {
 
     // Encrypt/hash passwords on-load for 100% security
     migrated = migrated.map(u => {
-      let plainPass = u.password;
-      let currentPlain = (u as any).plainPassword;
+      let plainPass = u.plainPassword || u.password;
       if (!plainPass) {
         const lowerUser = u.username.toLowerCase();
         if (lowerUser === 'admin') plainPass = 'admin123';
@@ -325,25 +332,27 @@ export default function App() {
         else if (lowerUser === 'student') plainPass = 'student123';
         else plainPass = `${lowerUser}123`;
       }
+      const updated = { ...u };
       if (plainPass && !plainPass.startsWith('sha256_mock_')) {
         changed = true;
-        return { ...u, password: simpleSecureHash(plainPass), plainPassword: plainPass };
-      } else if (!currentPlain) {
-        // If it was already hashed, let's map the default ones to their known plain text for admin display
+        updated.password = simpleSecureHash(plainPass);
+        updated.plainPassword = plainPass;
+      } else if (!updated.plainPassword && plainPass && plainPass.startsWith('sha256_mock_')) {
         const lowerUser = u.username.toLowerCase();
-        let fallbackPlain = '';
-        if (lowerUser === 'admin') fallbackPlain = 'admin123';
-        else if (lowerUser === 'teacher') fallbackPlain = 'teacher123';
-        else if (lowerUser === 'reception') fallbackPlain = 'reception123';
-        else if (lowerUser === 'student') fallbackPlain = 'student123';
-        else fallbackPlain = `${lowerUser}123`;
+        let fallback = `${lowerUser}123`;
+        if (lowerUser === 'admin') fallback = 'admin123';
+        else if (lowerUser === 'teacher') fallback = 'teacher123';
+        else if (lowerUser === 'reception') fallback = 'reception123';
+        else if (lowerUser === 'student') fallback = 'student123';
         
-        if (simpleSecureHash(fallbackPlain) === u.password) {
+        if (simpleSecureHash(fallback) === plainPass) {
+          updated.plainPassword = fallback;
           changed = true;
-          return { ...u, plainPassword: fallbackPlain };
         }
+      } else if (plainPass && !plainPass.startsWith('sha256_mock_')) {
+        updated.plainPassword = plainPass;
       }
-      return u;
+      return updated;
     });
 
     if (changed) {
@@ -1050,8 +1059,7 @@ export default function App() {
 
     // Encrypt/hash passwords on-load from Firestore to ensure 100% security policy compliance
     migratedLoadedUsers = migratedLoadedUsers.map(u => {
-      let plainPass = u.password;
-      let currentPlain = (u as any).plainPassword;
+      let plainPass = u.plainPassword || u.password;
       if (!plainPass) {
         const lowerUser = u.username.toLowerCase();
         if (lowerUser === 'admin') plainPass = 'admin123';
@@ -1060,24 +1068,25 @@ export default function App() {
         else if (lowerUser === 'student') plainPass = 'student123';
         else plainPass = `${lowerUser}123`;
       }
+      const updated = { ...u };
       if (plainPass && !plainPass.startsWith('sha256_mock_')) {
         usersMigrated = true;
-        return { ...u, password: simpleSecureHash(plainPass), plainPassword: plainPass };
-      } else if (!currentPlain) {
+        updated.password = simpleSecureHash(plainPass);
+        updated.plainPassword = plainPass;
+      } else if (!updated.plainPassword && plainPass && plainPass.startsWith('sha256_mock_')) {
         const lowerUser = u.username.toLowerCase();
-        let fallbackPlain = '';
-        if (lowerUser === 'admin') fallbackPlain = 'admin123';
-        else if (lowerUser === 'teacher') fallbackPlain = 'teacher123';
-        else if (lowerUser === 'reception') fallbackPlain = 'reception123';
-        else if (lowerUser === 'student') fallbackPlain = 'student123';
-        else fallbackPlain = `${lowerUser}123`;
+        let fallback = `${lowerUser}123`;
+        if (lowerUser === 'admin') fallback = 'admin123';
+        else if (lowerUser === 'teacher') fallback = 'teacher123';
+        else if (lowerUser === 'reception') fallback = 'reception123';
+        else if (lowerUser === 'student') fallback = 'student123';
         
-        if (simpleSecureHash(fallbackPlain) === u.password) {
+        if (simpleSecureHash(fallback) === plainPass) {
+          updated.plainPassword = fallback;
           usersMigrated = true;
-          return { ...u, plainPassword: fallbackPlain };
         }
       }
-      return u;
+      return updated;
     });
 
     let foundersMigrated = false;
@@ -1691,6 +1700,35 @@ export default function App() {
     return true;
   };
 
+  const handleCancelUpiPayment = (paymentId: string) => {
+    const updated = upiPayments.map(p => {
+      if (p.id === paymentId) {
+        return {
+          ...p,
+          status: 'CANCELLED' as const
+        };
+      }
+      return p;
+    });
+    setUpiPayments(updated);
+    syncState('upi_payments', updated);
+
+    // Add Audit Log
+    const matched = upiPayments.find(p => p.id === paymentId);
+    if (matched) {
+      const updatedLogs = [{
+        id: `L-${Date.now()}`,
+        userId: currentUser?.id || 'u-student',
+        username: currentUser?.username || matched.studentName,
+        action: 'CANCEL_UPI_PAYMENT',
+        details: `Student cancelled UPI payment verification request for ${matched.month} (UTR: ${matched.utr})`,
+        timestamp: new Date().toISOString()
+      }, ...auditLogs];
+      setAuditLogs(updatedLogs);
+      syncState('audit_logs', updatedLogs);
+    }
+  };
+
   const handleVerifyUpiPayment = async (paymentId: string, action: 'APPROVE' | 'REJECT', rejectionReason?: string) => {
     const updated = upiPayments.map(p => {
       if (p.id === paymentId) {
@@ -1755,6 +1793,19 @@ export default function App() {
       }, ...auditLogs];
       setAuditLogs(updatedLogs);
       syncState('audit_logs', updatedLogs);
+
+      // Create student notification on approval
+      const studentApproveNotif = {
+        id: `NOTIF-UPI-APPROVE-${Date.now()}`,
+        title: `✅ UPI Payment Approved`,
+        content: `Your UPI payment submission of ₹${payment.amount} for ${payment.month} has been successfully verified and approved. Receipt ID: ${receiptId}.`,
+        category: 'FEE' as const,
+        targetRole: 'STUDENT' as const,
+        targetBatch: payment.class,
+        date: new Date().toISOString().split('T')[0],
+        read: false
+      };
+      setNotifications(prev => [studentApproveNotif, ...prev]);
 
       if (student) {
         try {
@@ -1853,6 +1904,48 @@ Sunshine Classes`;
         read: false
       };
       setNotifications(prev => [studentNotif, ...prev]);
+
+      // Email student explaining why it was rejected
+      const student = students.find(s => s.id === payment.studentId);
+      if (student && student.email) {
+        const emailSubject = "Sunshine Classes Fee Payment Rejected";
+        const emailBody = `Dear ${payment.studentName},
+
+Your fee payment of ₹${payment.amount} for ${payment.month} (UTR: ${payment.utr}) was rejected by our accounts team.
+
+Reason for Rejection: ${rejectionReason || 'Incorrect transaction reference (UTR) or payment not matching bank logs.'}
+
+Please log in to your student dashboard to review the details, click 'Pay Now' on the pending fee item, and submit the correct UTR / transaction proof.
+
+If you believe this is an error, please contact the school office.
+
+Regards,
+Accounts Department
+Sunshine Classes`;
+
+        fetch("/api/send-email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            to: student.email,
+            studentName: payment.studentName,
+            amount: payment.amount,
+            month: payment.month,
+            className: payment.class,
+            customSubject: emailSubject,
+            customHtml: emailBody.replace(/\n/g, '<br>')
+          })
+        })
+        .then(r => r.json())
+        .then(res => {
+          if (res.success) {
+            console.log("Rejection email sent successfully!");
+          }
+        })
+        .catch(err => console.error("Error sending rejection email:", err));
+      }
     }
   };
 
@@ -2271,8 +2364,7 @@ Sunshine Classes`;
             email: t.email,
             role: 'TEACHER',
             phone: t.phone,
-            password: simpleSecureHash(defaultPass),
-            plainPassword: defaultPass
+            password: simpleSecureHash(defaultPass)
           });
         }
       }
@@ -2335,8 +2427,7 @@ Sunshine Classes`;
             email: s.email,
             role: 'STUDENT',
             phone: s.mobile,
-            password: simpleSecureHash(defaultPass),
-            plainPassword: defaultPass
+            password: simpleSecureHash(defaultPass)
           });
         }
       }
@@ -2605,9 +2696,13 @@ Sunshine Classes`;
     }
 
     const hashed = newPassword.startsWith('sha256_mock_') ? newPassword : simpleSecureHash(newPassword);
-    const updatedUsers = users.map((u) => 
-      u.id === userId ? { ...u, password: hashed, plainPassword: newPassword } : u
-    );
+    const updatedUsers = users.map((u) => {
+      if (u.id === userId) {
+        const updated = { ...u, password: hashed, plainPassword: newPassword };
+        return updated;
+      }
+      return u;
+    });
     setUsers(updatedUsers);
     syncState('users', updatedUsers);
     
@@ -2877,17 +2972,23 @@ Sunshine Classes`;
         ) {
           const matched = matchedFirestoreUser || matchedLocal;
           if (matched) {
+            if (matched.active === false) {
+              alert("Your account has been disabled. Please contact Sunshine Classes.");
+              return;
+            }
+            if (matched.isLocked === true) {
+              alert("Your account is locked due to security reasons. Please contact the administrator.");
+              return;
+            }
+
             let isPasswordCorrect = false;
             
             const userPwd = matched.password || '';
-            const userPlain = matched.plainPassword || '';
 
             if (userPwd.startsWith('sha256_mock_')) {
               isPasswordCorrect = simpleSecureHash(trimmedPassword) === userPwd;
             } else if (userPwd !== '') {
               isPasswordCorrect = trimmedPassword === userPwd;
-            } else if (userPlain !== '') {
-              isPasswordCorrect = trimmedPassword === userPlain;
             } else {
               // Check fallback passwords based on username
               const lowerUser = matched.username?.toLowerCase() || '';
@@ -2915,6 +3016,8 @@ Sunshine Classes`;
                 email: matched.email || email,
                 role: initialRole,
                 active: matched.active ?? true,
+                isLocked: matched.isLocked ?? false,
+                forcePasswordChange: matched.forcePasswordChange ?? false,
                 createdAt: matched.createdAt || new Date().toISOString(),
                 updatedAt: new Date().toISOString()
               });
@@ -3103,9 +3206,13 @@ Sunshine Classes`;
 
     // Cryptographically secure update in strict security compliance mode
     const hashed = simpleSecureHash(trimmedNewPwd);
-    const updatedUsers = users.map((u) =>
-      u.id === targetResetUser.id ? { ...u, password: hashed, plainPassword: trimmedNewPwd } : u
-    );
+    const updatedUsers = users.map((u) => {
+      if (u.id === targetResetUser.id) {
+        const updated = { ...u, password: hashed, plainPassword: trimmedNewPwd };
+        return updated;
+      }
+      return u;
+    });
     setUsers(updatedUsers);
     syncState('users', updatedUsers);
 
@@ -3550,6 +3657,7 @@ Sunshine Classes`;
                       onCollectFee={handleCollectFee}
                       upiPayments={upiPayments}
                       onAddUpiPayment={handleAddUpiPayment}
+                      onCancelUpiPayment={handleCancelUpiPayment}
                       timetableList={timetable}
                       studyMaterials={studyMaterials}
                       batchBulletins={batchBulletins}

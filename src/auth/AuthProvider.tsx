@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GoogleAuthProvider, signInWithPopup, signOut as fbSignOut } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, updatePassword } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { AuthContext } from './AuthContext';
@@ -229,7 +229,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
 
     if (matchedUser.active === false) {
-      throw new Error("Your account has been disabled.");
+      throw new Error("Your account has been disabled. Please contact the administrator.");
+    }
+
+    if (matchedUser.isLocked === true) {
+      throw new Error("Your account is locked due to security reasons. Please contact the administrator.");
     }
 
     // Evaluate password correctness
@@ -237,7 +241,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Check possible passwords for matched user (supports hashes, plain, and default generated passwords)
     const userPwd = matchedUser.password || '';
-    const userPlain = matchedUser.plainPassword || '';
     
     // Fallback options for default student/teacher passwords to be extremely robust
     const lowerUser = matchedUser.username?.toLowerCase() || '';
@@ -247,7 +250,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const possiblePasswords = [
       userPwd,
-      userPlain,
       fallbackPassword1,
       fallbackPassword2
     ].filter(Boolean);
@@ -392,20 +394,50 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       throw new Error("No authenticated session active.");
     }
 
+    // If signed into Firebase Auth with email/password, update Firebase auth password
+    if (auth.currentUser) {
+      try {
+        await updatePassword(auth.currentUser, newPassword);
+      } catch (authErr: any) {
+        console.warn("Firebase Auth password update failed (might require recent login):", authErr);
+      }
+    }
+
     const usersList = await getERPData<any>('users', SEED_USERS);
     const updatedUsers = usersList.map((u: any) => {
       if (u.id === currentUser.id || u.username?.toLowerCase() === currentUser.username?.toLowerCase()) {
-        return {
+        const updated = {
           ...u,
           password: simpleSecureHash(newPassword),
           plainPassword: newPassword,
+          forcePasswordChange: false,
           firstLogin: false
         };
+        return updated;
       }
       return u;
     });
 
     await syncERPData('users', updatedUsers);
+    
+    // Update active session locally so state matches
+    const sessionStr = sessionStorage.getItem('sunshine_active_session') || localStorage.getItem('sunshine_active_session');
+    if (sessionStr) {
+      try {
+        const session = JSON.parse(sessionStr);
+        if (session && session.user) {
+          session.user.password = simpleSecureHash(newPassword);
+          session.user.plainPassword = newPassword;
+          session.user.forcePasswordChange = false;
+          sessionStorage.setItem('sunshine_active_session', JSON.stringify(session));
+          localStorage.setItem('sunshine_active_session', JSON.stringify(session));
+          setCurrentUser(session.user);
+        }
+      } catch (e) {
+        console.warn("Error updating session storage password hash:", e);
+      }
+    }
+
     await writeAuditLog(currentUser.id, currentUser.username, 'PASSWORD_CHANGE', "User updated their login passcode successfully.");
   };
 

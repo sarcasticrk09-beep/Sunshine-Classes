@@ -37,6 +37,7 @@ import { Student, Attendance, FeeStatus, FeeReceipt, Test, StudentMark, Homework
 import SunshineLogo from './SunshineLogo';
 import { CloudinaryUpload } from './CloudinaryUpload';
 import { getFeeStatusForRecord } from '../lib/feeUtils';
+import { getPaymentProvider } from '../lib/paymentProviders';
 
 interface StudentDashboardProps {
   student: Student;
@@ -59,6 +60,7 @@ interface StudentDashboardProps {
   timetableList: TimetableEntry[];
   upiPayments?: UPIPayment[];
   onAddUpiPayment?: (payment: Omit<UPIPayment, 'id' | 'submissionTime' | 'status'>) => boolean;
+  onCancelUpiPayment?: (paymentId: string) => void;
   studyMaterials: StudyMaterial[];
   onUpdateStudent?: (student: Student) => void;
   batchBulletins: BatchBulletinPost[];
@@ -87,6 +89,7 @@ export default function StudentDashboard({
   onCollectFee,
   upiPayments = [],
   onAddUpiPayment,
+  onCancelUpiPayment,
   timetableList,
   studyMaterials,
   onUpdateStudent,
@@ -344,6 +347,8 @@ export default function StudentDashboard({
     if (subConfig?.paymentGatewayProvider === 'BANK_TRANSFER') return 'ONLINE';
     return 'UPI';
   });
+  const [upiStep, setUpiStep] = useState<'QR_DEEP_LINK' | 'CONFIRMATION'>('QR_DEEP_LINK');
+  const [upiProofUrl, setUpiProofUrl] = useState<string>('');
 
   // Keep payment method & initial partial amount in sync when payFeeId is toggled
   React.useEffect(() => {
@@ -1367,9 +1372,24 @@ export default function StudentDashboard({
                                       const rejectedPayment = upiPayments.find(p => p.studentId === student.id && p.month === f.month && p.status === 'REJECTED');
                                       if (pendingPayment) {
                                         return (
-                                          <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 font-bold text-[10px] shadow-sm">
-                                            <Clock size={11} className="animate-pulse" /> Pending Verification
-                                          </span>
+                                          <div className="flex flex-col gap-1 items-center justify-center">
+                                            <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 font-bold text-[10px] shadow-sm">
+                                              <Clock size={11} className="animate-pulse" /> Pending Verification
+                                            </span>
+                                            {onCancelUpiPayment && (
+                                              <button
+                                                id={`btn-cancel-payment-${pendingPayment.id}`}
+                                                onClick={() => {
+                                                  if (confirm(`Are you sure you want to cancel your payment submission of ₹${pendingPayment.amount} for ${pendingPayment.month}?`)) {
+                                                    onCancelUpiPayment(pendingPayment.id);
+                                                  }
+                                                }}
+                                                className="text-[10px] font-bold text-rose-600 hover:text-rose-800 hover:underline cursor-pointer"
+                                              >
+                                                Cancel Submission
+                                              </button>
+                                            )}
+                                          </div>
                                         );
                                       }
                                       return (
@@ -2777,35 +2797,51 @@ export default function StudentDashboard({
                 <div className="mx-auto h-16 w-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 mb-4 animate-bounce">
                   <CheckCircle size={36} />
                 </div>
-                <h4 className="font-display font-black text-lg text-slate-950">PAYMENT SUCCESSFUL!</h4>
+                <h4 className="font-display font-black text-lg text-slate-950">SUBMITTED FOR VERIFICATION!</h4>
                 <p className="text-xs text-slate-600 mt-2 max-w-xs mx-auto leading-relaxed font-semibold">
-                  Your payment has been successfully recorded and settled in the school ledger instantly!
+                  Your payment has been successfully submitted to the accounts team. Once verified, your status will update and a receipt will be emailed.
                 </p>
-                <p className="text-[10px] font-mono text-slate-400 mt-4">Generating & emailing professional PDF receipt...</p>
+                <button
+                  id="btn-payment-done-close"
+                  onClick={() => {
+                    setPaySuccess(false);
+                    setPayFeeId(null);
+                  }}
+                  className="mt-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 text-xs shadow-md cursor-pointer transition-colors"
+                >
+                  Return to Dashboard
+                </button>
               </div>
             ) : (
               <div className="space-y-4">
                 {/* Invoice Details */}
                 <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 text-xs">
-                  <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Invoice Details</h4>
+                  <div className="grid grid-cols-2 gap-y-2.5 gap-x-4">
                     <div>
-                      <span className="text-slate-500 block font-medium">Student Name</span>
+                      <span className="text-slate-400 block text-[9px] font-bold uppercase">Student Name</span>
                       <span className="font-bold text-slate-800">{student.name}</span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block font-medium">Billing Cycle</span>
+                      <span className="text-slate-400 block text-[9px] font-bold uppercase">Fee Month</span>
                       <span className="font-bold text-slate-800">{selectedFeeItem.month}</span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block font-medium">Standard Class Fee</span>
-                      <span className="font-semibold text-slate-800">₹{selectedFeeItem.totalFee}.00</span>
+                      <span className="text-slate-400 block text-[9px] font-bold uppercase">Admission Number</span>
+                      <span className="font-mono font-bold text-slate-800">{student.id}</span>
                     </div>
-                    {((selectedFeeItem.discount ?? 0) + (selectedFeeItem.scholarship ?? 0)) > 0 && (
-                      <div>
-                        <span className="text-green-600 block font-medium">Scholarships & Discounts</span>
-                        <span className="font-semibold text-green-600">-₹{(selectedFeeItem.discount ?? 0) + (selectedFeeItem.scholarship ?? 0)}.00</span>
-                      </div>
-                    )}
+                    <div>
+                      <span className="text-slate-400 block text-[9px] font-bold uppercase">Academic Class</span>
+                      <span className="font-bold text-slate-800">{student.class}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[9px] font-bold uppercase">Due Date</span>
+                      <span className="font-mono font-bold text-slate-800">{selectedFeeItem.dueDate || 'N/A'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[9px] font-bold uppercase">Status</span>
+                      <span className="font-extrabold text-amber-600">PENDING PAY</span>
+                    </div>
                   </div>
 
                   {subConfig.allowPartialPayments ? (
@@ -2842,57 +2878,205 @@ export default function StudentDashboard({
                   )}
                 </div>
 
-                {/* UPI Details & Dynamic QR Code */}
-                {(() => {
-                  const coachingUpiId = '9161586254@upi';
+                {/* Main Payment Step Views */}
+                {upiStep === 'QR_DEEP_LINK' ? (() => {
                   const payAmt = subConfig.allowPartialPayments ? Number(customPayAmount) || selectedFeeItem.pendingFee : selectedFeeItem.pendingFee;
-                  const sanitizedMonth = selectedFeeItem.month.toUpperCase().replace(/\s+/g, '');
-                  const paymentRef = `FEE-${student.id}-${sanitizedMonth}`;
-                  const paymentNote = `Fee student ${student.name} ${selectedFeeItem.month}`;
-                  const upiUrl = `upi://pay?pa=${encodeURIComponent(coachingUpiId)}&pn=${encodeURIComponent('Sunshine Classes')}&am=${payAmt.toFixed(2)}&tr=${encodeURIComponent(paymentRef)}&tn=${encodeURIComponent(paymentNote)}&cu=INR`;
+                  
+                  // Initialize the configured payment gateway provider
+                  const currentProviderId = subConfig.paymentGatewayProvider || 'FREE_UPI';
+                  const provider = getPaymentProvider(currentProviderId);
+                  
+                  const payReq = provider.generateRequest({
+                    amount: payAmt,
+                    studentId: student.id,
+                    studentName: student.name,
+                    admissionNo: student.rollNo || student.id,
+                    month: selectedFeeItem.month,
+                    year: new Date().getFullYear().toString(),
+                    coachingUpiId: subConfig.coachingUpiId || '9161586254@upi',
+                    accountHolderName: subConfig.accountHolderName || 'Sunshine Classes'
+                  });
+
+                  // Display QR generator using api.qrserver.com
+                  const qrApiUrl = payReq.qrUrl 
+                    ? `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(payReq.qrUrl)}`
+                    : null;
 
                   return (
-                    <div className="flex flex-col gap-4">
-                      <a
-                        id="btn-quick-pay-now"
-                        href={upiUrl}
-                        onClick={() => {
-                          // Automatically record payment when user clicks "Pay Now"
-                          if (onCollectFee) {
-                            onCollectFee({
-                              studentId: student.id,
-                              studentName: student.name,
-                              class: student.class,
-                              month: selectedFeeItem.month,
-                              amountPaid: payAmt,
-                              paymentMethod: 'UPI',
-                              transactionId: `UPI-INST-${Date.now().toString().slice(-6)}`
-                            });
-                            setPaySuccess(true);
-                            setTimeout(() => {
-                              setPaySuccess(false);
-                              setPayFeeId(null);
-                            }, 1800);
-                          }
-                        }}
-                        className="w-full text-center block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black py-4 shadow-lg transition-all active:scale-95"
-                      >
-                        🚀 Pay Now ₹{payAmt.toFixed(2)}
-                      </a>
+                    <div className="space-y-4 animate-fade-in">
+                      {/* Gateway description */}
+                      <div className="text-center rounded-xl bg-indigo-50/50 p-3 border border-indigo-100 text-xs text-indigo-950 font-medium leading-relaxed">
+                        🏦 Powered by <strong>{payReq.providerName}</strong>
+                        {payReq.instructions && <p className="text-[10px] text-indigo-600 mt-1 font-semibold">{payReq.instructions}</p>}
+                      </div>
+
+                      {qrApiUrl && (
+                        <div className="flex flex-col items-center justify-center p-3 border border-slate-100 rounded-2xl bg-white shadow-xs">
+                          <img
+                            id="img-payment-qr-code"
+                            src={qrApiUrl}
+                            alt="Scan UPI QR Code to Pay"
+                            referrerPolicy="no-referrer"
+                            className="h-44 w-44 object-contain shadow-sm border border-slate-50 p-1.5 rounded-lg"
+                          />
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-mono mt-2">
+                            {subConfig.coachingUpiId || '9161586254@upi'}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        {/* Mobile Deep Link launch button */}
+                        <a
+                          id="btn-quick-pay-now"
+                          href={payReq.paymentUrl}
+                          onClick={() => {
+                            // Advance to confirmation screen where they submit UTR
+                            setUpiStep('CONFIRMATION');
+                          }}
+                          className="w-full text-center block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black py-4 shadow-md transition-all active:scale-95 cursor-pointer"
+                        >
+                          🚀 Pay ₹{payAmt.toFixed(2)} with UPI
+                        </a>
+                        <button
+                          id="btn-already-paid-utr"
+                          onClick={() => setUpiStep('CONFIRMATION')}
+                          className="w-full text-center block rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold py-3 transition-colors cursor-pointer"
+                        >
+                          I have completed payment, enter UTR
+                        </button>
+                      </div>
                     </div>
                   );
-                })()}
+                })() : (
+                  // Step 2: Confirmation / Enter UTR & optional Screenshot
+                  <div className="space-y-4 animate-fade-in">
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-[11px] text-amber-950 font-medium leading-relaxed">
+                      ⚠️ <strong>Payment Verification Submission:</strong> Please enter the 12-digit transaction reference number (UTR / Txn ID) from your payment app screen to claim this credit.
+                    </div>
 
-                {/* Bottom Settle Dues Actions */}
-                <div className="flex justify-center border-t border-slate-100 pt-4 mt-4">
-                  <button
-                    id="btn-payment-cancel"
-                    onClick={() => setPayFeeId(null)}
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">12-Digit UPI Transaction UTR ID *</label>
+                        <input
+                          id="input-student-upi-utr"
+                          type="text"
+                          maxLength={12}
+                          placeholder="e.g. 614205819402"
+                          value={transactionRefNum}
+                          onChange={(e) => {
+                            // standard UPI UTR is numeric 12-digits
+                            const clean = e.target.value.replace(/\D/g, '');
+                            setTransactionRefNum(clean);
+                          }}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-mono font-bold text-slate-800 outline-none focus:border-indigo-950 focus:bg-white"
+                        />
+                        {transactionRefNum.length > 0 && transactionRefNum.length < 12 && (
+                          <span className="text-[9px] text-rose-500 font-bold block mt-1">UTR must be exactly 12 digits (entered {transactionRefNum.length}/12)</span>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold text-slate-400 uppercase">Upload Payment Screenshot (Optional)</label>
+                        <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-3 text-center">
+                          {upiProofUrl ? (
+                            <div className="space-y-2">
+                              <img
+                                src={upiProofUrl}
+                                alt="Payment Proof Screenshot"
+                                className="mx-auto max-h-32 rounded object-cover shadow-sm"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="flex gap-2 justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => setUpiProofUrl('')}
+                                  className="text-[10px] font-bold text-rose-600 hover:underline"
+                                >
+                                  Remove Proof
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <CloudinaryUpload
+                              id="cloudinary-student-upi-proof"
+                              folder="fee_proofs"
+                              onUploadSuccess={(url) => {
+                                setUpiProofUrl(url);
+                                alert("Transaction screenshot uploaded successfully!");
+                              }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-2 border-t border-slate-100">
+                      <button
+                        id="btn-upi-back-to-qr"
+                        onClick={() => setUpiStep('QR_DEEP_LINK')}
+                        className="flex-1 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold px-4 py-3 text-xs cursor-pointer text-center"
+                      >
+                        ⬅ Show QR/Link
+                      </button>
+                      <button
+                        id="btn-upi-confirm-submit"
+                        disabled={transactionRefNum.length !== 12}
+                        onClick={() => {
+                          if (transactionRefNum.length !== 12) {
+                            alert("Please enter a valid 12-digit transaction UTR number.");
+                            return;
+                          }
+                          const payAmt = subConfig.allowPartialPayments ? Number(customPayAmount) || selectedFeeItem.pendingFee : selectedFeeItem.pendingFee;
+                          
+                          if (onAddUpiPayment) {
+                            const success = onAddUpiPayment({
+                              studentId: student.id,
+                              studentName: student.name,
+                              admissionNo: student.rollNo || student.id,
+                              class: student.class,
+                              month: selectedFeeItem.month,
+                              amount: payAmt,
+                              utr: transactionRefNum,
+                              screenshot: upiProofUrl || undefined,
+                              feeStatusId: selectedFeeItem.id
+                            });
+
+                            if (success) {
+                              setPaySuccess(true);
+                              setTransactionRefNum('');
+                              setUpiProofUrl('');
+                              setUpiStep('QR_DEEP_LINK');
+                            }
+                          }
+                        }}
+                        className={`flex-1 rounded-xl font-bold px-4 py-3 text-xs cursor-pointer text-center text-white shadow transition-all ${
+                          transactionRefNum.length === 12
+                            ? 'bg-emerald-600 hover:bg-emerald-700 hover:scale-105 active:scale-95'
+                            : 'bg-slate-300 cursor-not-allowed'
+                        }`}
+                      >
+                        Confirm & Submit
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Cancel Button */}
+                {upiStep === 'QR_DEEP_LINK' && (
+                  <div className="flex justify-center border-t border-slate-100 pt-4 mt-4">
+                    <button
+                      id="btn-payment-cancel"
+                      onClick={() => {
+                        setPayFeeId(null);
+                        setUpiStep('QR_DEEP_LINK');
+                      }}
+                      className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

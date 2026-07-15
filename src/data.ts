@@ -345,7 +345,16 @@ export const SEED_SUBSCRIPTION_CONFIG: SubscriptionConfig = {
   enableCardMethod: true,
   enableNetBankingMethod: true,
   enableBankTransferMethod: true,
-  enableAutomatedFeeAlerts: true
+  enableAutomatedFeeAlerts: true,
+  // New payment settings requested
+  enableUpiPayments: true,
+  coachingUpiId: "9161586254@upi",
+  accountHolderName: "Sunshine Classes",
+  paymentInstructions: "Please scan the QR code using any UPI App (Google Pay, PhonePe, Paytm, BHIM) or click 'Pay' if on mobile. After successful payment, please enter the correct 12-digit UPI UTR number and optionally upload the screenshot. Do not submit a dummy or incorrect UTR, as it will be rejected upon admin verification.",
+  paymentVerificationTimeLimit: 24,
+  receiptPrefix: "SUN-REC-",
+  emailReceiptToggle: true,
+  studentNotificationToggle: true
 };
 
 export const SEED_WHATSAPP_TEMPLATES: WhatsAppTemplatesConfig = {
@@ -654,18 +663,14 @@ export const SEED_ATTENDANCE: Attendance[] = [
 ];
 
 export const SEED_FEE_STATUS: FeeStatus[] = [
-  { id: 'fs1', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', month: 'June 2026', totalFee: 1200, discount: 0, scholarship: 0, paidFee: 1200, pendingFee: 0, status: 'PAID', dueDate: '2026-06-10' },
+  { id: 'fs1', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', month: 'June 2026', totalFee: 1200, discount: 0, scholarship: 0, paidFee: 0, pendingFee: 1200, status: 'PENDING', dueDate: '2026-06-10' },
   { id: 'fs2', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', month: 'July 2026', totalFee: 1200, discount: 0, scholarship: 0, paidFee: 0, pendingFee: 1200, status: 'PENDING', dueDate: '2026-07-10' },
-  { id: 'fs3', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', month: 'June 2026', totalFee: 1200, discount: 0, scholarship: 200, paidFee: 1000, pendingFee: 0, status: 'PAID', dueDate: '2026-06-10' },
+  { id: 'fs3', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', month: 'June 2026', totalFee: 1200, discount: 0, scholarship: 200, paidFee: 0, pendingFee: 1000, status: 'PENDING', dueDate: '2026-06-10' },
   { id: 'fs4', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', month: 'July 2026', totalFee: 1200, discount: 0, scholarship: 200, paidFee: 0, pendingFee: 1000, status: 'PENDING', dueDate: '2026-07-10' },
-  { id: 'fs5', studentId: 's3', studentName: 'Aditya Gupta', class: 'Class 9', month: 'June 2026', totalFee: 1000, discount: 0, scholarship: 0, paidFee: 600, pendingFee: 400, status: 'PARTIAL', dueDate: '2026-06-10' }
+  { id: 'fs5', studentId: 's3', studentName: 'Aditya Gupta', class: 'Class 9', month: 'June 2026', totalFee: 1000, discount: 0, scholarship: 0, paidFee: 0, pendingFee: 1000, status: 'PENDING', dueDate: '2026-06-10' }
 ];
 
-export const SEED_FEE_RECEIPTS: FeeReceipt[] = [
-  { id: 'REC-101', studentId: 's1', studentName: 'Rahul Verma', class: 'Class 10', month: 'June 2026', amountPaid: 1200, paymentMethod: 'UPI', date: '2026-06-08', transactionId: 'UPI983104820491', receivedBy: 'Neha Sharma' },
-  { id: 'REC-102', studentId: 's2', studentName: 'Priya Mishra', class: 'Class 10', month: 'June 2026', amountPaid: 1000, paymentMethod: 'CASH', date: '2026-06-09', receivedBy: 'Neha Sharma' },
-  { id: 'REC-103', studentId: 's3', studentName: 'Aditya Gupta', class: 'Class 9', month: 'June 2026', amountPaid: 600, paymentMethod: 'ONLINE', date: '2026-06-10', transactionId: 'TXN8491049210', receivedBy: 'Neha Sharma' }
-];
+export const SEED_FEE_RECEIPTS: FeeReceipt[] = [];
 
 export const SEED_TESTS: Test[] = [
   { id: 'tst1', title: 'Mathematics Chapter 1 & 2', class: 'Class 10', subject: 'Mathematics', chapter: 'Real Numbers & Polynomials', totalMarks: 50, date: '2026-06-15', highestMarks: 49, averageMarks: 38 },
