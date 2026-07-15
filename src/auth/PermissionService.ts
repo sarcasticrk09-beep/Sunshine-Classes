@@ -20,20 +20,20 @@ export const PermissionService = {
    */
   canAccess(userRole: UserRole, targetRoute: string): boolean {
     const role = userRole.toUpperCase();
-    if (role === 'SUPER_ADMIN') {
-      return true; // Super Admin (Owner) always has absolute clearance
+    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
+      return true; // Admin and Super Admin have absolute unrestricted clearance
     }
     
     const cleanRoute = targetRoute.toLowerCase().replace(/^\//, '');
 
     if (cleanRoute === 'owner' || cleanRoute === 'super_admin') {
-      return role === 'SUPER_ADMIN';
+      return role === 'SUPER_ADMIN' || role === 'ADMIN';
     }
     if (cleanRoute === 'admin') {
-      return role === 'ADMIN';
+      return role === 'ADMIN' || role === 'SUPER_ADMIN';
     }
     if (cleanRoute === 'reception' || cleanRoute === 'receptionist') {
-      return role === 'ADMIN' || role === 'RECEPTIONIST';
+      return role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'RECEPTIONIST';
     }
     if (cleanRoute === 'teacher') {
       return role === 'TEACHER';

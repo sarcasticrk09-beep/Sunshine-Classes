@@ -526,7 +526,7 @@ export default function AdminDashboard({
           name: newUserName.trim() || 'New User',
           email: newUserEmail.trim() || undefined,
           password: passwordToUse,
-          role: newUserRole
+          role: newUserRole === 'ADMIN' ? 'SUPER_ADMIN' : newUserRole
         })
       });
 
@@ -544,7 +544,7 @@ export default function AdminDashboard({
         username: trimmedUsername,
         name: newUserName.trim() || 'New User',
         email: targetEmail,
-        role: newUserRole.toLowerCase() === 'receptionist' ? 'reception' : newUserRole.toLowerCase(),
+        role: (newUserRole === 'ADMIN' ? 'SUPER_ADMIN' : newUserRole).toLowerCase() === 'receptionist' ? 'reception' : (newUserRole === 'ADMIN' ? 'SUPER_ADMIN' : newUserRole).toLowerCase(),
         active: true,
         firstLogin: false,
         createdAt: new Date().toISOString(),
@@ -597,11 +597,6 @@ export default function AdminDashboard({
     const user = users.find(u => u.id === userId);
     if (!user) return;
 
-    if (user.role === 'SUPER_ADMIN' && targetRole !== 'SUPER_ADMIN') {
-      alert("Security Error: Super Admin role cannot be demoted directly by this interface to protect platform ownership.");
-      return;
-    }
-
     try {
       // Update individual document in 'users' collection to sync permissions immediately for next login
       const userDocRef = doc(db, 'users', userId);
@@ -636,11 +631,6 @@ export default function AdminDashboard({
   const handleDeleteUser = async (userId: string) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
-
-    if (user.role === 'SUPER_ADMIN') {
-      alert("Access Denied: Super Admin account cannot be deleted under the security rules.");
-      return;
-    }
 
     if (currentUser && currentUser.id === userId) {
       alert("Access Denied: You cannot delete your own logged-in user session.");
@@ -5719,7 +5709,7 @@ ${data.log}`
 
       {/* Main ERP Tab System */}
       {(() => {
-        const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+        const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN';
         const isAdmin = currentUser?.role === 'ADMIN';
         const allTabs = [
           { id: 'overview', label: 'Admin Operations Overview', icon: <Activity size={16} />, category: 'Core Operations' },
@@ -5746,7 +5736,7 @@ ${data.log}`
         const tabsList = allTabs.filter(tab => {
           // Founder has access to all tabs except cofounder-office (unless he wants to audit it, but let's keep it clean)
           if (isSuperAdmin) {
-            return tab.id !== 'cofounder-office';
+            return true;
           }
           // Co-Founder has access to standard admin tabs plus his executive workspace
           if (isAdmin) {
@@ -5926,7 +5916,7 @@ ${data.log}`
                 transition={{ duration: 0.25, ease: 'easeOut' }}
               >
                 {(() => {
-                  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+                  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN';
                   const allowedAdminTabs = ['overview', 'students', 'fees', 'teachers', 'batches', 'announcements'];
                   const isAuthorized = isSuperAdmin || allowedAdminTabs.includes(activeTab);
                   
@@ -13883,7 +13873,8 @@ ${data.log}`
                         })
                         .map((user) => {
                           const isRevealed = pwdVisibleUsers.includes(user.id);
-                          const displayedPassword = isRevealed ? (user.plainPassword || user.password) : '••••••••';
+                          const rawPassword = user.plainPassword || (user.password && !user.password.startsWith('sha256_mock_') ? user.password : `${user.username}123`);
+                          const displayedPassword = isRevealed ? rawPassword : '••••••••';
                           const isSelf = currentUser?.id === user.id;
 
                           return (
@@ -13898,7 +13889,6 @@ ${data.log}`
                                   id={`select-role-user-${user.id}`}
                                   value={user.role}
                                   onChange={(e) => handleUpdateUserRole(user.id, e.target.value as UserRole)}
-                                  disabled={user.role === 'SUPER_ADMIN'}
                                   className={`rounded-lg border border-slate-200 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide cursor-pointer focus:outline-none ${
                                     user.role === 'SUPER_ADMIN'
                                       ? 'bg-purple-100 text-purple-800 border-purple-200 font-black'
@@ -13915,7 +13905,7 @@ ${data.log}`
                                   <option value="TEACHER">Teacher</option>
                                   <option value="RECEPTIONIST">Receptionist</option>
                                   <option value="ADMIN">Admin</option>
-                                  <option value="SUPER_ADMIN" disabled>Super Admin</option>
+                                  <option value="SUPER_ADMIN">Super Admin</option>
                                 </select>
                               </td>
                               <td className="p-3 font-mono">
@@ -13962,10 +13952,10 @@ ${data.log}`
                                 <button
                                   id={`btn-delete-user-admin-${user.id}`}
                                   type="button"
-                                  disabled={user.role === 'SUPER_ADMIN' || isSelf}
+                                  disabled={isSelf}
                                   onClick={() => handleDeleteUser(user.id)}
                                   className="rounded bg-rose-50 hover:bg-rose-100 text-rose-700 px-2 py-1 text-[10px] font-bold border border-rose-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                  title={user.role === 'SUPER_ADMIN' ? "Super Admin cannot be deleted" : isSelf ? "You cannot delete yourself" : "Delete user"}
+                                  title={isSelf ? "You cannot delete yourself" : "Delete user"}
                                 >
                                   Delete
                                 </button>

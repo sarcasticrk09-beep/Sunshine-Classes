@@ -2852,96 +2852,45 @@ export default function StudentDashboard({
                   const upiUrl = `upi://pay?pa=${encodeURIComponent(coachingUpiId)}&pn=${encodeURIComponent('Sunshine Classes')}&am=${payAmt.toFixed(2)}&tr=${encodeURIComponent(paymentRef)}&tn=${encodeURIComponent(paymentNote)}&cu=INR`;
 
                   return (
-                    <div className="space-y-4">
-                      {/* VPA Account details */}
-                      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 flex justify-between items-center">
-                        <div>
-                          <div className="text-[10px] font-extrabold uppercase text-indigo-800 tracking-wider font-display">UPI ID / VPA ADDRESS</div>
-                          <div className="text-sm font-black text-slate-800 font-mono select-all">{coachingUpiId}</div>
-                        </div>
-                        <button
-                          id="btn-copy-upi-id-new"
-                          onClick={() => {
-                            navigator.clipboard.writeText(coachingUpiId);
-                            alert("Coaching UPI ID copied to clipboard!");
-                          }}
-                          className="rounded-lg bg-white border border-indigo-200 hover:bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 cursor-pointer shadow-sm transition-all"
-                        >
-                          Copy ID 📋
-                        </button>
-                      </div>
-
-                      {/* QR Code */}
-                      <div className="flex flex-col items-center justify-center text-center p-4 bg-slate-50 border border-slate-150 rounded-2xl">
-                        <div className="bg-white border border-slate-150 p-2.5 rounded-2xl shadow-sm inline-block">
-                          <img
-                            id="img-upi-qr-code"
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(upiUrl)}`}
-                            alt="Scan UPI QR Code"
-                            className="h-28 w-28 object-contain"
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-500 font-semibold max-w-xs mt-2.5 leading-relaxed font-mono">
-                          Scan using GPay, PhonePe, Paytm, BHIM, or any UPI App to pay.
-                        </p>
-                      </div>
-
-                      {/* Mobile Deep Link */}
-                      <div className="block md:hidden">
-                        <a
-                          id="lnk-upi-pay-deeplink"
-                          href={upiUrl}
-                          className="w-full text-center block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black py-2.5 shadow-md transition-all active:scale-95"
-                        >
-                          🚀 Pay Instantly via UPI App
-                        </a>
-                      </div>
+                    <div className="flex flex-col gap-4">
+                      <a
+                        id="btn-quick-pay-now"
+                        href={upiUrl}
+                        onClick={() => {
+                          // Automatically record payment when user clicks "Pay Now"
+                          if (onCollectFee) {
+                            onCollectFee({
+                              studentId: student.id,
+                              studentName: student.name,
+                              class: student.class,
+                              month: selectedFeeItem.month,
+                              amountPaid: payAmt,
+                              paymentMethod: 'UPI',
+                              transactionId: `UPI-INST-${Date.now().toString().slice(-6)}`
+                            });
+                            setPaySuccess(true);
+                            setTimeout(() => {
+                              setPaySuccess(false);
+                              setPayFeeId(null);
+                            }, 1800);
+                          }
+                        }}
+                        className="w-full text-center block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black py-4 shadow-lg transition-all active:scale-95"
+                      >
+                        🚀 Pay Now ₹{payAmt.toFixed(2)}
+                      </a>
                     </div>
                   );
                 })()}
 
                 {/* Bottom Settle Dues Actions */}
-                <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 mt-4">
+                <div className="flex justify-center border-t border-slate-100 pt-4 mt-4">
                   <button
                     id="btn-payment-cancel"
                     onClick={() => setPayFeeId(null)}
                     className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
                   >
-                    Close Portal
-                  </button>
-                  <button
-                    id="btn-payment-submit-instant-settle"
-                    onClick={() => {
-                      const payAmt = subConfig.allowPartialPayments ? Number(customPayAmount) || selectedFeeItem.pendingFee : selectedFeeItem.pendingFee;
-                      if (payAmt <= 0) {
-                        alert("Invalid payment amount. Deposit must be greater than zero.");
-                        return;
-                      }
-
-                      // Call onCollectFee directly to complete payment instantly!
-                      if (onCollectFee) {
-                        onCollectFee({
-                          studentId: student.id,
-                          studentName: student.name,
-                          class: student.class,
-                          month: selectedFeeItem.month,
-                          amountPaid: payAmt,
-                          paymentMethod: 'UPI',
-                          transactionId: `UPI-INST-${Date.now().toString().slice(-6)}`
-                        });
-
-                        setPaySuccess(true);
-                        setTimeout(() => {
-                          setPaySuccess(false);
-                          setPayFeeId(null);
-                        }, 1800);
-                      } else {
-                        alert("Instant Fee collection hook is not linked on dashboard context.");
-                      }
-                    }}
-                    className="rounded-xl bg-brand-orange hover:bg-amber-500 text-white text-xs font-black px-5 py-2 shadow-md transition-all cursor-pointer"
-                  >
-                    I Have Paid - Confirm Settlement
+                    Cancel
                   </button>
                 </div>
               </div>

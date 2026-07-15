@@ -16,6 +16,25 @@ function simpleSecureHash(password: string): string {
   return 'sha256_mock_' + (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+// Map any alternative, legacy or lowercase role strings back to standard uppercase types
+function sanitizeRole(roleStr: string | null | undefined): UserRole {
+  if (!roleStr) return 'STUDENT';
+  const r = roleStr.trim().toUpperCase();
+  if (r === 'SUPER_ADMIN' || r === 'ADMIN' || r === 'OWNER' || r === 'SUPER_ADMINISTRATOR') {
+    return 'SUPER_ADMIN';
+  }
+  if (r === 'RECEPTION' || r === 'RECEPTIONIST') {
+    return 'RECEPTIONIST';
+  }
+  if (r === 'TEACHER' || r === 'FACULTY' || r === 'INSTRUCTOR') {
+    return 'TEACHER';
+  }
+  if (r === 'STUDENT' || r === 'PUPIL') {
+    return 'STUDENT';
+  }
+  return 'STUDENT';
+}
+
 interface AuthProviderProps {
   children: React.ReactNode;
 }
@@ -37,8 +56,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (sessionStr) {
           const session = JSON.parse(sessionStr);
           if (session && session.user && session.role) {
+            const cleanRole = sanitizeRole(session.role);
+            session.role = cleanRole;
+            session.user.role = cleanRole;
             setCurrentUser(session.user);
-            setRole(session.role);
+            setRole(cleanRole);
           }
         }
       } catch (err) {
@@ -119,7 +141,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    * Username / Password Login (For Teachers and Students)
    */
   const login = async (emailOrUsername: string, password: string, remember: boolean): Promise<boolean> => {
-    const trimmedInput = emailOrUsername.trim().toLowerCase();
+    const rawInput = emailOrUsername.trim().toLowerCase();
+    const trimmedInput = rawInput.replace(/^@/, '');
     const trimmedPassword = password.trim();
 
     if (!trimmedInput || !trimmedPassword) {
@@ -143,7 +166,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     );
 
     if (matchedUser) {
-      userRole = matchedUser.role as UserRole;
+      userRole = sanitizeRole(matchedUser.role);
     }
 
     // 2. If not found, check teachers table (Fallback login)
