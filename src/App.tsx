@@ -542,16 +542,30 @@ export default function App() {
       }
 
       for (const [k, d] of Object.entries(batchToSync)) {
-        try {
-          const docRef = doc(db, 'sunshine_erp_state', k);
-          await Promise.race([
-            setDoc(docRef, { data: d }, { merge: false }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud sync timeout')), 15000))
-          ]);
-          setCloudOnline(true);
-        } catch (e) {
-          console.warn(`[Cloud Firestore] Debounced write failed/offline for key "${k}":`, e);
-          setCloudOnline(false);
+        let attempt = 0;
+        const maxRetries = 3;
+        let success = false;
+
+        while (attempt <= maxRetries && !success) {
+          try {
+            const docRef = doc(db, 'sunshine_erp_state', k);
+            await Promise.race([
+              setDoc(docRef, { data: d }, { merge: false }),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud sync timeout')), 15000))
+            ]);
+            setCloudOnline(true);
+            success = true;
+          } catch (e: any) {
+            if (attempt < maxRetries && (e.message?.includes('unavailable') || e.message?.includes('offline') || e.code === 'unavailable')) {
+              attempt++;
+              const delay = Math.min(1000 * Math.pow(2, attempt), 10000); // Exponential backoff: 2s, 4s, 8s
+              await new Promise(r => setTimeout(r, delay));
+            } else {
+              console.warn(`[Cloud Firestore] Debounced write failed for key "${k}":`, e);
+              setCloudOnline(false);
+              break;
+            }
+          }
         }
       }
     }, 1200); // Throttles and batches writes under a 1.2s window
@@ -2320,9 +2334,76 @@ Sunshine Classes`;
   };
 
   const handleDeleteStudent = (id: string) => {
-    const updated = students.filter((s) => s.id !== id);
-    setStudents(updated);
-    syncState('students', updated);
+    const studentToDelete = students.find((s) => s.id === id);
+
+    // 1. Delete Student
+    const updatedStudents = students.filter((s) => s.id !== id);
+    setStudents(updatedStudents);
+    syncState('students', updatedStudents);
+
+    if (studentToDelete) {
+      const studentUserId = studentToDelete.userId;
+
+      // 2. Delete associated login user profile
+      const updatedUsers = users.filter((u) => u.id !== studentUserId);
+      setUsers(updatedUsers);
+      syncState('users', updatedUsers);
+
+      // 3. Delete Fee Statuses
+      const updatedFeeStatuses = feeStatuses.filter((f) => f.studentId !== id);
+      setFeeStatuses(updatedFeeStatuses);
+      syncState('fee_statuses', updatedFeeStatuses);
+
+      // 4. Delete Fee Receipts
+      const updatedFeeReceipts = feeReceipts.filter((f) => f.studentId !== id);
+      setFeeReceipts(updatedFeeReceipts);
+      syncState('fee_receipts', updatedFeeReceipts);
+
+      // 5. Delete UPI Payments
+      const updatedUpiPayments = upiPayments.filter((p) => p.studentId !== id);
+      setUpiPayments(updatedUpiPayments);
+      syncState('upi_payments', updatedUpiPayments);
+
+      // 6. Delete Attendance
+      const updatedAttendance = attendance.filter((a) => a.studentId !== id);
+      setAttendance(updatedAttendance);
+      syncState('attendance', updatedAttendance);
+
+      // 7. Delete Marks
+      const updatedStudentMarks = studentMarks.filter((m) => m.studentId !== id);
+      setStudentMarks(updatedStudentMarks);
+      syncState('student_marks', updatedStudentMarks);
+
+      // 8. Delete Homework Submissions
+      const updatedSubmissions = submissions.filter((sub) => sub.studentId !== id);
+      setSubmissions(updatedSubmissions);
+      syncState('submissions', updatedSubmissions);
+
+      // 9. Delete Subscriptions
+      const updatedSubscriptions = subscriptions.filter((sub) => sub.studentId !== id);
+      setSubscriptions(updatedSubscriptions);
+      syncState('student_subscriptions', updatedSubscriptions);
+
+      // 10. Delete Subscription Payments
+      const updatedSubPayments = subPayments.filter((p) => p.studentId !== id);
+      setSubPayments(updatedSubPayments);
+      syncState('payments', updatedSubPayments);
+
+      // 11. Delete Subscription Receipts
+      const updatedSubReceipts = subReceipts.filter((r) => r.studentId !== id);
+      setSubReceipts(updatedSubReceipts);
+      syncState('receipts', updatedSubReceipts);
+
+      // 12. Delete Subscription Notifications
+      const updatedSubNotifications = subNotifications.filter((n) => n.studentId !== id);
+      setSubNotifications(updatedSubNotifications);
+      syncState('payment_notifications', updatedSubNotifications);
+
+      // 13. Delete App Notifications
+      const updatedNotifications = notifications.filter((n) => n.userId !== studentUserId);
+      setNotifications(updatedNotifications);
+      syncState('notifications', updatedNotifications);
+    }
   };
 
   const handleUpdateStudent = (updatedStudent: Student) => {
@@ -2538,6 +2619,15 @@ Sunshine Classes`;
     const updatedAudits = [newLog, ...auditLogs];
     setAuditLogs(updatedAudits);
     syncState('audit_logs', updatedAudits);
+  };
+
+  const handleRevertFeeData = () => {
+    // Clear fee statuses and receipts
+    setFeeStatuses([]);
+    syncState('fee_statuses', []);
+
+    setFeeReceipts([]);
+    syncState('fee_receipts', []);
   };
 
   const handleClearTestData = () => {
@@ -3904,6 +3994,7 @@ Sunshine Classes`;
                     onRejectAdmission={handleRejectAdmission}
                     onBulkImport={handleBulkImport}
                     onClearTestData={handleClearTestData}
+                    onRevertFeeData={handleRevertFeeData}
                     onForceUpdateUserEmails={handleForceUpdateUserEmails}
                     departedStudents={departedStudents}
                   />

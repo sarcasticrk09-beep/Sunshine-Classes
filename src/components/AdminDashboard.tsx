@@ -141,6 +141,7 @@ interface AdminDashboardProps {
     batches: Batch[]
   ) => void;
   onClearTestData?: () => void;
+  onRevertFeeData?: () => void;
   onForceUpdateUserEmails?: () => void;
   departedStudents?: DepartedStudent[];
   upiPayments?: UPIPayment[];
@@ -211,6 +212,7 @@ export default function AdminDashboard({
   currentUser,
   onBulkImport,
   onClearTestData,
+  onRevertFeeData,
   onForceUpdateUserEmails,
   departedStudents,
   upiPayments = [],
@@ -15648,8 +15650,7 @@ ${data.log}`
                     type="button"
                     onClick={() => {
                       if (confirm("Are you sure you want to revert all fee data to its original state? This action cannot be undone and will clear all test payment records.")) {
-                        ['sunshine_fee_statuses', 'sunshine_fee_receipts', 'sunshine_subscription_payments', 'sunshine_subscription_receipts', 'sunshine_subscription_notifications'].forEach(key => localStorage.removeItem(key));
-                        window.location.reload();
+                        onRevertFeeData?.();
                       }
                     }}
                     className="flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 px-3.5 py-2 text-xs font-bold text-rose-700 transition-all cursor-pointer"

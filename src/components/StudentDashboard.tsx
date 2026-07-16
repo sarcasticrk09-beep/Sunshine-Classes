@@ -110,6 +110,14 @@ export default function StudentDashboard({
   const [hwAnswerText, setHwAnswerText] = useState('');
   const [hwFileUrl, setHwFileUrl] = useState('');
   const [bulletinInputText, setBulletinInputText] = useState('');
+  const [expandedBulletinReads, setExpandedBulletinReads] = useState<Record<string, boolean>>({});
+
+  const toggleBulletinReadList = (postId: string) => {
+    setExpandedBulletinReads(prev => ({
+      ...prev,
+      [postId]: !prev[postId]
+    }));
+  };
   const [isSubmitHwOpen, setIsSubmitHwOpen] = useState(false);
   const [viewerFileUrl, setViewerFileUrl] = useState<string | null>(null);
   const [viewerFileTitle, setViewerFileTitle] = useState<string>('');
@@ -2063,6 +2071,52 @@ export default function StudentDashboard({
                                  </div>
                                </div>
                                <p className="text-xs text-slate-700 leading-relaxed bg-slate-50/40 p-2.5 rounded-lg border border-slate-50/50 whitespace-pre-wrap">{post.content}</p>
+                               
+                               {/* 'X read this' counter trigger and expanded tracking list */}
+                               <div className="mt-2" id={`bulletin-read-tracker-container-${post.id}`}>
+                                 <button
+                                   id={`bulletin-student-read-btn-${post.id}`}
+                                   type="button"
+                                   onClick={() => toggleBulletinReadList(post.id)}
+                                   className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 hover:text-brand-blue bg-slate-50 hover:bg-slate-100 rounded-md px-2 py-0.5 border border-slate-200/60 transition-colors cursor-pointer"
+                                 >
+                                   <Eye size={11} className="text-slate-400" />
+                                   <span>{post.readBy?.length || 0} {post.readBy?.length === 1 ? 'student has' : 'students have'} read this</span>
+                                 </button>
+
+                                 {expandedBulletinReads[post.id] && (
+                                   <div className="mt-1.5 p-2 rounded-lg border border-slate-100 bg-slate-50/40 text-[10px] text-slate-500 animate-fade-in" id={`bulletin-read-list-${post.id}`}>
+                                     <div className="font-bold text-slate-600 mb-1">Seen by:</div>
+                                     {(!post.readBy || post.readBy.length === 0) ? (
+                                       <span className="italic text-slate-400">No one has seen this post yet.</span>
+                                     ) : (
+                                       <div className="flex flex-wrap gap-1">
+                                         {post.readBy.map((r, idx) => {
+                                           const readDate = new Date(r.timestamp);
+                                           const readTimeStr = isNaN(readDate.getTime()) 
+                                             ? r.timestamp 
+                                             : readDate.toLocaleDateString('en-IN', {
+                                                 day: '2-digit',
+                                                 month: 'short',
+                                                 hour: '2-digit',
+                                                 minute: '2-digit'
+                                               });
+                                           return (
+                                             <span 
+                                               key={idx} 
+                                               id={`student-read-receipt-${post.id}-${idx}`}
+                                               className="bg-emerald-50 text-emerald-800 border border-emerald-100/50 rounded-full px-1.5 py-0.2 font-medium"
+                                               title={`Read at ${readTimeStr}`}
+                                             >
+                                               {r.studentName}
+                                             </span>
+                                           );
+                                         })}
+                                       </div>
+                                     )}
+                                   </div>
+                                 )}
+                               </div>
                              </div>
 
                             {/* Delete button */}
