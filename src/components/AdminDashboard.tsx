@@ -2229,17 +2229,7 @@ export default function AdminDashboard({
   const [showReauthPassword, setShowReauthPassword] = useState(false);
 
   const handleTogglePasscodeReveal = (userId: string) => {
-    if (visiblePasscodes[userId]) {
-      // If it's already visible, hide it
-      setVisiblePasscodes(prev => ({ ...prev, [userId]: false }));
-    } else {
-      // It's hidden, require re-authentication
-      setReauthTargetUserId(userId);
-      setReauthAdminPassword('');
-      setReauthError(null);
-      setReauthModalOpen(true);
-      setShowReauthPassword(false);
-    }
+    setVisiblePasscodes(prev => ({ ...prev, [userId]: !prev[userId] }));
   };
 
   const handleReauthSubmit = (e: React.FormEvent) => {
@@ -14684,7 +14674,7 @@ ${data.log}`
                                 <div className="flex items-center gap-1.5 font-mono text-xs font-semibold">
                                   <span>
                                     {visiblePasscodes[user.id] 
-                                      ? (user.plainPassword || `${user.username}123`) 
+                                      ? '********' 
                                       : '••••••••'}
                                   </span>
                                   <button
@@ -15653,6 +15643,19 @@ ${data.log}`
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${isDiagnosing ? 'animate-spin' : ''}`} />
                     {isDiagnosing ? 'Scanning Cloud...' : 'Trigger Re-Scan'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm("Are you sure you want to revert all fee data to its original state? This action cannot be undone and will clear all test payment records.")) {
+                        ['sunshine_fee_statuses', 'sunshine_fee_receipts', 'sunshine_subscription_payments', 'sunshine_subscription_receipts', 'sunshine_subscription_notifications'].forEach(key => localStorage.removeItem(key));
+                        window.location.reload();
+                      }
+                    }}
+                    className="flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 px-3.5 py-2 text-xs font-bold text-rose-700 transition-all cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Revert Test Fee Data
                   </button>
                   <button
                     type="button"
@@ -17569,92 +17572,7 @@ ${data.log}`
         </div>
       )}
 
-      {/* Admin Re-authentication Modal for revealing passcodes */}
-      {reauthModalOpen && (
-        <div id="reauth-modal-overlay" className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div id="reauth-modal-content" className="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 w-full max-w-md relative animate-fade-in">
-            <button
-              id="btn-close-reauth-modal"
-              type="button"
-              onClick={() => {
-                setReauthModalOpen(false);
-                setReauthAdminPassword('');
-                setReauthTargetUserId(null);
-                setReauthError(null);
-              }}
-              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 rounded-lg p-1 cursor-pointer"
-            >
-              <X size={18} />
-            </button>
 
-            <div className="text-center mb-5">
-              <span className="inline-flex h-10 w-10 rounded-full bg-rose-50 text-rose-600 items-center justify-center mb-2">
-                <Lock size={18} />
-              </span>
-              <h3 className="font-display font-bold text-slate-800 text-base">Re-authenticate Required</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                To view this password, please enter your administrator password to confirm your identity.
-              </p>
-            </div>
-
-            <form onSubmit={handleReauthSubmit} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-display">Administrator Password</label>
-                <div className="relative">
-                  <input
-                    id="input-reauth-admin-password"
-                    type={showReauthPassword ? "text" : "password"}
-                    required
-                    placeholder="Enter your administrator password"
-                    value={reauthAdminPassword}
-                    onChange={(e) => setReauthAdminPassword(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-3.5 pr-10 py-2.5 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white transition-all font-semibold"
-                  />
-                  <button
-                    type="button"
-                    id="btn-toggle-reauth-password"
-                    onClick={() => setShowReauthPassword(!showReauthPassword)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
-                    title={showReauthPassword ? "Hide password" : "Show password"}
-                  >
-                    {showReauthPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-
-              {reauthError && (
-                <div id="reauth-error-notice" className="p-3.5 rounded-xl bg-rose-50 border border-rose-100 flex items-start gap-2.5 text-xs text-rose-800 font-medium animate-shake">
-                  <AlertCircle size={14} className="text-rose-600 shrink-0 mt-0.5" />
-                  <span>{reauthError}</span>
-                </div>
-              )}
-
-              <div className="flex gap-2.5">
-                <button
-                  type="button"
-                  id="btn-cancel-reauth"
-                  onClick={() => {
-                    setReauthModalOpen(false);
-                    setReauthAdminPassword('');
-                    setReauthTargetUserId(null);
-                    setReauthError(null);
-                  }}
-                  className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  id="btn-submit-reauth"
-                  className="flex-1 rounded-xl bg-indigo-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-indigo-950 transition-colors"
-                >
-                  Confirm &amp; Reveal
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Admin Reset Password Modal */}
       {resettingUser && (
@@ -17817,7 +17735,6 @@ ${data.log}`
                         };
                         if (hashedNewPassword) {
                           updatedUser.password = hashedNewPassword;
-                          (updatedUser as any).plainPassword = newPasswordForUser;
                         }
                         return updatedUser;
                       }

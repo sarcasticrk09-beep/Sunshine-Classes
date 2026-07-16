@@ -5,6 +5,13 @@
 
 export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'TEACHER' | 'RECEPTIONIST' | 'STUDENT';
 
+export interface PasswordHistoryEntry {
+  changedBy: string; // e.g. "Self", or Admin username
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM:SS
+  type: 'RESET' | 'SELF_CHANGED';
+}
+
 export interface User {
   id: string;
   username: string;
@@ -12,12 +19,14 @@ export interface User {
   email: string;
   role: UserRole;
   password?: string;
-  plainPassword?: string;
   avatarUrl?: string;
   phone?: string;
   active?: boolean;
   isLocked?: boolean;
   forcePasswordChange?: boolean;
+  failedLoginAttempts?: number;
+  activeSessionId?: string;
+  passwordHistory?: PasswordHistoryEntry[];
 }
 
 export interface Student {
@@ -123,6 +132,14 @@ export interface Batch {
   nextDueDate: string;
   status: 'ACTIVE' | 'DUE' | 'EXPIRED';
   capacity?: number;
+}
+
+export interface ClassFeeConfig {
+  id: string; // e.g., 'class-1'
+  className: string; // e.g., 'Class 1'
+  monthlyFee: number;
+  isActive: boolean;
+  dueDate: number; // Day of the month
 }
 
 export interface StudentSubscription {
@@ -421,6 +438,9 @@ export interface AuditLog {
   action: string;
   details: string;
   timestamp: string;
+  performedBy?: string;
+  ipAddress?: string;
+  deviceInfo?: string;
 }
 
 export interface AppNotification {

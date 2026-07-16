@@ -31,8 +31,13 @@ import {
   Camera,
   Trash2,
   Send,
-  X
+  X,
+  Eye,
+  EyeOff,
+  Lock
 } from 'lucide-react';
+import { useAuth } from '../auth/useAuth';
+import { simpleSecureHash } from '../auth/AuthProvider';
 import { Student, Attendance, FeeStatus, FeeReceipt, Test, StudentMark, Homework, HomeworkSubmission, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, TimetableEntry, StudyMaterial, BatchBulletinPost, UPIPayment } from '../types';
 import SunshineLogo from './SunshineLogo';
 import { CloudinaryUpload } from './CloudinaryUpload';
@@ -109,6 +114,18 @@ export default function StudentDashboard({
   const [viewerFileUrl, setViewerFileUrl] = useState<string | null>(null);
   const [viewerFileTitle, setViewerFileTitle] = useState<string>('');
   const [idCardOpen, setIdCardOpen] = useState(false);
+
+  // Password change form states
+  const { changePassword, currentUser } = useAuth();
+  const [currentPwdInput, setCurrentPwdInput] = useState('');
+  const [newPwdInput, setNewPwdInput] = useState('');
+  const [confirmPwdInput, setConfirmPwdInput] = useState('');
+  const [pwdErrorMsg, setPwdErrorMsg] = useState('');
+  const [pwdSuccessMsg, setPwdSuccessMsg] = useState('');
+  const [isUpdatingPwd, setIsUpdatingPwd] = useState(false);
+  const [showCurrentPwd, setShowCurrentPwd] = useState(false);
+  const [showNewPwd, setShowNewPwd] = useState(false);
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
 
   // Interactive Sticker Board State
   const [pinnedStickers, setPinnedStickers] = useState<Array<{
@@ -2345,6 +2362,210 @@ export default function StudentDashboard({
                               <CheckCircle size={14} /> Save Profile Details
                             </>
                           )}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  {/* Password Management & Security Card */}
+                  <div id="card-student-security" className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="mb-4">
+                      <h3 className="font-display font-bold text-base text-slate-800 flex items-center gap-2">
+                        <Lock className="text-brand-blue" size={18} /> Password & Security Management
+                      </h3>
+                      <p className="text-xs text-slate-500">Update your account login credentials. Sunshine Classes ERP enforces strong security guidelines for password changes.</p>
+                    </div>
+
+                    {pwdErrorMsg && (
+                      <div id="student-pwd-error-banner" className="mb-4 rounded-xl bg-rose-50 border border-rose-200 p-3 text-rose-800 text-xs font-semibold flex items-start gap-2">
+                        <X className="text-rose-600 shrink-0 mt-0.5" size={16} />
+                        <span>{pwdErrorMsg}</span>
+                      </div>
+                    )}
+
+                    {pwdSuccessMsg && (
+                      <div id="student-pwd-success-banner" className="mb-4 rounded-xl bg-green-50 border border-green-200 p-3 text-green-800 text-xs font-semibold flex items-center gap-2">
+                        <CheckCircle className="text-green-600 shrink-0" size={16} />
+                        <span>{pwdSuccessMsg}</span>
+                      </div>
+                    )}
+
+                    <form id="form-student-pwd-change" onSubmit={async (e) => {
+                      e.preventDefault();
+                      setPwdErrorMsg('');
+                      setPwdSuccessMsg('');
+
+                      const meetsLength = newPwdInput.length >= 8;
+                      const meetsUpper = /[A-Z]/.test(newPwdInput);
+                      const meetsLower = /[a-z]/.test(newPwdInput);
+                      const meetsNum = /[0-9]/.test(newPwdInput);
+                      const meetsSpecial = /[^A-Za-z0-9]/.test(newPwdInput);
+                      const match = newPwdInput === confirmPwdInput && confirmPwdInput !== '';
+
+                      if (!meetsLength || !meetsUpper || !meetsLower || !meetsNum || !meetsSpecial) {
+                        setPwdErrorMsg('New password does not meet the security criteria.');
+                        return;
+                      }
+
+                      if (!match) {
+                        setPwdErrorMsg('Passwords do not match.');
+                        return;
+                      }
+
+                      setIsUpdatingPwd(true);
+                      try {
+                        const storedUsers = localStorage.getItem('sunshine_users');
+                        if (storedUsers && currentUser) {
+                          const users = JSON.parse(storedUsers);
+                          const liveUser = users.find((u: any) => u.id === currentUser.id);
+                          if (liveUser) {
+                            const hashedAttempt = simpleSecureHash(currentPwdInput);
+                            const actualHash = liveUser.password || '';
+                            const isMatched = hashedAttempt === actualHash || 
+                                              hashedAttempt.replace('sha256_', 'sha256_mock_') === actualHash || 
+                                              hashedAttempt.replace('sha256_mock_', 'sha256_') === actualHash;
+
+                            if (!isMatched && liveUser.password) {
+                              setPwdErrorMsg('The current password you entered is incorrect.');
+                              setIsUpdatingPwd(false);
+                              return;
+                            }
+                          }
+                        }
+
+                        await changePassword(newPwdInput);
+                        setPwdSuccessMsg('Your password has been changed successfully! All other active sessions have been invalidated.');
+                        setCurrentPwdInput('');
+                        setNewPwdInput('');
+                        setConfirmPwdInput('');
+                      } catch (err: any) {
+                        setPwdErrorMsg(err.message || 'An error occurred while updating your password.');
+                      } finally {
+                        setIsUpdatingPwd(false);
+                      }
+                    }} className="space-y-4">
+                      {/* Current Password */}
+                      <div>
+                        <label className="mb-1 block text-xs font-bold text-slate-700 uppercase tracking-wide">
+                          Current Password
+                        </label>
+                        <div className="relative">
+                          <input
+                            id="student-current-pwd"
+                            type={showCurrentPwd ? 'text' : 'password'}
+                            required
+                            value={currentPwdInput}
+                            onChange={(e) => setCurrentPwdInput(e.target.value)}
+                            placeholder="Enter your current password"
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-10 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
+                          />
+                          <Lock className="absolute left-3 top-3 text-slate-400" size={14} />
+                          <button
+                            id="btn-student-toggle-curr-pwd"
+                            type="button"
+                            onClick={() => setShowCurrentPwd(!showCurrentPwd)}
+                            className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+                          >
+                            {showCurrentPwd ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        {/* New Password */}
+                        <div>
+                          <label className="mb-1 block text-xs font-bold text-slate-700 uppercase tracking-wide">
+                            New Password
+                          </label>
+                          <div className="relative">
+                            <input
+                              id="student-new-pwd"
+                              type={showNewPwd ? 'text' : 'password'}
+                              required
+                              value={newPwdInput}
+                              onChange={(e) => setNewPwdInput(e.target.value)}
+                              placeholder="Enter secure new password"
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-10 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
+                            />
+                            <Lock className="absolute left-3 top-3 text-slate-400" size={14} />
+                            <button
+                              id="btn-student-toggle-new-pwd"
+                              type="button"
+                              onClick={() => setShowNewPwd(!showNewPwd)}
+                              className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+                            >
+                              {showNewPwd ? <EyeOff size={14} /> : <Eye size={14} />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Confirm Password */}
+                        <div>
+                          <label className="mb-1 block text-xs font-bold text-slate-700 uppercase tracking-wide">
+                            Confirm New Password
+                          </label>
+                          <div className="relative">
+                            <input
+                              id="student-confirm-pwd"
+                              type={showConfirmPwd ? 'text' : 'password'}
+                              required
+                              value={confirmPwdInput}
+                              onChange={(e) => setConfirmPwdInput(e.target.value)}
+                              placeholder="Confirm new password"
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-10 py-2.5 text-xs text-slate-800 outline-none focus:border-brand-blue focus:bg-white"
+                            />
+                            <Lock className="absolute left-3 top-3 text-slate-400" size={14} />
+                            <button
+                              id="btn-student-toggle-conf-pwd"
+                              type="button"
+                              onClick={() => setShowConfirmPwd(!showConfirmPwd)}
+                              className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+                            >
+                              {showConfirmPwd ? <EyeOff size={14} /> : <Eye size={14} />}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Live Requirements Checklist */}
+                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 space-y-1.5 text-[11px] text-slate-600">
+                        <span className="font-bold text-slate-700 block mb-1">Security Checklist:</span>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div className="flex items-center gap-1.5">
+                            {newPwdInput.length >= 8 ? <Check className="w-3.5 h-3.5 text-green-600" /> : <X className="w-3.5 h-3.5 text-slate-300" />}
+                            <span className={newPwdInput.length >= 8 ? 'text-green-700 font-medium' : 'text-slate-400'}>At least 8 characters</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {/[A-Z]/.test(newPwdInput) ? <Check className="w-3.5 h-3.5 text-green-600" /> : <X className="w-3.5 h-3.5 text-slate-300" />}
+                            <span className={/[A-Z]/.test(newPwdInput) ? 'text-green-700 font-medium' : 'text-slate-400'}>One uppercase letter</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {/[a-z]/.test(newPwdInput) ? <Check className="w-3.5 h-3.5 text-green-600" /> : <X className="w-3.5 h-3.5 text-slate-300" />}
+                            <span className={/[a-z]/.test(newPwdInput) ? 'text-green-700 font-medium' : 'text-slate-400'}>One lowercase letter</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {/[0-9]/.test(newPwdInput) ? <Check className="w-3.5 h-3.5 text-green-600" /> : <X className="w-3.5 h-3.5 text-slate-300" />}
+                            <span className={/[0-9]/.test(newPwdInput) ? 'text-green-700 font-medium' : 'text-slate-400'}>One numeric digit</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {/[^A-Za-z0-9]/.test(newPwdInput) ? <Check className="w-3.5 h-3.5 text-green-600" /> : <X className="w-3.5 h-3.5 text-slate-300" />}
+                            <span className={/[^A-Za-z0-9]/.test(newPwdInput) ? 'text-green-700 font-medium' : 'text-slate-400'}>One special symbol</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {(newPwdInput === confirmPwdInput && confirmPwdInput !== '') ? <Check className="w-3.5 h-3.5 text-green-600" /> : <X className="w-3.5 h-3.5 text-slate-300" />}
+                            <span className={(newPwdInput === confirmPwdInput && confirmPwdInput !== '') ? 'text-green-700 font-bold' : 'text-slate-400'}>Passwords match</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end pt-2">
+                        <button
+                          id="btn-student-submit-pwd"
+                          type="submit"
+                          disabled={isUpdatingPwd || !newPwdInput || newPwdInput !== confirmPwdInput || !(newPwdInput.length >= 8 && /[A-Z]/.test(newPwdInput) && /[a-z]/.test(newPwdInput) && /[0-9]/.test(newPwdInput) && /[^A-Za-z0-9]/.test(newPwdInput))}
+                          className="rounded-xl bg-brand-blue hover:bg-indigo-700 px-6 py-2.5 text-xs font-bold text-white shadow-md hover:shadow-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        >
+                          {isUpdatingPwd ? 'Updating Security...' : 'Update Password'}
                         </button>
                       </div>
                     </form>
