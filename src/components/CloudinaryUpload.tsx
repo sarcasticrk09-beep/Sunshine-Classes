@@ -12,7 +12,8 @@ import {
   Eye,
   Crop,
   RotateCw,
-  Plus
+  Plus,
+  Camera
 } from "lucide-react";
 import { cloudinaryService, getPublicIdFromUrl, getOptimizedImageUrl } from "../services/cloudinaryService";
 
@@ -86,6 +87,96 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cropImageRef = useRef<HTMLImageElement>(null);
   const cropContainerRef = useRef<HTMLDivElement>(null);
+
+  // Camera Capture States & Refs
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const startCamera = async () => {
+    setCameraError(null);
+    setCameraLoading(true);
+    setShowCameraModal(true);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+      setCameraStream(stream);
+    } catch (err: any) {
+      console.error("Failed to access camera:", err);
+      let errorMsg = "Could not access camera. Please check your browser permissions.";
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        errorMsg = "Camera access denied. Please grant camera permissions in your browser settings and try again.";
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        errorMsg = "No camera device found on this system.";
+      }
+      setCameraError(errorMsg);
+    } finally {
+      setCameraLoading(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+    }
+    setShowCameraModal(false);
+    setCameraError(null);
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = document.createElement("canvas");
+    const width = video.videoWidth || 640;
+    const height = video.videoHeight || 480;
+    
+    canvas.width = width;
+    canvas.height = height;
+    
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    
+    // Mirror the captured frame to match the user's view
+    ctx.translate(width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, width, height);
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const capturedFile = new File([blob], `camera_${Date.now()}.jpg`, {
+          type: "image/jpeg",
+        });
+        stopCamera();
+        preProcessFile(capturedFile);
+      }
+    }, "image/jpeg", 0.95);
+  };
+
+  useEffect(() => {
+    if (showCameraModal && cameraStream && videoRef.current) {
+      videoRef.current.srcObject = cameraStream;
+    }
+  }, [showCameraModal, cameraStream]);
+
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [cameraStream]);
 
   // Clean up object URLs to prevent memory leaks
   useEffect(() => {
@@ -482,6 +573,20 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
                 <p className="text-[9.5px] text-slate-400 mt-1">
                   Supports: {allowedTypes.join(", ").toUpperCase()} (Max {resolvedFolder === "assignments" ? "20MB PDF, 10MB Images" : `${maxSizeMB}MB`})
                 </p>
+                {allowedTypes.some(t => ["jpg", "jpeg", "png", "webp"].includes(t.toLowerCase())) && (
+                  <button
+                    id={`${id}-camera-capture-trigger-btn`}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      startCamera();
+                    }}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-[11px] font-bold shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Camera className="h-3.5 w-3.5" />
+                    Capture via Camera
+                  </button>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -624,6 +729,114 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
                     className="py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-xs font-bold text-white shadow-md cursor-pointer"
                   >
                     Apply Crop & Save
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Camera Modal Overlay */}
+      <AnimatePresence>
+        {showCameraModal && (
+          <div className="fixed inset-0 bg-slate-900/85 flex items-center justify-center z-50 p-4 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden"
+            >
+              <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
+                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Camera className="h-4 w-4 text-emerald-600 animate-pulse" /> Capture Student Photo
+                </h4>
+                <button
+                  id="btn-close-camera-modal"
+                  type="button"
+                  onClick={stopCamera}
+                  className="p-1 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Viewfinder Area */}
+              <div className="flex flex-col items-center">
+                <div className="relative h-[280px] w-[280px] bg-black rounded-xl overflow-hidden border-2 border-slate-200 dark:border-slate-700 flex items-center justify-center shadow-inner">
+                  {cameraLoading && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-white gap-2 z-10">
+                      <RefreshCw className="h-7 w-7 text-emerald-500 animate-spin" />
+                      <p className="text-[11px] font-semibold text-slate-300">Initializing camera...</p>
+                    </div>
+                  )}
+
+                  {cameraError ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-white p-4 text-center gap-3">
+                      <AlertCircle className="h-8 w-8 text-red-500" />
+                      <p className="text-xs font-medium text-slate-300">{cameraError}</p>
+                      <button
+                        id="btn-retry-camera"
+                        type="button"
+                        onClick={startCamera}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-bold rounded-lg transition-colors cursor-pointer"
+                      >
+                        Try Again
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Video Stream */}
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="h-full w-full object-cover"
+                        style={{ transform: "scaleX(-1)" }} // Mirror effect for standard webcam comfort
+                      />
+
+                      {/* Photo Target Guide Ring */}
+                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                        <div className="h-[210px] w-[210px] rounded-full border-2 border-dashed border-emerald-500/80 bg-emerald-500/5 shadow-[0_0_0_999px_rgba(0,0,0,0.5)]">
+                          {/* Corner Focus Hooks */}
+                          <div className="absolute top-4 left-4 w-4 h-4 border-t-2 border-l-2 border-emerald-400" />
+                          <div className="absolute top-4 right-4 w-4 h-4 border-t-2 border-r-2 border-emerald-400" />
+                          <div className="absolute bottom-4 left-4 w-4 h-4 border-b-2 border-l-2 border-emerald-400" />
+                          <div className="absolute bottom-4 right-4 w-4 h-4 border-b-2 border-r-2 border-emerald-400" />
+                        </div>
+                      </div>
+
+                      <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-emerald-600/90 text-white text-[9px] font-bold uppercase tracking-wider animate-pulse">
+                        Live Feed
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <p className="text-[10px] text-slate-400 font-semibold mt-2.5 text-center">
+                  Align face inside the green dashed target, then capture.
+                </p>
+
+                {/* Shutter Trigger Button */}
+                <div className="flex gap-3 w-full mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 justify-center">
+                  <button
+                    id="btn-camera-cancel"
+                    type="button"
+                    onClick={stopCamera}
+                    className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-600 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    id="btn-camera-shutter"
+                    type="button"
+                    disabled={!!cameraError || cameraLoading || !cameraStream}
+                    onClick={capturePhoto}
+                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-xs font-bold text-white shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                  >
+                    <Camera className="h-4 w-4" />
+                    Take Photo
                   </button>
                 </div>
               </div>

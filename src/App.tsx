@@ -1314,31 +1314,54 @@ export default function App() {
   }, []);
 
   // State update handlers
-  const handleAddAdmission = (adm: Omit<Admission, 'id' | 'status' | 'date'>): string => {
-    const newId = `ADM-2026-0${admissions.length + 1}`;
-    const newAdm: Admission = {
-      ...adm,
-      id: newId,
-      status: 'PENDING',
-      date: new Date().toISOString().split('T')[0]
-    };
-    const updated = [newAdm, ...admissions];
-    setAdmissions(updated);
-    syncState('admissions', updated);
+  const handleAddAdmission = async (adm: Omit<Admission, 'id' | 'status' | 'date'>): Promise<string> => {
+    try {
+      console.log("[App] Submitting online admission via API...", adm);
+      const response = await fetch("/api/enroll", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(adm)
+      });
+      const res = await response.json();
+      if (!response.ok || res.status === "error") {
+        throw new Error(res.message || "Failed to process enrollment submission on server.");
+      }
 
-    // Append Audit log
-    const updatedLogs = [{
-      id: `L-${Date.now()}`,
-      userId: 'u-public',
-      username: 'guest',
-      action: 'ONLINE_ADMISSION',
-      details: `Submitted online admission application for ${adm.studentName}`,
-      timestamp: new Date().toISOString()
-    }, ...auditLogs];
-    setAuditLogs(updatedLogs);
-    syncState('audit_logs', updatedLogs);
+      console.log("[App] Online enrollment processed successfully. Server returned ID:", res.admissionId);
 
-    return newId;
+      // Instant client-side state propagation for real-time responsiveness
+      if (res.student) {
+        setStudents(prev => [res.student, ...prev]);
+        localStorage.setItem('sunshine_students', JSON.stringify([res.student, ...students]));
+      }
+      if (res.admission) {
+        setAdmissions(prev => [res.admission, ...prev]);
+        localStorage.setItem('sunshine_admissions', JSON.stringify([res.admission, ...admissions]));
+      }
+      if (res.user) {
+        setUsers(prev => [res.user, ...prev]);
+        localStorage.setItem('sunshine_users', JSON.stringify([res.user, ...users]));
+      }
+      if (res.feeRecords) {
+        setFeeStatuses(prev => [...prev, ...res.feeRecords]);
+        localStorage.setItem('sunshine_fee_statuses', JSON.stringify([...feeStatuses, ...res.feeRecords]));
+      }
+      if (res.auditLog) {
+        setAuditLogs(prev => [res.auditLog, ...prev]);
+        localStorage.setItem('sunshine_audit_logs', JSON.stringify([res.auditLog, ...auditLogs]));
+      }
+
+      // Show credentials popup for approved enrollment
+      alert(`🎉 Enrollment Processed & Approved Successfully!\n\nStudent Login Credentials Created:\n---------------------------------\nUsername: ${res.user?.username || 'N/A'}\nPassword: Sunshine123\n\nPlease keep these credentials safe for logging in.`);
+
+      return res.admissionId;
+    } catch (err: any) {
+      console.error("[App] Enrollment API Submission failed:", err);
+      alert(`Admission Form Submission Failed: ${err.message || 'Server Connection Error'}`);
+      throw err;
+    }
   };
 
   const handlePaySubscription = (
@@ -1553,8 +1576,15 @@ export default function App() {
     syncState('students', updatedStudents);
 
     // 3. Register user profile for login
-    const generatedUsername = adm.studentName.toLowerCase().replace(/\s+/g, '');
-    const defaultPass = `${generatedUsername}123`;
+    const baseUsername = adm.studentName.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    let generatedUsername = baseUsername;
+    let counter = 1;
+    while (users.some((u) => u.username === generatedUsername)) {
+      generatedUsername = `${baseUsername}${counter}`;
+      counter++;
+    }
+    const defaultPass = "Sunshine123";
+
     const newUser: User = {
       id: newStudent.userId,
       username: generatedUsername,
@@ -1585,6 +1615,9 @@ export default function App() {
     }, ...auditLogs];
     setAuditLogs(updatedLogs);
     syncState('audit_logs', updatedLogs);
+
+    // Show credentials popup
+    alert(`🎉 Admission Approved Successfully!\n\nStudent Login Credentials:\n---------------------------------\nUsername: ${generatedUsername}\nPassword: ${defaultPass}\n\nPlease share these credentials with the student or parents.`);
   };
 
   const handleRejectAdmission = (admissionId: string) => {
@@ -2317,8 +2350,15 @@ Sunshine Classes`;
     syncState('fee_statuses', updatedFeeStatuses);
 
     // Register User Profile with hashed default password
-    const generatedUsername = std.name.toLowerCase().replace(/\s+/g, '');
-    const defaultPass = `${generatedUsername}123`;
+    const baseUsername = std.name.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    let generatedUsername = baseUsername;
+    let counter = 1;
+    while (users.some((u) => u.username === generatedUsername)) {
+      generatedUsername = `${baseUsername}${counter}`;
+      counter++;
+    }
+    const defaultPass = "Sunshine123";
+
     const newUser: User = {
       id: newStd.userId,
       username: generatedUsername,
@@ -2331,6 +2371,8 @@ Sunshine Classes`;
     const updatedUsers = [...users, newUser];
     setUsers(updatedUsers);
     syncState('users', updatedUsers);
+
+    alert(`🎉 Student Registered Successfully!\n\nLogin Credentials Created:\n---------------------------------\nUsername: ${generatedUsername}\nPassword: ${defaultPass}\n\nPlease share these credentials with the student.`);
   };
 
   const handleDeleteStudent = (id: string) => {
@@ -2436,8 +2478,15 @@ Sunshine Classes`;
     syncState('teachers', updated);
 
     // Register associated User Login credential profile with hashed default password
-    const generatedUsername = tch.name.toLowerCase().replace(/\s+/g, '');
-    const defaultPass = `${generatedUsername}123`;
+    const baseUsername = tch.name.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    let generatedUsername = baseUsername;
+    let counter = 1;
+    while (users.some((u) => u.username === generatedUsername)) {
+      generatedUsername = `${baseUsername}${counter}`;
+      counter++;
+    }
+    const defaultPass = "Sunshine123";
+
     const newUser: User = {
       id: newTch.userId,
       username: generatedUsername,
@@ -2450,6 +2499,8 @@ Sunshine Classes`;
     const updatedUsers = [...users, newUser];
     setUsers(updatedUsers);
     syncState('users', updatedUsers);
+
+    alert(`🎉 Teacher Registered Successfully!\n\nLogin Credentials Created:\n---------------------------------\nUsername: ${generatedUsername}\nPassword: ${defaultPass}\n\nPlease share these credentials with the teacher.`);
   };
 
   const handleDeleteTeacher = (id: string) => {
@@ -2517,8 +2568,14 @@ Sunshine Classes`;
           (u) => u.username === t.userId || u.id === t.userId
         );
         if (!userExists) {
-          const generatedUsername = t.name.toLowerCase().replace(/\s+/g, '');
-          const defaultPass = `${generatedUsername}123`;
+          const baseUsername = t.name.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+          let generatedUsername = baseUsername;
+          let counter = 1;
+          while (updatedUsers.some((u) => u.username === generatedUsername)) {
+            generatedUsername = `${baseUsername}${counter}`;
+            counter++;
+          }
+          const defaultPass = "Sunshine123";
           updatedUsers.push({
             id: t.userId,
             username: generatedUsername,
@@ -2578,10 +2635,16 @@ Sunshine Classes`;
         };
         updatedStudents.push(studentUser);
 
-        const generatedUsername = s.name.toLowerCase().replace(/\s+/g, '') + cleanPhone.slice(-4);
         const userExists = updatedUsers.some((u) => u.id === s.userId);
         if (!userExists) {
-          const defaultPass = `${generatedUsername}123`;
+          const baseUsername = s.name.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+          let generatedUsername = baseUsername;
+          let counter = 1;
+          while (updatedUsers.some((u) => u.username === generatedUsername)) {
+            generatedUsername = `${baseUsername}${counter}`;
+            counter++;
+          }
+          const defaultPass = "Sunshine123";
           updatedUsers.push({
             id: s.userId,
             username: generatedUsername,

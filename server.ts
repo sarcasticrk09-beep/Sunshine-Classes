@@ -48,6 +48,97 @@ const firebaseConfig = {
 const fbApp = initializeApp(firebaseConfig, "sunshine-classes-server");
 const db = getFirestore(fbApp);
 
+function simpleSecureHash(password: string): string {
+  function sha256(ascii: string): string {
+    function rightRotate(value: number, amount: number) {
+      return (value >>> amount) | (value << (32 - amount));
+    }
+    const mathPow = Math.pow;
+    const maxWord = mathPow(2, 32);
+    const lengthProperty = 'length';
+    let i, j;
+    let result = '';
+
+    const words: any[] = [];
+    const asciiLength = ascii[lengthProperty];
+    const hash = (sha256 as any).h = (sha256 as any).h || [];
+    const k = (sha256 as any).k = (sha256 as any).k || [];
+    let primeCounter = k[lengthProperty];
+
+    const isComposite: any = {};
+    for (let candidate = 2; primeCounter < 64; candidate++) {
+      if (!isComposite[candidate]) {
+        for (i = 0; i < 313; i += candidate) {
+          isComposite[i] = 1;
+        }
+        hash[primeCounter] = (mathPow(candidate, .5) * maxWord) | 0;
+        k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+      }
+    }
+
+    ascii += '\x80';
+    while (ascii[lengthProperty] % 64 - 56) ascii += '\x00';
+    for (i = 0; i < ascii[lengthProperty]; i++) {
+      j = ascii.charCodeAt(i);
+      if (j >> 8) return '';
+      words[i >> 2] |= j << ((3 - i % 4) * 8);
+    }
+    words[words[lengthProperty]] = ((asciiLength * 8) / maxWord) | 0;
+    words[words[lengthProperty]] = (asciiLength * 8) | 0;
+
+    let h0 = hash[0], h1 = hash[1], h2 = hash[2], h3 = hash[3], h4 = hash[4], h5 = hash[5], h6 = hash[6], h7 = hash[7];
+
+    for (i = 0; i < words[lengthProperty]; i += 16) {
+      const w = words.slice(i, i + 16);
+      const oldH0 = h0, oldH1 = h1, oldH2 = h2, oldH3 = h3, oldH4 = h4, oldH5 = h5, oldH6 = h6, oldH7 = h7;
+
+      for (j = 0; j < 64; j++) {
+        if (j < 16) {
+          // No-op
+        } else {
+          const s0 = rightRotate(w[j - 15], 7) ^ rightRotate(w[j - 15], 18) ^ (w[j - 15] >>> 3);
+          const s1 = rightRotate(w[j - 2], 17) ^ rightRotate(w[j - 2], 19) ^ (w[j - 2] >>> 10);
+          w[j] = (w[j - 16] + s0 + w[j - 7] + s1) | 0;
+        }
+
+        const ch = (h4 & h5) ^ (~h4 & h6);
+        const maj = (h0 & h1) ^ (h0 & h2) ^ (h1 & h2);
+        const sigma0 = rightRotate(h0, 2) ^ rightRotate(h0, 13) ^ rightRotate(h0, 22);
+        const sigma1 = rightRotate(h4, 6) ^ rightRotate(h4, 11) ^ rightRotate(h4, 25);
+        const temp1 = (h7 + sigma1 + ch + k[j] + (w[j] || 0)) | 0;
+        const temp2 = (sigma0 + maj) | 0;
+
+        h7 = h6;
+        h6 = h5;
+        h5 = h4;
+        h4 = (h3 + temp1) | 0;
+        h3 = h2;
+        h2 = h1;
+        h1 = h0;
+        h0 = (temp1 + temp2) | 0;
+      }
+
+      h0 = (h0 + oldH0) | 0;
+      h1 = (h1 + oldH1) | 0;
+      h2 = (h2 + oldH2) | 0;
+      h3 = (h3 + oldH3) | 0;
+      h4 = (h4 + oldH4) | 0;
+      h5 = (h5 + oldH5) | 0;
+      h6 = (h6 + oldH6) | 0;
+      h7 = (h7 + oldH7) | 0;
+    }
+
+    const wordsToHex = [h0, h1, h2, h3, h4, h5, h6, h7];
+    for (i = 0; i < 8; i++) {
+      const hex = (wordsToHex[i] >>> 0).toString(16).padStart(8, '0');
+      result += hex;
+    }
+    return result;
+  }
+
+  return 'sha256_' + sha256(password);
+}
+
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -68,6 +159,264 @@ async function startServer() {
   });
   app.get("/api/health", (req, res) => {
     res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
+  });
+
+  // --- Start of Sunshine Classes Admission/Enrollment API Routes ---
+  app.post("/api/enroll", async (req, res) => {
+    try {
+      console.log("[Enrollment Endpoint] Received enrollment payload:", req.body);
+      const {
+        studentName,
+        fatherName,
+        motherName,
+        dob,
+        gender,
+        className,
+        previousSchool,
+        mobile,
+        whatsapp,
+        parentMobile,
+        email,
+        address,
+        aadhar,
+        preferredBatch,
+        preferredTiming,
+        photoUrl,
+        documentUrl
+      } = req.body;
+
+      // Validation
+      if (!studentName || !fatherName || !motherName || !className || !mobile || !email || !address) {
+        console.error("[Enrollment Endpoint] Missing required parameters");
+        return res.status(400).json({
+          status: "error",
+          message: "Validation failed: studentName, fatherName, motherName, className, mobile, email, and address are required."
+        });
+      }
+
+      // Read state collections from Firestore
+      console.log("[Enrollment Endpoint] Fetching collections from Firestore...");
+      const studentsRef = doc(db, 'sunshine_erp_state', 'students');
+      const admissionsRef = doc(db, 'sunshine_erp_state', 'admissions');
+      const usersRef = doc(db, 'sunshine_erp_state', 'users');
+      const feesRef = doc(db, 'sunshine_erp_state', 'fee_statuses');
+      const auditRef = doc(db, 'sunshine_erp_state', 'audit_logs');
+
+      const [studentsSnap, admissionsSnap, usersSnap, feesSnap, auditSnap] = await Promise.all([
+        getDoc(studentsRef),
+        getDoc(admissionsRef),
+        getDoc(usersRef),
+        getDoc(feesRef),
+        getDoc(auditRef)
+      ]);
+
+      const students = studentsSnap.exists() ? (studentsSnap.data()?.data || []) : [];
+      const admissionsList = admissionsSnap.exists() ? (admissionsSnap.data()?.data || []) : [];
+      const users = usersSnap.exists() ? (usersSnap.data()?.data || []) : [];
+      const feeStatuses = feesSnap.exists() ? (feesSnap.data()?.data || []) : [];
+      const auditLogs = auditSnap.exists() ? (auditSnap.data()?.data || []) : [];
+
+      // Generate unique IDs
+      const nextRollNum = 1000 + students.length + 1;
+      const rollNo = `SC-${nextRollNum}`;
+      const admId = `ADM-2026-0${admissionsList.length + 1}`;
+      const studentId = `s-new-${Date.now()}`;
+      const userId = `u-new-std-${Date.now()}`;
+
+      // Calculate class-wise tuition fee
+      let classTuitionFee = 500;
+      if (className === 'Class 10') classTuitionFee = 1200;
+      else if (className === 'Class 9') classTuitionFee = 1000;
+      else if (['Class 8', 'Class 7', 'Class 6', 'Class 5'].includes(className)) classTuitionFee = 700;
+
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // Format Current Month Year (e.g. "July 2026")
+      const d = new Date();
+      const y = d.getFullYear() < 2026 ? 2026 : d.getFullYear();
+      const m = d.getMonth();
+      const MONTH_NAMES = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      const currentBillingMonth = `${MONTH_NAMES[m]} ${y}`;
+
+      // 1. Create Student record
+      const newStudent = {
+        id: studentId,
+        userId: userId,
+        rollNo: rollNo,
+        name: studentName,
+        class: className,
+        fatherName: fatherName,
+        motherName: motherName,
+        dob: dob,
+        gender: gender,
+        address: address,
+        mobile: mobile,
+        whatsapp: whatsapp || mobile,
+        parentMobile: parentMobile || mobile,
+        email: email,
+        preferredBatch: preferredBatch || className,
+        preferredTiming: preferredTiming || '04:00 PM - 06:30 PM',
+        admissionDate: todayStr,
+        attendancePercentage: 100,
+        status: 'ACTIVE',
+        photoUrl: photoUrl || '',
+        documentUrl: documentUrl || '',
+        feeStartMonth: currentBillingMonth,
+        monthlyFee: classTuitionFee,
+        dueDay: 10,
+        admissionFee: 0,
+        registrationFee: 0,
+        discount: 0,
+        scholarship: 0,
+        currentBalance: 0
+      };
+
+      // 2. Create Admission record
+      const newAdmission = {
+        id: admId,
+        studentName: studentName,
+        fatherName: fatherName,
+        motherName: motherName,
+        dob: dob,
+        gender: gender,
+        className: className,
+        previousSchool: previousSchool || '',
+        mobile: mobile,
+        whatsapp: whatsapp || mobile,
+        parentMobile: parentMobile || mobile,
+        email: email,
+        address: address,
+        aadhar: aadhar || '',
+        photoUrl: photoUrl || '',
+        documentUrl: documentUrl || '',
+        preferredBatch: preferredBatch || className,
+        preferredTiming: preferredTiming || '04:00 PM - 06:30 PM',
+        status: 'APPROVED',
+        date: todayStr
+      };
+
+      // 3. Create Default login account
+      const baseUsername = studentName.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+      let generatedUsername = baseUsername;
+      let counter = 1;
+      while (users.some((u: any) => u.username === generatedUsername)) {
+        generatedUsername = `${baseUsername}${counter}`;
+        counter++;
+      }
+      const defaultPass = "Sunshine123";
+      const hashedPassword = simpleSecureHash(defaultPass);
+
+      const newUser = {
+        id: userId,
+        username: generatedUsername,
+        name: studentName,
+        email: email,
+        role: 'STUDENT',
+        phone: mobile,
+        password: hashedPassword
+      };
+
+      // 4. Create Fee Profile (12 months of fee records)
+      const newFeeRecords = [];
+      let feeMonth = m;
+      let feeYear = y;
+      for (let i = 0; i < 12; i++) {
+        const mName = `${MONTH_NAMES[feeMonth]} ${feeYear}`;
+        const monthPadded = String(feeMonth + 1).padStart(2, '0');
+        const dayPadded = "10";
+        const dueDate = `${feeYear}-${monthPadded}-${dayPadded}`;
+
+        newFeeRecords.push({
+          id: `fee-${studentId}-${feeMonth}-${feeYear}-${i}`,
+          studentId: studentId,
+          studentName: studentName,
+          class: className,
+          month: mName,
+          totalFee: classTuitionFee,
+          discount: 0,
+          scholarship: 0,
+          paidFee: 0,
+          pendingFee: classTuitionFee,
+          status: 'PENDING',
+          dueDate,
+          billingMonth: MONTH_NAMES[feeMonth],
+          billingYear: String(feeYear),
+          paymentHistory: [],
+          receiptIds: []
+        });
+
+        feeMonth++;
+        if (feeMonth > 11) {
+          feeMonth = 0;
+          feeYear++;
+        }
+      }
+
+      // 5. Create Audit Log
+      const newAuditLog = {
+        id: `L-${Date.now()}`,
+        userId: 'u-public',
+        username: 'guest',
+        action: 'ONLINE_ADMISSION',
+        details: `Online Admission processed for ${studentName} (${className}). Enrolled as Roll No ${rollNo} automatically.`,
+        timestamp: new Date().toISOString()
+      };
+
+      // Create user in Firebase Auth using Admin SDK
+      try {
+        console.log(`[Enrollment Endpoint] Creating Auth account for: ${email}`);
+        await getAdminAuth().createUser({
+          uid: userId,
+          email: email,
+          password: defaultPass,
+          displayName: studentName
+        });
+        console.log("[Enrollment Endpoint] Firebase Auth user created successfully.");
+      } catch (authErr: any) {
+        if (authErr.code === 'auth/email-already-in-use') {
+          console.warn(`[Enrollment Endpoint] Auth email already in use: ${email}. Proceeding.`);
+        } else {
+          console.error("[Enrollment Endpoint] Firebase Auth creation failed:", authErr.message);
+        }
+      }
+
+      // 6. Database Writes with parallel setDoc commits
+      console.log("[Enrollment Endpoint] Committing updates to Firestore...");
+      await Promise.all([
+        setDoc(studentsRef, { data: [newStudent, ...students] }, { merge: false }),
+        setDoc(admissionsRef, { data: [newAdmission, ...admissionsList] }, { merge: false }),
+        setDoc(usersRef, { data: [newUser, ...users] }, { merge: false }),
+        setDoc(feesRef, { data: [...feeStatuses, ...newFeeRecords] }, { merge: false }),
+        setDoc(auditRef, { data: [newAuditLog, ...auditLogs] }, { merge: false })
+      ]);
+
+      console.log("[Enrollment Endpoint] Admission processed successfully. ID:", admId);
+      return res.status(201).json({
+        status: "success",
+        admissionId: admId,
+        student: newStudent,
+        admission: newAdmission,
+        user: newUser,
+        feeRecords: newFeeRecords,
+        auditLog: newAuditLog
+      });
+
+    } catch (err: any) {
+      console.error("[Enrollment Endpoint Error]:", err);
+      return res.status(500).json({
+        status: "error",
+        message: err.message || "An unexpected error occurred during enrollment."
+      });
+    }
+  });
+
+  app.post("/api/admissions", async (req, res) => {
+    // Forward directly to /api/enroll logic
+    req.url = "/api/enroll";
+    return app._router.handle(req, res);
   });
 
   // --- Start of Secure Firebase Admin Auth Routes ---

@@ -80,7 +80,7 @@ interface LandingPageProps {
   studyMaterials: StudyMaterial[];
   gallery: GalleryItem[];
   onNavigateToERP: () => void;
-  onAddAdmission: (adm: Omit<Admission, 'id' | 'status' | 'date'>) => string;
+  onAddAdmission: (adm: Omit<Admission, 'id' | 'status' | 'date'>) => Promise<string> | string;
   admissions?: Admission[];
   students?: Student[];
   founders?: FounderMember[];
@@ -201,6 +201,8 @@ export default function LandingPage({
   
   // Admission confirmation state
   const [generatedAdmId, setGeneratedAdmId] = useState<string | null>(null);
+  const [isAdmLoading, setIsAdmLoading] = useState(false);
+  const [admError, setAdmError] = useState<string | null>(null);
 
   const handleContactSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,40 +215,49 @@ export default function LandingPage({
     }, 4000);
   };
 
-  const handleAdmissionSubmit = (e: React.FormEvent) => {
+  const handleAdmissionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const admId = onAddAdmission({
-      studentName: admName,
-      fatherName: admFather,
-      motherName: admMother,
-      dob: admDob,
-      gender: admGender,
-      className: admClass,
-      previousSchool: admPrevSchool || undefined,
-      mobile: admMobile,
-      whatsapp: admWhatsapp,
-      parentMobile: admParentMobile,
-      email: admEmail,
-      address: admAddress,
-      aadhar: admAadhar || undefined,
-      preferredBatch: admBatch,
-      preferredTiming: admTiming,
-      photoUrl: admPhotoUrl || undefined
-    });
+    setIsAdmLoading(true);
+    setAdmError(null);
+    try {
+      const admId = await onAddAdmission({
+        studentName: admName,
+        fatherName: admFather,
+        motherName: admMother,
+        dob: admDob,
+        gender: admGender,
+        className: admClass,
+        previousSchool: admPrevSchool || undefined,
+        mobile: admMobile,
+        whatsapp: admWhatsapp,
+        parentMobile: admParentMobile,
+        email: admEmail,
+        address: admAddress,
+        aadhar: admAadhar || undefined,
+        preferredBatch: admBatch,
+        preferredTiming: admTiming,
+        photoUrl: admPhotoUrl || undefined
+      });
 
-    setGeneratedAdmId(admId);
-    // Clear fields
-    setAdmName('');
-    setAdmFather('');
-    setAdmMother('');
-    setAdmPrevSchool('');
-    setAdmMobile('');
-    setAdmWhatsapp('');
-    setAdmParentMobile('');
-    setAdmEmail('');
-    setAdmAddress('');
-    setAdmAadhar('');
-    setAdmPhotoUrl('');
+      setGeneratedAdmId(admId);
+      // Clear fields
+      setAdmName('');
+      setAdmFather('');
+      setAdmMother('');
+      setAdmPrevSchool('');
+      setAdmMobile('');
+      setAdmWhatsapp('');
+      setAdmParentMobile('');
+      setAdmEmail('');
+      setAdmAddress('');
+      setAdmAadhar('');
+      setAdmPhotoUrl('');
+    } catch (err: any) {
+      console.error("[LandingPage] Admission Form Submission Failed:", err);
+      setAdmError(err.message || "An error occurred while submitting the admission. Please try again.");
+    } finally {
+      setIsAdmLoading(false);
+    }
   };
 
   // Static Facilities List
@@ -1102,13 +1113,26 @@ export default function LandingPage({
                       </div>
                     </div>
 
-                    <div className="flex justify-end pt-2">
+                     {admError && (
+                      <div className="rounded-xl bg-red-50 border border-red-100 p-3.5 text-xs text-red-600 font-bold font-sans mt-4">
+                        ⚠️ {admError}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end pt-2 items-center gap-4">
+                      {isAdmLoading && (
+                        <span className="text-xs text-slate-500 flex items-center gap-2 font-sans animate-pulse font-bold">
+                          <span className="h-3 w-3 border-2 border-brand-orange border-t-transparent rounded-full animate-spin"></span>
+                          Processing Admission File...
+                        </span>
+                      )}
                       <button
                         id="btn-admission-submit"
                         type="submit"
-                        className="rounded-xl bg-brand-orange hover:bg-amber-500 text-white px-6 py-3 text-xs font-black shadow-md transition-all"
+                        disabled={isAdmLoading}
+                        className={`rounded-xl bg-brand-orange hover:bg-amber-500 text-white px-6 py-3 text-xs font-black shadow-md transition-all flex items-center gap-2 ${isAdmLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
                       >
-                        Submit Admission File
+                        {isAdmLoading ? "Submitting..." : "Submit Admission File"}
                       </button>
                     </div>
                   </form>
