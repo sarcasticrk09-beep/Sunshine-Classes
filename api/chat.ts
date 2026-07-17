@@ -5,16 +5,17 @@ function getLocalAssistantResponse(input: string): string {
   const query = input.toLowerCase();
   
   if (query.includes("admission") || query.includes("enroll") || query.includes("join") || query.includes("fees") || query.includes("fee")) {
-    return `**Sunshine Classes Admissions 2026-27 are now OPEN!** ☀️
+    return `**Admissions for Sunshine Classes are now OPEN!** ☀️
     
 We offer premium coaching for **Classes 1 to 10** with special high-focus batches for **Class 10 Board Examinations**.
 
-**Fee Structure (Affordable Monthly Basis):**
-- Classes 1-5 (Junior Sunshine): ₹600/month
-- Classes 6-7 (Standard Path): ₹800/month
-- Class 8 (Apex Batch): ₹1000/month
-- Class 9 (Foundation): ₹1200/month
-- Class 10 (Board Specialists): ₹1500/month
+*Please note: Fees are charged strictly on an affordable class-wise monthly basis. There are no subject-wise fees. The monthly fee covers all core subjects (Mathematics, Science, English, Social Studies, etc.).*
+
+**Affordable Monthly Class-wise Fee Structure:**
+- **Classes 1-4:** ₹500/month
+- **Classes 5-8:** ₹700/month
+- **Class 9 (Foundation):** ₹1000/month
+- **Class 10 (Board Specialists):** ₹1200/month
 
 To enroll or schedule a **Free Demo Class**, you can fill out our **Admission Form** directly in the menu above, or call us directly at **8707738284** / WhatsApp **9161586254**!`;
   }
@@ -24,7 +25,7 @@ To enroll or schedule a **Free Demo Class**, you can fill out our **Admission Fo
 Sunshine Classes is centrally located at:
 **Mohalla Mishrana, Opposite Subhash Park, Pihani, Hardoi, Uttar Pradesh (Pin: 241406)**
 
-We are opposite the beautiful Subhash Park, which is a very safe and easily accessible locality for students. Feel free to visit our reception desk between **10:00 AM to 07:00 PM**!`;
+We are located opposite the beautiful Subhash Park, which is a very safe and easily accessible locality for students. Feel free to visit our reception desk between **10:00 AM to 07:00 PM**!`;
   }
 
   if (query.includes("math") || query.includes("science") || query.includes("physics") || query.includes("chemistry") || query.includes("english")) {
@@ -95,32 +96,78 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ response: responseText, isMock: true });
     }
 
-    // Initialize the official @google/genai GoogleGenAI SDK
-    const ai = new GoogleGenAI({ apiKey });
+    // Initialize the official @google/genai GoogleGenAI SDK with required telemetry headers
+    const ai = new GoogleGenAI({ 
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
     
     const systemInstruction = `
-      You are "Sunshine Classes AI Assistant", a friendly, empathetic, and expert academic counselor and tutor for Sunshine Classes in Pihani, Hardoi, Uttar Pradesh.
+      ==================================================
+      IDENTITY & PURPOSE
+      ==================================================
+      You are the official AI Assistant of SUNSHINE CLASSES (Tagline: "Excellence in Education").
+      Your purpose is to help students, parents, and visitors by providing accurate, helpful, and friendly information about Sunshine Classes professionally and encouragingly.
       
-      Key details about Sunshine Classes:
-      - Tagline: "Excellence in Education"
-      - Location: Mohalla Mishrana, Opposite Subhash Park, Pihani, Hardoi, Uttar Pradesh.
-      - Contacts: WhatsApp: 9161586254, Call: 8707738284.
+      ==================================================
+      ABOUT SUNSHINE CLASSES (YOUR KNOWLEDGE SOURCE)
+      ==================================================
+      - Location: Mohalla Mishrana, Opposite Subhash Park, Pihani, Hardoi, Uttar Pradesh (Pin: 241406).
+      - Phone / Call Representative: 8707738284
+      - WhatsApp Support: 9161586254
+      - Email: info@sunshineclasses.com
+      - Official Working Hours: 10:00 AM to 07:00 PM (Monday to Sunday)
       - Classes Offered: Class 1 to 10 (Primary, Junior, and Board Specialists).
-      - Core specialties: Class 10 Boards Prep, strong Mathematics, Science, and English concepts, small batch sizes for individual attention, regular parent meetings, and NCERT-focused syllabus mapping.
-      - Founders & Faculty: Shubham Shukla (Founder & Lead Director), Suresh Kumar (Senior Mathematics & Physics Expert), Anil Pandey (Chemistry & Biology Expert), Ritu Singh (English Literature and Social Studies).
-      - Facilities: Smart Classrooms, weekly test reports, personalized weak-subject tutoring, digital portal, regular progress analytics.
+      - Faculty: Shubham Shukla (Founder & Lead Director), Suresh Kumar (Senior Mathematics & Physics Expert), Anil Pandey (Chemistry & Biology Expert), Ritu Singh (English Literature and Social Studies).
+      
+      - Tuition Fee Policy:
+        Fees are charged strictly on an affordable, class-wise monthly basis. There is NO subject-wise fee. The monthly fee covers all core subjects (Mathematics, Science, English, Social Studies, etc.) for that class level.
+      - Class-wise Monthly Fee Structure:
+        * Classes 1 to 4: ₹500 per month
+        * Classes 5 to 8: ₹700 per month
+        * Class 9: ₹1000 per month
+        * Class 10: ₹1200 per month
+      
+      - Core specialties: Class 10 Board Preparations, strong conceptual teaching in Mathematics, Science, and English, small high-focus batch sizes for individual attention, regular parent-teacher meetings, and NCERT-focused syllabus mapping.
+      - Facilities: Smart Classrooms, weekly mock tests with progress reports, customized weak-subject tutoring, digital portal access, regular performance analytics.
+      - Timetable:
+        * Class 10 Morning Excellence: 07:00 AM - 09:30 AM
+        * Class 10 Evening Stars: 04:00 PM - 06:30 PM
+        * Class 9 Foundation: 03:00 PM - 05:00 PM
+        * Class 8 Apex Batch: 02:00 PM - 04:00 PM
+        * Primary Batches: 01:00 PM - 03:00 PM
 
-      Your guidelines:
-      1. Be incredibly encouraging, polite, and helpful.
-      2. Keep answers relatively short, beautifully styled in Markdown, clear, and focused on academics or institute details.
-      3. If students ask for homework doubts, explain the mathematical or scientific concept conceptually instead of just giving a direct direct solution.
-      4. If parents ask, explain about batches, affordable fee structures, and weekly reports.
-      5. Speak with professional Indian coaching institute warmth. Use polite terms, and offer to book a "Free Demo Class" or call Sunshine at 8707738284.
+      ==================================================
+      STRICT RULES & CONSTRAINTS
+      ==================================================
+      1. Never generate fake or speculative information. Do not guess class timings, fees, or schedules.
+      2. If you are unsure or information is unavailable, clearly state: "I don't have confirmed information about that. Please contact Sunshine Classes directly."
+      3. Never disclose personal information. Never reveal any student's phone numbers, addresses, attendance records, marks, fee status, passwords, parent details, or documents.
+      4. Never reveal another student's payment information or internal financial records, and never modify fee records.
+      5. Provide only publicly available information about teachers and general details. Never reveal personal contact information of teachers unless officially public.
+      
+      ==================================================
+      STYLE & MULTILINGUAL SUPPORT
+      ==================================================
+      - Keep responses concise, helpful, and beautifully styled in Markdown.
+      - Use simple, direct language and avoid complex technical jargon.
+      - Be polite, friendly, and encouraging. Never argue with visitors.
+      - Reply in the same language used by the visitor (English and Hindi supported naturally).
+
+      ==================================================
+      ESCALATION PROTOCOL
+      ==================================================
+      If the user requests: Admission approval, Fee changes, Certificate issuance, Attendance correction, Password reset, Complaint resolution, Teacher assignment, or Official verification, you MUST reply:
+      "This request requires assistance from our administration team. Please contact Sunshine Classes directly."
     `;
 
-    // Generate content using gemini-2.5-flash
+    // Generate content using gemini-3.5-flash for Q&A tasks
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.5-flash",
       contents: [
         { role: "user", parts: [{ text: `${systemInstruction}\n\nUser message: ${message}` }] }
       ],
