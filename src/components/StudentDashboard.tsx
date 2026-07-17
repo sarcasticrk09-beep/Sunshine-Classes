@@ -122,6 +122,8 @@ export default function StudentDashboard({
   const [viewerFileUrl, setViewerFileUrl] = useState<string | null>(null);
   const [viewerFileTitle, setViewerFileTitle] = useState<string>('');
   const [idCardOpen, setIdCardOpen] = useState(false);
+  const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
 
   // Password change form states
   const { changePassword, currentUser } = useAuth();
@@ -466,25 +468,28 @@ export default function StudentDashboard({
   const renderPerformanceChart = () => {
     if (myMarks.length === 0) {
       return (
-        <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-8 text-center">
-          <TrendingUp className="h-10 w-10 text-slate-400 mb-2" />
+        <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-8 text-center bg-slate-50/50">
+          <TrendingUp className="h-10 w-10 text-slate-400 mb-2 animate-pulse" />
           <p className="text-sm font-medium text-slate-500">No test marks entered yet for Class 10 boards syllabus.</p>
         </div>
       );
     }
 
     // Prepare chart coordinates
-    const chartWidth = 500;
-    const chartHeight = 200;
-    const padding = 40;
-    const graphWidth = chartWidth - padding * 2;
-    const graphHeight = chartHeight - padding * 2;
+    const chartWidth = 600;
+    const chartHeight = 250;
+    const paddingLeft = 45;
+    const paddingRight = 35;
+    const paddingTop = 30;
+    const paddingBottom = 40;
+    const graphWidth = chartWidth - paddingLeft - paddingRight;
+    const graphHeight = chartHeight - paddingTop - paddingBottom;
 
     const points = myMarks.map((m, idx) => {
       const testObj = tests.find((t) => t.id === m.testId);
       const pct = testObj ? (m.marksObtained / testObj.totalMarks) * 100 : 0;
-      const x = padding + (idx / Math.max(1, myMarks.length - 1)) * graphWidth;
-      const y = padding + graphHeight - (pct / 100) * graphHeight;
+      const x = paddingLeft + (idx / Math.max(1, myMarks.length - 1)) * graphWidth;
+      const y = paddingTop + graphHeight - (pct / 100) * graphHeight;
       return { x, y, pct, title: testObj?.title || 'Test', score: `${m.marksObtained}/${testObj?.totalMarks}` };
     });
 
@@ -492,33 +497,125 @@ export default function StudentDashboard({
       return idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
     }, '');
 
+    // Area path closed under the curve
+    const areaData = points.length > 0
+      ? `${pathData} L ${points[points.length - 1].x} ${paddingTop + graphHeight} L ${points[0].x} ${paddingTop + graphHeight} Z`
+      : '';
+
     return (
-      <div className="w-full bg-white rounded-xl border border-slate-200 p-4">
-        <h4 className="mb-4 font-display font-bold text-sm text-slate-800">Your Exam Marks Trend (%)</h4>
-        <div className="w-full h-[200px] relative">
-          <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-full">
+      <div className="w-full bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs">
+        <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+          <h4 className="font-display font-bold text-sm text-slate-800">Board Assessment Analytics (%)</h4>
+          <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-100 font-extrabold uppercase px-2.5 py-0.5 rounded-full">
+            Mock Exam History
+          </span>
+        </div>
+        <div className="w-full h-[220px] relative">
+          <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-full overflow-visible">
+            <defs>
+              {/* Soft Area Gradient Under Curve */}
+              <linearGradient id="area-gradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#0D47A1" stopOpacity="0.25" />
+                <stop offset="100%" stopColor="#0D47A1" stopOpacity="0.00" />
+              </linearGradient>
+              {/* Premium Glow Effect on Line */}
+              <filter id="glow-shadow" x="-10%" y="-10%" width="120%" height="120%">
+                <feDropShadow dx="0" dy="4" stdDeviation="3" floodColor="#0D47A1" floodOpacity="0.15" />
+              </filter>
+            </defs>
+
             {/* Grid Lines */}
             {[0, 25, 50, 75, 100].map((v) => {
-              const y = padding + graphHeight - (v / 100) * graphHeight;
+              const y = paddingTop + graphHeight - (v / 100) * graphHeight;
               return (
                 <g key={v}>
-                  <line x1={padding} y1={y} x2={chartWidth - padding} y2={y} stroke="#e2e8f0" strokeDasharray="4 4" />
-                  <text x={padding - 10} y={y + 4} textAnchor="end" className="text-[10px] font-mono fill-slate-400">{v}%</text>
+                  <line 
+                    x1={paddingLeft} 
+                    y1={y} 
+                    x2={chartWidth - paddingRight} 
+                    y2={y} 
+                    stroke="#F1F5F9" 
+                    strokeWidth="1.5"
+                    strokeDasharray={v === 0 ? "0" : "5 5"} 
+                  />
+                  <text 
+                    x={paddingLeft - 12} 
+                    y={y + 3.5} 
+                    textAnchor="end" 
+                    className="text-[10px] font-bold font-mono fill-slate-400"
+                  >
+                    {v}%
+                  </text>
                 </g>
               );
             })}
 
+            {/* Area under line */}
+            {points.length > 1 && (
+              <path d={areaData} fill="url(#area-gradient)" />
+            )}
+
             {/* Line graph */}
             {points.length > 1 && (
-              <path d={pathData} fill="none" stroke="#0D47A1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+              <path 
+                d={pathData} 
+                fill="none" 
+                stroke="#0D47A1" 
+                strokeWidth="3.5" 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                filter="url(#glow-shadow)"
+              />
             )}
 
             {/* Data points */}
             {points.map((p, idx) => (
               <g key={idx} className="group cursor-pointer">
-                <circle cx={p.x} cy={p.y} r="6" fill="#FF9800" stroke="#0D47A1" strokeWidth="2" />
-                <text x={p.x} y={p.y - 12} textAnchor="middle" className="text-[9px] font-bold fill-brand-blue bg-white">{p.score}</text>
-                <text x={p.x} y={chartHeight - 10} textAnchor="middle" className="text-[8px] font-medium fill-slate-500 max-w-[50px]">
+                {/* Golden/Blue Glowing Circle */}
+                <circle 
+                  cx={p.x} 
+                  cy={p.y} 
+                  r="7" 
+                  fill="#FFF" 
+                  stroke="#0D47A1" 
+                  strokeWidth="3.5" 
+                  className="transition-all duration-200 hover:scale-125"
+                />
+                <circle 
+                  cx={p.x} 
+                  cy={p.y} 
+                  r="2" 
+                  fill="#FF9800" 
+                />
+
+                {/* Score badge */}
+                <g className="transition-transform duration-200 hover:-translate-y-0.5">
+                  <rect 
+                    x={p.x - 22} 
+                    y={p.y - 28} 
+                    width="44" 
+                    height="16" 
+                    rx="4" 
+                    fill="#0F172A" 
+                    className="opacity-90 shadow-sm"
+                  />
+                  <text 
+                    x={p.x} 
+                    y={p.y - 17} 
+                    textAnchor="middle" 
+                    className="text-[9px] font-bold fill-white"
+                  >
+                    {p.score}
+                  </text>
+                </g>
+
+                {/* Axis label */}
+                <text 
+                  x={p.x} 
+                  y={chartHeight - 12} 
+                  textAnchor="middle" 
+                  className="text-[9px] font-extrabold fill-slate-500 tracking-tight"
+                >
                   {p.title.length > 12 ? p.title.substring(0, 10) + '..' : p.title}
                 </text>
               </g>
@@ -532,38 +629,142 @@ export default function StudentDashboard({
   return (
     <div id="student-portal" className="mx-auto max-w-7xl px-4 py-8">
       {/* Profile Welcome Header */}
-      <div className="mb-8 flex flex-col justify-between gap-4 rounded-3xl bg-brand-blue p-6 text-white md:flex-row md:items-center">
-        <div className="flex items-center gap-4">
+      <div id="student-dashboard-header" className="mb-8 flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-900 via-[#0D47A1] to-[#1A237E] p-6 lg:p-8 text-white md:flex-row md:items-center border border-slate-800 shadow-xl relative overflow-hidden">
+        {/* Decorative glowing overlay elements */}
+        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex items-center gap-4 lg:gap-6 relative z-10">
           {student.photoUrl ? (
-            <img
-              src={student.photoUrl}
-              alt={student.name}
-              className="h-16 w-16 rounded-full object-cover border-2 border-white shadow-lg flex-shrink-0"
-              referrerPolicy="no-referrer"
-            />
+            <div className="relative group">
+              <img
+                src={student.photoUrl}
+                alt={student.name}
+                className="h-20 w-20 rounded-full object-cover border-2 border-amber-400 shadow-lg shadow-amber-400/20 flex-shrink-0 transition-all duration-300 group-hover:scale-105"
+                referrerPolicy="no-referrer"
+              />
+              <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full bg-green-500 border-2 border-slate-950 flex items-center justify-center" title="Online Sync Active">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              </span>
+            </div>
           ) : (
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-400 text-brand-blue text-2xl font-black shadow-lg flex-shrink-0">
-              {student.name.charAt(0)}
+            <div className="relative">
+              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-slate-950 text-3xl font-extrabold shadow-lg shadow-amber-400/20 flex-shrink-0">
+                {student.name.charAt(0)}
+              </div>
+              <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full bg-green-500 border-2 border-slate-950 flex items-center justify-center" title="Online Sync Active">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              </span>
             </div>
           )}
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="font-display text-2xl font-black">{student.name}</h2>
-              <span className="rounded-full bg-white/20 px-3 py-0.5 text-xs font-bold uppercase tracking-wider text-amber-300">
-                {student.class} Student
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="font-display text-2xl lg:text-3xl font-black tracking-tight text-white">{student.name}</h2>
+              <span className="rounded-full bg-amber-400/10 border border-amber-400/40 px-3 py-0.5 text-[10px] font-black uppercase tracking-widest text-amber-300 shadow-2xs">
+                {student.class} Scholar
               </span>
             </div>
-            <p className="text-sm text-blue-100">Roll No: {student.rollNo} • Batch: {student.preferredBatch}</p>
+            <p className="text-xs lg:text-sm text-slate-300 mt-1 font-medium flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>Roll No: <strong className="text-white font-bold">{student.rollNo}</strong></span>
+              <span className="text-slate-600">•</span>
+              <span>Batch: <strong className="text-amber-400 font-bold">{student.preferredBatch}</strong></span>
+              <span className="text-slate-600">•</span>
+              <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Sunshine ERP Secure
+              </span>
+            </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-3 relative z-20">
+          {/* Quick Actions Dropdown Menu */}
+          <div className="relative">
+            <button
+              id="btn-quick-actions-trigger"
+              onClick={() => setIsQuickActionsOpen(!isQuickActionsOpen)}
+              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-3 text-xs font-extrabold text-slate-950 shadow-lg shadow-amber-500/20 hover:from-amber-500 hover:to-amber-600 transition-all duration-200 hover:scale-[1.03] active:scale-[0.98] cursor-pointer"
+            >
+              <Sparkles size={14} className="text-slate-950 animate-pulse" />
+              <span>Quick Actions</span>
+              <ChevronDown size={14} className={`text-slate-950 transition-transform duration-200 ${isQuickActionsOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isQuickActionsOpen && (
+              <>
+                {/* Backdrop overlay to dismiss dropdown */}
+                <div 
+                  className="fixed inset-0 z-40 bg-transparent" 
+                  onClick={() => setIsQuickActionsOpen(false)} 
+                />
+                
+                {/* Dropdown Menu List */}
+                <div 
+                  id="quick-actions-dropdown" 
+                  className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-800 bg-[#0F172A] p-2 shadow-2xl z-50 animate-in fade-in slide-in-from-top-3 duration-200 ring-1 ring-amber-500/10"
+                >
+                  <div className="px-3 py-1.5 border-b border-slate-800/80 mb-1.5">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Fast-Track Shortcuts</span>
+                  </div>
+                  
+                  <div className="flex flex-col gap-1">
+                    {/* Action 1: Submit Homework */}
+                    <button
+                      id="action-submit-homework"
+                      onClick={() => {
+                        setIsQuickActionsOpen(false);
+                        const firstPendingHw = homeworkWithStatus.find(hw => !hw.submission);
+                        if (firstPendingHw) {
+                          handleOpenHwSubmit(firstPendingHw);
+                        }
+                        setActiveTab('homework');
+                      }}
+                      className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 hover:text-white transition-all text-left w-full cursor-pointer"
+                    >
+                      <BookOpen size={14} className="text-amber-400" />
+                      <span>Submit Homework</span>
+                    </button>
+
+                    {/* Action 2: View Schedule */}
+                    <button
+                      id="action-view-schedule"
+                      onClick={() => {
+                        setIsQuickActionsOpen(false);
+                        setIsScheduleModalOpen(true);
+                      }}
+                      className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 hover:text-white transition-all text-left w-full cursor-pointer"
+                    >
+                      <Clock size={14} className="text-[#38BDF8]" />
+                      <span>View Schedule</span>
+                    </button>
+
+                    {/* Action 3: Pay Fees */}
+                    <button
+                      id="action-pay-fees"
+                      onClick={() => {
+                        setIsQuickActionsOpen(false);
+                        const unpaidFee = myFees.find(f => f.pendingFee > 0);
+                        if (unpaidFee) {
+                          setPayFeeId(unpaidFee.id);
+                        }
+                        setActiveTab('fees');
+                      }}
+                      className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 hover:text-white transition-all text-left w-full cursor-pointer"
+                    >
+                      <CreditCard size={14} className="text-emerald-400" />
+                      <span>Pay Tuition Fees</span>
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
           <button
             id="btn-digital-id"
             onClick={() => setIdCardOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl bg-amber-400 px-4 py-2 text-xs font-bold text-slate-900 shadow-md hover:bg-amber-500"
+            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-3 text-xs font-extrabold text-slate-950 shadow-lg shadow-amber-500/20 hover:from-amber-500 hover:to-amber-600 transition-all duration-200 hover:scale-[1.03] active:scale-[0.98]"
           >
-            <QrCode size={14} /> Digital Student ID Card
+            <QrCode size={15} className="text-slate-950" /> Digital Student ID Card
           </button>
         </div>
       </div>
@@ -668,9 +869,12 @@ export default function StudentDashboard({
 
                 {/* Desktop Navigation Sidebar (Visible on >= lg) */}
                 <div className="hidden lg:block">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-3 lg:p-4 shadow-sm space-y-1">
-                    <span className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Student ERP Menu</span>
-                    <div className="flex flex-col gap-1">
+                  <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur-md space-y-2">
+                    <div className="flex items-center gap-2 px-3 py-1.5 mb-1.5">
+                      <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Student ERP Menu</span>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
                       {tabsList.map((tab) => {
                         const isSelected = activeTab === tab.id;
                         return (
@@ -678,12 +882,19 @@ export default function StudentDashboard({
                             key={tab.id}
                             id={`student-desktop-tab-${tab.id}`}
                             onClick={() => setActiveTab(tab.id)}
-                            className={`flex items-center gap-3 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer ${
-                              isSelected ? 'bg-brand-blue text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+                            className={`flex items-center gap-3 rounded-xl px-4 py-3 text-xs font-bold transition-all duration-200 cursor-pointer ${
+                              isSelected 
+                                ? 'bg-gradient-to-r from-[#0D47A1] to-[#1A237E] text-white shadow-lg shadow-brand-blue/10 border-l-4 border-amber-400 scale-[1.02]' 
+                                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 hover:translate-x-1'
                             }`}
                           >
-                            {tab.icon}
-                            <span>{tab.label}</span>
+                            <span className={`transition-transform duration-200 ${isSelected ? 'text-amber-300 scale-110' : 'text-slate-400'}`}>
+                              {tab.icon}
+                            </span>
+                            <span className="flex-1 text-left tracking-wide">{tab.label}</span>
+                            {isSelected && (
+                              <ChevronRight size={14} className="text-amber-300" />
+                            )}
                           </button>
                         );
                       })}
@@ -697,23 +908,34 @@ export default function StudentDashboard({
 
 
           {/* Quick Notice Board widget */}
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h4 className="font-display font-bold text-sm text-slate-800 mb-3 flex items-center gap-1.5">
-              <Bell size={16} className="text-brand-orange" /> Real-time Notice Board
+          <div className="mt-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+            <h4 className="font-display font-extrabold text-xs uppercase tracking-wider text-slate-800 mb-4 flex items-center gap-2 pb-2.5 border-b border-slate-100">
+              <Bell size={15} className="text-brand-orange animate-bounce" /> Real-time Notice Board
             </h4>
-            <div className="space-y-3">
-              {filteredNotifications.slice(0, 3).map((n) => (
-                <div key={n.id} className="border-b border-slate-100 last:border-0 pb-2.5 last:pb-0">
-                  <span className={`inline-block text-[8px] font-bold px-2 py-0.5 rounded uppercase mb-1 ${
-                    n.category === 'EXAM' ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-slate-100 text-slate-700'
-                  }`}>
-                    {n.category}
-                  </span>
-                  <p className="text-xs font-bold text-slate-800">{n.title}</p>
-                  <p className="text-[10px] text-slate-500 leading-snug">{n.content}</p>
-                </div>
-              ))}
-            </div>
+            {filteredNotifications.length === 0 ? (
+              <div className="text-center py-4">
+                <p className="text-[11px] font-medium text-slate-400">No active notices for today.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredNotifications.slice(0, 3).map((n) => (
+                  <div key={n.id} className="border-b border-slate-100 last:border-0 pb-3 last:pb-0 group">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <span className={`inline-block text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border ${
+                        n.category === 'EXAM' 
+                          ? 'bg-rose-50 text-red-600 border-red-200' 
+                          : 'bg-slate-100 text-slate-600 border-slate-200'
+                      }`}>
+                        {n.category}
+                      </span>
+                      <span className="text-[9px] font-mono text-slate-400">June 2026</span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-800 group-hover:text-brand-blue transition-colors duration-150 leading-snug">{n.title}</p>
+                    <p className="text-[10px] text-slate-500 leading-relaxed mt-1 font-medium">{n.content}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -777,45 +999,53 @@ export default function StudentDashboard({
                 <div className="space-y-6">
                   {/* Analytics Quick Cards */}
                   <div className="grid gap-4 sm:grid-cols-3">
-                    <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-blue-50 to-white p-5 shadow-sm flex items-center gap-4">
-                      <div className="rounded-xl bg-brand-blue p-3 text-white">
-                        <Calendar size={22} />
+                    {/* Card 1: Attendance */}
+                    <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-[#E3F2FD]/30 via-white to-white p-5 shadow-xs flex items-center gap-4 transition-all duration-200 hover:scale-[1.02] hover:shadow-md hover:border-blue-200">
+                      <div className="rounded-2xl bg-gradient-to-br from-[#0D47A1] to-[#1565C0] p-3 text-white shadow-md shadow-blue-500/10">
+                        <Calendar size={22} className="text-white" />
                       </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Attendance</span>
-                        <span className="font-display text-xl font-bold text-slate-800">{calculatedAttendancePct}%</span>
-                        <span className="text-[10px] text-green-600 font-semibold block">Outstanding Ratio</span>
+                      <div className="flex-1">
+                        <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block mb-0.5">My Attendance Ratio</span>
+                        <span className="font-display text-2xl font-black text-slate-900 tracking-tight">{calculatedAttendancePct}%</span>
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="text-[10px] text-emerald-600 font-black">Highly Consistent</span>
+                        </div>
                       </div>
                     </div>
                     
-                    <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-indigo-50 to-white p-5 shadow-sm flex items-center gap-4">
-                      <div className="rounded-xl bg-indigo-600 p-3 text-white">
-                        <Award size={22} />
+                    {/* Card 2: Average Grade */}
+                    <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-[#EDE7F6]/30 via-white to-white p-5 shadow-xs flex items-center gap-4 transition-all duration-200 hover:scale-[1.02] hover:shadow-md hover:border-indigo-200">
+                      <div className="rounded-2xl bg-gradient-to-br from-[#311B92] to-[#4527A0] p-3 text-white shadow-md shadow-indigo-500/10">
+                        <Award size={22} className="text-amber-300 animate-pulse" />
                       </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Average Grade</span>
-                        <span className="font-display text-xl font-bold text-slate-800">88.4%</span>
-                        <span className="text-[10px] text-indigo-600 font-semibold block">Top 10 percentile</span>
+                      <div className="flex-1">
+                        <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block mb-0.5">Academic Standing</span>
+                        <span className="font-display text-2xl font-black text-slate-900 tracking-tight">88.4%</span>
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="text-[10px] text-indigo-600 font-black">⭐ Top 10 Percentile</span>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-amber-50 to-white p-5 shadow-sm flex items-center gap-4">
-                      <div className={`rounded-xl p-3 text-white ${
-                        mySubscription?.status === 'EXPIRED' ? 'bg-red-500' :
-                        mySubscription?.status === 'OVERDUE' ? 'bg-orange-500' : 'bg-green-600'
+                    {/* Card 3: Subscription */}
+                    <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-[#FFF8E1]/30 via-white to-white p-5 shadow-xs flex items-center gap-4 transition-all duration-200 hover:scale-[1.02] hover:shadow-md hover:border-amber-200">
+                      <div className={`rounded-2xl p-3 text-white shadow-md ${
+                        mySubscription?.status === 'ACTIVE' 
+                          ? 'bg-gradient-to-br from-emerald-600 to-teal-700 shadow-emerald-500/10' 
+                          : 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/10'
                       }`}>
-                        <CreditCard size={22} />
+                        <CreditCard size={22} className="text-white" />
                       </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Subscription Status</span>
-                        <span className={`font-display text-xs font-black block uppercase ${
-                          mySubscription?.status === 'ACTIVE' ? 'text-green-600' :
-                          mySubscription?.status === 'DUE_SOON' ? 'text-amber-500 font-semibold animate-pulse' :
-                          mySubscription?.status === 'OVERDUE' ? 'text-orange-500' : 'text-red-500'
+                      <div className="flex-1">
+                        <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block mb-0.5">Course Subscription</span>
+                        <span className={`font-display text-xs font-black block uppercase tracking-wide ${
+                          mySubscription?.status === 'ACTIVE' ? 'text-emerald-600' :
+                          mySubscription?.status === 'DUE_SOON' ? 'text-amber-600 animate-pulse' : 'text-rose-600 font-extrabold'
                         }`}>
                           {mySubscription?.status || 'NO ACTIVE SUB'}
                         </span>
-                        <span className="text-[10px] text-slate-400 block font-semibold">Due: {mySubscription?.nextDueDate || 'N/A'}</span>
+                        <span className="text-[10px] text-slate-500 block font-semibold mt-0.5">Due: {mySubscription?.nextDueDate || 'N/A'}</span>
                       </div>
                     </div>
                   </div>
@@ -961,24 +1191,24 @@ export default function StudentDashboard({
                     {/* The Corkboard Workspace Container */}
                     <div 
                       onClick={handleBoardClick}
-                      className="relative h-[280px] w-full rounded-2xl bg-amber-50/40 border border-slate-200 shadow-inner overflow-hidden cursor-crosshair select-none bg-[radial-gradient(#e2e8f0_1.5px,transparent_1.5px)] [background-size:16px_16px]"
+                      className="relative h-[290px] w-full rounded-2xl bg-gradient-to-br from-[#FAF7F2] via-[#FFFDF9] to-[#F5EFE6] border-4 border-[#8B5A2B]/10 shadow-inner overflow-hidden cursor-crosshair select-none bg-[radial-gradient(#d97706_0.8px,transparent_0.8px)] [background-size:12px_12px]"
                     >
                       {/* Corkboard visual instruction */}
                       {pinnedStickers.length === 0 && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center pointer-events-none">
-                          <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-2">
+                          <div className="h-12 w-12 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 mb-2">
                             <Sparkles size={20} />
                           </div>
-                          <p className="text-xs font-bold text-slate-600">Your Study Corkboard is Empty</p>
-                          <p className="text-[10px] text-slate-400 mt-1 max-w-[240px]">
-                            Click any colorful badge from the "Sticker Pack" below to place it here, then tap and drag to decorate!
+                          <p className="text-xs font-black text-slate-800">Your Study Corkboard is Empty</p>
+                          <p className="text-[10px] text-slate-500 mt-1 max-w-[240px] font-medium leading-relaxed">
+                            Select any beautiful merit badge from the "Sticker Pack" below to place it here, then tap and drag to decorate!
                           </p>
                         </div>
                       )}
 
                       {/* Sticky instructional guide on top-left of corkboard */}
-                      <div className="absolute top-2 left-2 bg-yellow-100/90 border border-yellow-200 rounded-lg p-2 max-w-[170px] text-[8.5px] text-yellow-800 leading-normal shadow-xs pointer-events-none z-10 font-mono">
-                        📌 <strong>Interactive Study Board:</strong> Select a sticker below, then <strong>click anywhere on the corkboard</strong> to move/reposition it!
+                      <div className="absolute top-2.5 left-2.5 bg-amber-50/95 border-l-4 border-amber-500 rounded-r-xl p-2 max-w-[190px] text-[8.5px] text-amber-900 leading-normal shadow-md pointer-events-none z-10 font-sans font-bold">
+                        📌 <strong>Study Corkboard:</strong> Click a sticker in the tray below, then <strong>click on the board</strong> to place/reposition it!
                       </div>
 
                       {/* Render Pinned Stickers */}
@@ -1003,10 +1233,15 @@ export default function StudentDashboard({
                               setSelectedStickerForEdit(ps.id);
                               setStickerNoteInput(ps.customNote || '');
                             }}
-                            className={`flex flex-col items-center cursor-pointer group p-1 rounded-xl transition-all ${
+                            className={`flex flex-col items-center cursor-pointer group p-1.5 rounded-xl transition-all relative ${
                               isSelected ? 'ring-2 ring-indigo-600 ring-offset-2' : 'hover:scale-105'
                             }`}
                           >
+                            {/* Realistic Red Push-Pin atop the sticker */}
+                            <div className="absolute -top-1 left-1/2 -translate-x-1/2 z-30 drop-shadow-md select-none pointer-events-none text-[11px] transform -rotate-12 group-hover:scale-110 transition-transform">
+                              📍
+                            </div>
+
                             {/* Sticker Base Disc */}
                             <div className={`h-11 w-11 rounded-full bg-gradient-to-tr ${stInfo.bg} shadow-md ${stInfo.glow} flex items-center justify-center border-2 border-white text-lg relative`}>
                               {stInfo.emoji}
@@ -1016,7 +1251,7 @@ export default function StudentDashboard({
 
                             {/* Handwritten Custom Mini Note Pin-board look */}
                             {ps.customNote && (
-                              <div className="mt-1 bg-white/95 border border-slate-200 text-[8px] font-bold text-slate-800 px-1.5 py-0.5 rounded shadow-xs max-w-[90px] truncate text-center font-mono">
+                              <div className="mt-1 bg-white/95 border border-slate-200 text-[8px] font-black text-slate-800 px-1.5 py-0.5 rounded shadow-xs max-w-[90px] truncate text-center font-mono">
                                 {ps.customNote}
                               </div>
                             )}
@@ -1661,34 +1896,38 @@ export default function StudentDashboard({
           {/* TAB 5: HOMEWORK MODULE */}
           {activeTab === 'homework' && (
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="font-display font-bold text-lg text-slate-800 mb-2">Homework Assignments</h3>
-              <p className="text-xs text-slate-500 mb-6">Complete assignments before their due dates to receive positive teacher evaluation remarks. Cache assignments to complete them even when offline.</p>
+              <div className="border-b border-slate-100 pb-4 mb-5">
+                <h3 className="font-display font-black text-lg text-slate-800">Homework & Homework Portfolios</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Complete assignments before their due dates to earn high academic credit scores. Cache assignments to view and answer offline.
+                </p>
+              </div>
 
               <div className="space-y-4">
                 {homeworkWithStatus.map((hw) => {
                   const isCached = downloadedHw.includes(hw.id);
                   return (
-                    <div key={hw.id} className="rounded-xl border border-slate-100 p-5 bg-slate-50/30">
+                    <div key={hw.id} className="rounded-2xl border border-slate-200 p-5 bg-gradient-to-br from-slate-50/50 to-white hover:border-blue-200 transition-all duration-200 shadow-3xs">
                       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-                        <div>
-                          <div className="flex items-center gap-2 mb-2 flex-wrap">
-                            <span className="inline-block rounded-md bg-brand-blue/10 px-2 py-0.5 text-[10px] font-bold text-brand-blue uppercase">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-3 flex-wrap">
+                            <span className="inline-block rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-1 text-[9px] font-extrabold text-indigo-700 uppercase tracking-widest">
                               {hw.subject}
                             </span>
                             <button
                               id={`btn-cache-hw-${hw.id}`}
                               onClick={() => handleDownloadHw(hw.id)}
-                              className={`inline-flex items-center gap-1 text-[9px] font-bold rounded-lg px-2.5 py-1 border transition-all cursor-pointer ${
+                              className={`inline-flex items-center gap-1 text-[9px] font-black rounded-lg px-2.5 py-1 border transition-all cursor-pointer ${
                                 isCached 
-                                  ? 'bg-green-50 text-green-700 border-green-200' 
-                                  : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                                  ? 'bg-green-50 text-green-700 border-green-200 shadow-2xs shadow-green-100' 
+                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:scale-[1.02]'
                               }`}
                             >
-                              {isCached ? '✓ Offline Ready' : '↓ Cache Offline'}
+                              {isCached ? '✓ Offline Mode Ready' : '↓ Download to Local Storage'}
                             </button>
                           </div>
-                          <h4 className="text-sm font-bold text-slate-800">{hw.title}</h4>
-                          <p className="mt-1 text-xs text-slate-600 leading-relaxed">{hw.description}</p>
+                          <h4 className="text-sm font-extrabold text-slate-850 tracking-tight">{hw.title}</h4>
+                          <p className="mt-2 text-xs text-slate-600 leading-relaxed font-medium">{hw.description}</p>
 
                           {hw.fileUrl && (
                             <div className="mt-3 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 max-w-lg text-left">
@@ -2749,6 +2988,157 @@ export default function StudentDashboard({
             >
               <X size={16} />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: WEEKLY TIMETABLE SCHEDULE */}
+      {isScheduleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl relative border border-slate-200 animate-in fade-in zoom-in-95 duration-200 text-slate-850">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="h-10 w-10 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+                  <Clock size={20} className="animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="font-display font-black text-base text-slate-900">Academic Timetable</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                    {student.class} • {mySubscription?.batchName || student.preferredBatch || "Standard Batch"}
+                  </p>
+                </div>
+              </div>
+              <button
+                id="btn-close-schedule-modal"
+                onClick={() => setIsScheduleModalOpen(false)}
+                className="rounded-full p-2 bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Quick Status / Shift Announcement */}
+            <div className="grid gap-3 sm:grid-cols-2 mb-5">
+              <div className="rounded-xl bg-slate-50 p-4 border border-slate-150">
+                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block">Regular Timing</span>
+                <span className="text-xs font-black text-slate-800 block mt-1.5">
+                  ⏰ {mySubscription?.batchTime || student.preferredTiming || "04:00 PM - 06:30 PM"}
+                </span>
+                <span className="text-[9px] text-slate-500 block mt-0.5">Classes held daily Monday to Saturday</span>
+              </div>
+
+              <div className={`rounded-xl p-4 border transition-all ${
+                mySubscription?.tempTimeChange 
+                  ? 'bg-amber-50/70 border-amber-200 text-amber-900' 
+                  : 'bg-slate-50/50 border-slate-150 text-slate-600'
+              }`}>
+                <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block">Active Alerts</span>
+                {mySubscription?.tempTimeChange ? (
+                  <div className="mt-1">
+                    <span className="text-xs font-black text-amber-800 flex items-center gap-1">
+                      ⚠️ Temporary Shift Active
+                    </span>
+                    <p className="text-[11px] mt-0.5 leading-normal text-amber-700 font-semibold">
+                      {mySubscription.tempTimeChange}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-xs font-bold flex items-center gap-1.5 text-emerald-600">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    Standard timetable active. No changes today.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Weekly Timetable Entries */}
+            <div>
+              <h4 className="font-display font-black text-xs text-slate-400 uppercase tracking-wider mb-3">Weekly Lecture Schedule</h4>
+              
+              {(() => {
+                const myTimetable = timetableList.filter(entry => 
+                  entry.className.toLowerCase() === student.class.toLowerCase()
+                );
+
+                if (myTimetable.length === 0) {
+                  return (
+                    <div className="text-center py-8 rounded-2xl bg-slate-50/60 border border-dashed border-slate-200">
+                      <Calendar size={28} className="text-slate-300 mx-auto mb-2" />
+                      <p className="text-xs font-black text-slate-600">No Custom Lectures Logged</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5 max-w-sm mx-auto">
+                        Refer to standard session timetables distributed by the Sunshine Academic Office.
+                      </p>
+                    </div>
+                  );
+                }
+
+                // Group entries by day
+                const daysOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
+                const grouped = myTimetable.reduce((acc, entry) => {
+                  if (!acc[entry.day]) acc[entry.day] = [];
+                  acc[entry.day].push(entry);
+                  return acc;
+                }, {} as Record<string, TimetableEntry[]>);
+
+                return (
+                  <div className="max-h-[220px] overflow-y-auto pr-1 space-y-3">
+                    {daysOrder.map(day => {
+                      const entries = grouped[day];
+                      if (!entries || entries.length === 0) return null;
+                      return (
+                        <div key={day} className="rounded-xl border border-slate-150 bg-white p-3.5 shadow-3xs">
+                          <h5 className="text-[10px] font-black text-indigo-700 uppercase tracking-widest mb-2 border-b border-indigo-50/80 pb-1 flex items-center justify-between">
+                            <span>{day}</span>
+                            <span className="text-[8px] bg-indigo-50 text-indigo-600 border border-indigo-150 px-2 py-0.5 rounded-full font-mono">{entries.length} Classes</span>
+                          </h5>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {entries.map(entry => (
+                              <div key={entry.id} className="rounded-lg bg-slate-50 p-2.5 border border-slate-100 flex flex-col justify-between">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-xs font-black text-slate-800">{entry.subject}</span>
+                                  <span className="text-[9px] font-mono font-bold text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100">{entry.room}</span>
+                                </div>
+                                <div className="flex flex-col gap-0.5 text-[10px] text-slate-500 font-medium">
+                                  <div className="flex items-center gap-1">
+                                    <Clock size={10} className="text-slate-400" />
+                                    <span>{entry.startTime} - {entry.endTime}</span>
+                                  </div>
+                                  <div className="text-indigo-600 font-semibold">
+                                    👨‍🏫 {entry.teacherName}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer with actions */}
+            <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                id="btn-schedule-modal-close"
+                onClick={() => setIsScheduleModalOpen(false)}
+                className="rounded-xl border border-slate-200 px-5 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+              >
+                Close Schedule
+              </button>
+              <button
+                id="btn-schedule-modal-view-more"
+                onClick={() => {
+                  setIsScheduleModalOpen(false);
+                  setActiveTab('overview');
+                }}
+                className="rounded-xl bg-gradient-to-r from-[#0D47A1] to-[#1A237E] px-5 py-2.5 text-xs font-bold text-white shadow hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+              >
+                View in Overview Tab
+              </button>
+            </div>
           </div>
         </div>
       )}
