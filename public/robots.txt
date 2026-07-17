@@ -1,0 +1,25 @@
+User-agent: *
+Allow: /
+Allow: /about
+Allow: /courses
+Allow: /enroll
+Allow: /admissions
+Allow: /results
+Allow: /resources
+Allow: /gallery
+Allow: /contact
+Allow: /fees
+
+# Disallow administrative and secure system areas
+Disallow: /admin
+Disallow: /admin/*
+Disallow: /reception
+Disallow: /reception/*
+Disallow: /teacher
+Disallow: /teacher/*
+Disallow: /student
+Disallow: /student/*
+Disallow: /login
+Disallow: /api/*
+
+Sitemap: https://sunshineclasses.net/sitemap.xml

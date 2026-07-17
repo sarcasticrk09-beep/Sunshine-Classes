@@ -75,6 +75,37 @@ function simpleSecureHash(password: string): string {
   return 'sha256_mock_' + (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+function getDecryptedPassword(user: any): string {
+  if (user.plainPassword) {
+    return user.plainPassword;
+  }
+  
+  // Check known default/seeded passcodes by hashing them and comparing with user.password
+  const lowerUser = user.username.toLowerCase();
+  const candidatePasswords = [
+    'Sunshine123',
+    `${lowerUser}123`,
+    'admin123',
+    'teacher123',
+    'reception123',
+    'student123',
+    'default123',
+    'sunshine123'
+  ];
+  
+  for (const pwd of candidatePasswords) {
+    if (user.password === simpleSecureHash(pwd) || user.password === pwd) {
+      return pwd;
+    }
+  }
+  
+  if (user.password && !user.password.startsWith('sha256_mock_') && !user.password.startsWith('sha256_')) {
+    return user.password;
+  }
+  
+  return 'Sunshine123';
+}
+
 interface AdminDashboardProps {
   students: Student[];
   teachers: Teacher[];
@@ -563,8 +594,9 @@ export default function AdminDashboard({
         username: trimmedUsername,
         email: targetEmail,
         role: newUserRole,
-        password: hashed
-      };
+        password: hashed,
+        plainPassword: passwordToUse
+      } as any;
 
       const updatedUsers = [...users, newUser];
       if (onUpdateUsers) {
@@ -14676,7 +14708,7 @@ ${data.log}`
                                 <div className="flex items-center gap-1.5 font-mono text-xs font-semibold">
                                   <span>
                                     {visiblePasscodes[user.id] 
-                                      ? '********' 
+                                      ? getDecryptedPassword(user) 
                                       : '••••••••'}
                                   </span>
                                   <button

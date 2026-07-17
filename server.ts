@@ -161,6 +161,78 @@ async function startServer() {
     res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
   });
 
+  // Dynamic XML Sitemap for Sunshine Classes SEO
+  app.get("/sitemap.xml", (req, res) => {
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.get('host') || 'sunshineclasses.net';
+    const domain = (process.env.VITE_SITE_URL || `${protocol}://${host}`).replace(/\/$/, "");
+    const today = new Date().toISOString().split('T')[0];
+
+    const urls = [
+      { loc: "/", priority: "1.0", changefreq: "daily" },
+      { loc: "/about", priority: "0.8", changefreq: "monthly" },
+      { loc: "/courses", priority: "0.9", changefreq: "weekly" },
+      { loc: "/enroll", priority: "0.9", changefreq: "monthly" },
+      { loc: "/admissions", priority: "0.8", changefreq: "monthly" },
+      { loc: "/results", priority: "0.8", changefreq: "weekly" },
+      { loc: "/resources", priority: "0.7", changefreq: "weekly" },
+      { loc: "/gallery", priority: "0.7", changefreq: "monthly" },
+      { loc: "/contact", priority: "0.8", changefreq: "monthly" },
+      { loc: "/fees", priority: "0.7", changefreq: "monthly" }
+    ];
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+    for (const url of urls) {
+      xml += `  <url>\n`;
+      xml += `    <loc>${domain}${url.loc}</loc>\n`;
+      xml += `    <lastmod>${today}</lastmod>\n`;
+      xml += `    <changefreq>${url.changefreq}</changefreq>\n`;
+      xml += `    <priority>${url.priority}</priority>\n`;
+      xml += `  </url>\n`;
+    }
+    xml += `</urlset>`;
+
+    res.header("Content-Type", "application/xml");
+    res.status(200).send(xml);
+  });
+
+  // Robots.txt to control search engine indexing
+  app.get("/robots.txt", (req, res) => {
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.get('host') || 'sunshineclasses.net';
+    const domain = (process.env.VITE_SITE_URL || `${protocol}://${host}`).replace(/\/$/, "");
+
+    let txt = `User-agent: *\n`;
+    txt += `Allow: /\n`;
+    txt += `Allow: /about\n`;
+    txt += `Allow: /courses\n`;
+    txt += `Allow: /enroll\n`;
+    txt += `Allow: /admissions\n`;
+    txt += `Allow: /results\n`;
+    txt += `Allow: /resources\n`;
+    txt += `Allow: /gallery\n`;
+    txt += `Allow: /contact\n`;
+    txt += `Allow: /fees\n`;
+    txt += `\n`;
+    txt += `# Disallow administrative and secure system areas\n`;
+    txt += `Disallow: /admin\n`;
+    txt += `Disallow: /admin/*\n`;
+    txt += `Disallow: /reception\n`;
+    txt += `Disallow: /reception/*\n`;
+    txt += `Disallow: /teacher\n`;
+    txt += `Disallow: /teacher/*\n`;
+    txt += `Disallow: /student\n`;
+    txt += `Disallow: /student/*\n`;
+    txt += `Disallow: /login\n`;
+    txt += `Disallow: /api/*\n`;
+    txt += `\n`;
+    txt += `Sitemap: ${domain}/sitemap.xml\n`;
+
+    res.header("Content-Type", "text/plain");
+    res.status(200).send(txt);
+  });
+
   // --- Start of Sunshine Classes Admission/Enrollment API Routes ---
   app.post("/api/enroll", async (req, res) => {
     try {

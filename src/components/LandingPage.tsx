@@ -42,6 +42,7 @@ import SunshineLogo from './SunshineLogo';
 import { CloudinaryUpload } from './CloudinaryUpload';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
+import { trackCTAClick, trackContactClick } from './SEOHead';
 
 const WhatsAppIcon = ({ className = "w-5 h-5", size = 20 }: { className?: string; size?: number }) => (
   <svg 
@@ -308,6 +309,7 @@ export default function LandingPage({
               <button
                 key={link.id}
                 id={`nav-link-${link.id}`}
+                aria-label={`Navigate to our ${link.label} section`}
                 onClick={() => {
                   setActiveSection(link.id as any);
                   setGeneratedAdmId(null);
@@ -380,6 +382,7 @@ export default function LandingPage({
                     <button
                       key={link.id}
                       id={`mobile-nav-link-${link.id}`}
+                      aria-label={`Navigate to our ${link.label} section`}
                       onClick={() => {
                         setActiveSection(link.id as any);
                         setGeneratedAdmId(null);
@@ -461,14 +464,20 @@ export default function LandingPage({
                   <div className="flex flex-wrap gap-3 pt-2">
                     <button
                       id="hero-btn-enroll"
-                      onClick={() => setActiveSection('admissions')}
+                      onClick={() => {
+                        trackCTAClick('hero-btn-enroll', 'Enroll Now Online');
+                        setActiveSection('admissions');
+                      }}
                       className="rounded-xl bg-brand-orange hover:bg-amber-500 text-white px-6 py-3 text-xs font-black shadow-lg transition-all"
                     >
                       Enroll Now Online
                     </button>
                     <button
                       id="hero-btn-demo"
-                      onClick={() => setActiveSection('contact')}
+                      onClick={() => {
+                        trackCTAClick('hero-btn-demo', 'Book Free Demo Class');
+                        setActiveSection('contact');
+                      }}
                       className="rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/20 px-5 py-3 text-xs font-black backdrop-blur-sm transition-all"
                     >
                       Book Free Demo Class
@@ -477,10 +486,22 @@ export default function LandingPage({
 
                   {/* Hot contact actions */}
                   <div className="pt-4 flex flex-wrap gap-4 text-xs font-bold text-amber-300">
-                    <a id="hero-call" href="tel:8707738284" className="flex items-center gap-1.5 hover:underline">
+                    <a
+                      id="hero-call"
+                      href="tel:8707738284"
+                      onClick={() => trackContactClick('phone', '8707738284')}
+                      className="flex items-center gap-1.5 hover:underline"
+                    >
                       📞 Call: 8707738284
                     </a>
-                    <a id="hero-wa" href="https://wa.me/9161586254" target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:underline text-green-400">
+                    <a
+                      id="hero-wa"
+                      href="https://wa.me/9161586254"
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => trackContactClick('whatsapp', '9161586254')}
+                      className="flex items-center gap-1.5 hover:underline text-green-400"
+                    >
                       💬 WhatsApp: 9161586254
                     </a>
                   </div>
@@ -492,6 +513,10 @@ export default function LandingPage({
                     <img
                       src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=800&auto=format&fit=crop&q=80"
                       alt="Sunshine Classes Modern Collaborative Classroom"
+                      width={800}
+                      height={400}
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-900/20 to-transparent flex items-end p-4">
@@ -735,7 +760,7 @@ export default function LandingPage({
                     <div className="space-y-4">
                       <div className="flex items-center gap-4">
                         {fm.photoUrl ? (
-                          <img src={fm.photoUrl} alt={fm.name} className="h-16 w-16 shrink-0 rounded-2xl object-cover shadow-inner border border-slate-250 dark:border-slate-850" />
+                          <img src={fm.photoUrl} alt={fm.name} width={64} height={64} loading="lazy" decoding="async" className="h-16 w-16 shrink-0 rounded-2xl object-cover shadow-inner border border-slate-250 dark:border-slate-850" />
                         ) : (
                           <div className="h-16 w-16 shrink-0 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center shadow-inner border border-slate-200 dark:border-slate-700">
                             <Users size={28} />
@@ -1186,7 +1211,7 @@ export default function LandingPage({
               ]).map((top, idx) => (
                 <div key={top.id || idx} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm text-center">
                   <div className="h-20 w-20 rounded-full border-4 border-amber-300 overflow-hidden mx-auto mb-3 shadow">
-                    <img src={top.img} alt={top.name} className="h-full w-full object-cover" />
+                    <img src={top.img} alt={top.name} width={80} height={80} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                   </div>
                   <h4 className="font-display font-bold text-xs text-brand-orange uppercase">{top.rank}</h4>
                   <h3 className="font-display font-black text-base text-slate-800 mt-0.5">{top.name}</h3>
@@ -1359,7 +1384,7 @@ export default function LandingPage({
                 .map((g) => (
                   <div key={g.id} className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm hover:shadow-md transition-all group">
                     <div className="h-48 overflow-hidden bg-slate-100 relative">
-                      <img src={g.imageUrl} alt={g.title} className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                      <img src={g.imageUrl} alt={g.title} width={400} height={300} loading="lazy" decoding="async" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300" />
                       <span className="absolute bottom-3 left-3 rounded bg-brand-blue/90 text-white text-[8px] font-black uppercase px-2 py-0.5 backdrop-blur-sm">
                         {g.category}
                       </span>
@@ -1768,7 +1793,7 @@ function ReviewForm({ onSubmitReview }: { onSubmitReview: (review: Omit<Testimon
             <label className="block text-[10px] font-extrabold uppercase text-slate-500 mb-1.5">Your Photo (Optional)</label>
             <div className="flex gap-3 items-center">
               {customPhoto && (
-                <img src={customPhoto} alt="Reviewer preview" className="h-9 w-9 rounded-full object-cover border border-slate-200" />
+                <img src={customPhoto} alt="Reviewer preview" width={36} height={36} loading="lazy" decoding="async" className="h-9 w-9 rounded-full object-cover border border-slate-200" />
               )}
               <div className="relative border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all text-center flex-1 flex items-center justify-center cursor-pointer">
                 <input

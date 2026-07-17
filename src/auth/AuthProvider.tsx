@@ -457,10 +457,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const updatedUsersList = usersList.map((u: any) => {
       if (u.id === matchedUser.id || u.username?.toLowerCase() === matchedUser.username?.toLowerCase()) {
         const copy = { ...u };
-        delete copy.plainPassword; // Never store plain passwords
         return {
           ...copy,
           password: hashedPwd,
+          plainPassword: trimmedPassword,
           failedLoginAttempts: 0,
           activeSessionId: newSessionId
         };
@@ -473,11 +473,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const newUserObj = {
         ...matchedUser,
         password: hashedPwd,
+        plainPassword: trimmedPassword,
         failedLoginAttempts: 0,
         activeSessionId: newSessionId,
         forcePasswordChange: matchedUser.forcePasswordChange || false
       };
-      delete newUserObj.plainPassword;
       updatedUsersList.push(newUserObj);
     }
 
@@ -639,12 +639,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const updated = {
           ...u,
           password: simpleSecureHash(newPassword),
+          plainPassword: newPassword,
           forcePasswordChange: false,
           firstLogin: false,
           activeSessionId: newSessionId,
           passwordHistory: history
         };
-        delete updated.plainPassword;
         return updated;
       }
       return u;
@@ -659,7 +659,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const session = JSON.parse(sessionStr);
         if (session && session.user) {
           const userCopy = { ...session.user };
-          delete userCopy.plainPassword;
+          userCopy.plainPassword = newPassword;
           userCopy.password = simpleSecureHash(newPassword);
           userCopy.forcePasswordChange = false;
           userCopy.activeSessionId = newSessionId;

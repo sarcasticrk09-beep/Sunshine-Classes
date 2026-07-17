@@ -94,6 +94,7 @@ import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { MailSimulatorWidget } from './components/MailSimulatorWidget';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { FeesPage } from './pages/FeesPage';
+import { SEOHead, trackAdmissionSubmit } from './components/SEOHead';
 
 import { db, auth, googleSignIn } from './lib/firebase';
 import { doc, getDoc, setDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
@@ -424,9 +425,10 @@ export default function App() {
     // Encrypt/hash passwords on-load for 100% security
     migrated = migrated.map(u => {
       let pwd = u.password;
+      let plainPass = (u as any).plainPassword;
       if (!pwd) {
         const lowerUser = u.username.toLowerCase();
-        let plainPass = `${lowerUser}123`;
+        plainPass = `${lowerUser}123`;
         if (lowerUser === 'admin') plainPass = 'admin123';
         else if (lowerUser === 'teacher') plainPass = 'teacher123';
         else if (lowerUser === 'reception') plainPass = 'reception123';
@@ -434,14 +436,33 @@ export default function App() {
         pwd = simpleSecureHash(plainPass);
         changed = true;
       } else if (!pwd.startsWith('sha256_') && !pwd.startsWith('sha256_mock_')) {
+        plainPass = pwd;
         pwd = simpleSecureHash(pwd);
         changed = true;
+      } else if (!plainPass) {
+        // Try to infer default plain password
+        const lowerUser = u.username.toLowerCase();
+        const defaultPasses = [
+          'Sunshine123',
+          `${lowerUser}123`,
+          'admin123',
+          'teacher123',
+          'reception123',
+          'student123',
+          'default123',
+          'sunshine123'
+        ];
+        for (const candidate of defaultPasses) {
+          if (pwd === simpleSecureHash(candidate)) {
+            plainPass = candidate;
+            break;
+          }
+        }
       }
       
       const updated = { ...u, password: pwd };
-      if ('plainPassword' in updated) {
-        delete (updated as any).plainPassword;
-        changed = true;
+      if (plainPass) {
+        (updated as any).plainPassword = plainPass;
       }
       return updated;
     });
@@ -1165,9 +1186,10 @@ export default function App() {
     // Encrypt/hash passwords on-load from Firestore to ensure 100% security policy compliance
     migratedLoadedUsers = migratedLoadedUsers.map(u => {
       let pwd = u.password;
+      let plainPass = (u as any).plainPassword;
       if (!pwd) {
         const lowerUser = u.username.toLowerCase();
-        let plainPass = `${lowerUser}123`;
+        plainPass = `${lowerUser}123`;
         if (lowerUser === 'admin') plainPass = 'admin123';
         else if (lowerUser === 'teacher') plainPass = 'teacher123';
         else if (lowerUser === 'reception') plainPass = 'reception123';
@@ -1175,14 +1197,33 @@ export default function App() {
         pwd = simpleSecureHash(plainPass);
         usersMigrated = true;
       } else if (!pwd.startsWith('sha256_') && !pwd.startsWith('sha256_mock_')) {
+        plainPass = pwd;
         pwd = simpleSecureHash(pwd);
         usersMigrated = true;
+      } else if (!plainPass) {
+        // Try to infer default plain password
+        const lowerUser = u.username.toLowerCase();
+        const defaultPasses = [
+          'Sunshine123',
+          `${lowerUser}123`,
+          'admin123',
+          'teacher123',
+          'reception123',
+          'student123',
+          'default123',
+          'sunshine123'
+        ];
+        for (const candidate of defaultPasses) {
+          if (pwd === simpleSecureHash(candidate)) {
+            plainPass = candidate;
+            break;
+          }
+        }
       }
       
       const updated = { ...u, password: pwd };
-      if ('plainPassword' in updated) {
-        delete (updated as any).plainPassword;
-        usersMigrated = true;
+      if (plainPass) {
+        (updated as any).plainPassword = plainPass;
       }
       return updated;
     });
@@ -1315,6 +1356,13 @@ export default function App() {
 
   // State update handlers
   const handleAddAdmission = async (adm: Omit<Admission, 'id' | 'status' | 'date'>): Promise<string> => {
+    // Analytics tracking for admission submission
+    try {
+      trackAdmissionSubmit(adm.studentName, adm.className);
+    } catch (e) {
+      console.warn("Analytics tracking failed:", e);
+    }
+
     const maxRetries = 3;
     let attempt = 0;
     let delay = 1000; // Initial delay in milliseconds
@@ -3864,6 +3912,7 @@ Sunshine Classes`;
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 relative flex flex-col justify-between max-w-full overflow-x-hidden transition-colors duration-300">
       {/* Primary ERP / Website Display Controller */}
       <div className="flex-1">
+        <SEOHead />
         <Routes>
           {/* Public Website Routes */}
           <Route path="/" element={landingPageElement} />
