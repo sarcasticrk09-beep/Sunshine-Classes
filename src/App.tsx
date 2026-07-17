@@ -1315,53 +1315,87 @@ export default function App() {
 
   // State update handlers
   const handleAddAdmission = async (adm: Omit<Admission, 'id' | 'status' | 'date'>): Promise<string> => {
-    try {
-      console.log("[App] Submitting online admission via API...", adm);
-      const response = await fetch("/api/enroll", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(adm)
-      });
-      const res = await response.json();
-      if (!response.ok || res.status === "error") {
-        throw new Error(res.message || "Failed to process enrollment submission on server.");
-      }
+    const maxRetries = 3;
+    let attempt = 0;
+    let delay = 1000; // Initial delay in milliseconds
+    
+    while (attempt <= maxRetries) {
+      try {
+        console.log(`[App] Submitting online admission via API (Attempt ${attempt + 1}/${maxRetries + 1})...`, adm);
+        const response = await fetch("/api/enroll", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(adm)
+        });
 
-      console.log("[App] Online enrollment processed successfully. Server returned ID:", res.admissionId);
+        const contentType = response.headers.get("content-type");
+        let res: any = {};
+        if (contentType && contentType.includes("application/json")) {
+          res = await response.json();
+        } else {
+          const text = await response.text();
+          throw new Error(`Server returned non-JSON response (status ${response.status}): ${text}`);
+        }
 
-      // Instant client-side state propagation for real-time responsiveness
-      if (res.student) {
-        setStudents(prev => [res.student, ...prev]);
-        localStorage.setItem('sunshine_students', JSON.stringify([res.student, ...students]));
-      }
-      if (res.admission) {
-        setAdmissions(prev => [res.admission, ...prev]);
-        localStorage.setItem('sunshine_admissions', JSON.stringify([res.admission, ...admissions]));
-      }
-      if (res.user) {
-        setUsers(prev => [res.user, ...prev]);
-        localStorage.setItem('sunshine_users', JSON.stringify([res.user, ...users]));
-      }
-      if (res.feeRecords) {
-        setFeeStatuses(prev => [...prev, ...res.feeRecords]);
-        localStorage.setItem('sunshine_fee_statuses', JSON.stringify([...feeStatuses, ...res.feeRecords]));
-      }
-      if (res.auditLog) {
-        setAuditLogs(prev => [res.auditLog, ...prev]);
-        localStorage.setItem('sunshine_audit_logs', JSON.stringify([res.auditLog, ...auditLogs]));
-      }
+        if (!response.ok || res.status === "error") {
+          throw new Error(res.message || `Server returned error status ${response.status}`);
+        }
 
-      // Show credentials popup for approved enrollment
-      alert(`🎉 Enrollment Processed & Approved Successfully!\n\nStudent Login Credentials Created:\n---------------------------------\nUsername: ${res.user?.username || 'N/A'}\nPassword: Sunshine123\n\nPlease keep these credentials safe for logging in.`);
+        console.log("[App] Online enrollment processed successfully. Server returned ID:", res.admissionId);
 
-      return res.admissionId;
-    } catch (err: any) {
-      console.error("[App] Enrollment API Submission failed:", err);
-      alert(`Admission Form Submission Failed: ${err.message || 'Server Connection Error'}`);
-      throw err;
+        // Instant client-side state propagation for real-time responsiveness
+        if (res.student) {
+          setStudents(prev => [res.student, ...prev]);
+          localStorage.setItem('sunshine_students', JSON.stringify([res.student, ...students]));
+        }
+        if (res.admission) {
+          setAdmissions(prev => [res.admission, ...prev]);
+          localStorage.setItem('sunshine_admissions', JSON.stringify([res.admission, ...admissions]));
+        }
+        if (res.user) {
+          setUsers(prev => [res.user, ...prev]);
+          localStorage.setItem('sunshine_users', JSON.stringify([res.user, ...users]));
+        }
+        if (res.feeRecords) {
+          setFeeStatuses(prev => [...prev, ...res.feeRecords]);
+          localStorage.setItem('sunshine_fee_statuses', JSON.stringify([...feeStatuses, ...res.feeRecords]));
+        }
+        if (res.auditLog) {
+          setAuditLogs(prev => [res.auditLog, ...prev]);
+          localStorage.setItem('sunshine_audit_logs', JSON.stringify([res.auditLog, ...auditLogs]));
+        }
+
+        // Show credentials popup for approved enrollment
+        alert(`🎉 Enrollment Processed & Approved Successfully!\n\nStudent Login Credentials Created:\n---------------------------------\nUsername: ${res.user?.username || 'N/A'}\nPassword: Sunshine123\n\nPlease keep these credentials safe for logging in.`);
+
+        return res.admissionId;
+      } catch (err: any) {
+        attempt++;
+        const errorMessage = err.message || "";
+        const isRetryable = !errorMessage ||
+          errorMessage.includes("Failed to fetch") ||
+          errorMessage.includes("timeout") ||
+          errorMessage.includes("permission") ||
+          errorMessage.includes("500") ||
+          errorMessage.includes("502") ||
+          errorMessage.includes("503") ||
+          errorMessage.includes("504") ||
+          errorMessage.includes("408");
+
+        if (attempt <= maxRetries && isRetryable) {
+          console.warn(`[App] Submission failed: ${errorMessage || err}. Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay *= 2; // Exponential backoff
+        } else {
+          console.error("[App] Enrollment API Submission failed permanently after retries:", err);
+          alert(`Admission Form Submission Failed: ${err.message || 'Server Connection Error'}`);
+          throw err;
+        }
+      }
     }
+    throw new Error("Enrollment failed after maximum retries.");
   };
 
   const handlePaySubscription = (
