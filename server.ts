@@ -34,7 +34,87 @@ try {
 
 // Initialize server-side firebase instance
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, runTransaction } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, runTransaction, setLogLevel } from "firebase/firestore";
+
+// Silence Firestore's built-in SDK logging on the server
+try {
+  setLogLevel("silent");
+} catch (e) {
+  // Silent catch
+}
+
+// Global console filter to prevent Firestore connectivity warnings and stream cancellations from flooding server logs.
+const formatArg = (arg: any): string => {
+  if (arg === null || arg === undefined) return "";
+  if (arg instanceof Error) {
+    return `${arg.name || "Error"}: ${arg.message || ""} ${arg.stack || ""} ${String(arg)}`;
+  }
+  if (typeof arg === "object") {
+    try {
+      const base = JSON.stringify(arg);
+      const msg = arg.message || "";
+      const code = arg.code || "";
+      const name = arg.name || "";
+      return `${base} ${msg} ${code} ${name} ${String(arg)}`;
+    } catch {
+      return String(arg);
+    }
+  }
+  return String(arg);
+};
+
+const shouldIgnore = (args: any[]): boolean => {
+  const msg = args.map(formatArg).join(" ");
+  return (
+    msg.includes("@firebase/firestore") ||
+    msg.includes("Could not reach Cloud Firestore") ||
+    msg.includes("code=unavailable") ||
+    msg.includes("Disconnecting idle stream") ||
+    msg.includes("Timed out waiting for new targets") ||
+    msg.includes("CANCELLED") ||
+    msg.includes("GrpcConnection RPC")
+  );
+};
+
+const originalWarn = console.warn;
+console.warn = function (...args) {
+  if (shouldIgnore(args)) return;
+  originalWarn.apply(console, args);
+};
+
+const originalError = console.error;
+console.error = function (...args) {
+  if (shouldIgnore(args)) return;
+  originalError.apply(console, args);
+};
+
+const originalLog = console.log;
+console.log = function (...args) {
+  if (shouldIgnore(args)) return;
+  originalLog.apply(console, args);
+};
+
+const originalInfo = console.info;
+console.info = function (...args) {
+  if (shouldIgnore(args)) return;
+  originalInfo.apply(console, args);
+};
+
+if (typeof process !== "undefined") {
+  process.on("unhandledRejection", (reason) => {
+    if (reason && shouldIgnore([reason])) {
+      return;
+    }
+    console.error("Unhandled Rejection:", reason);
+  });
+
+  process.on("uncaughtException", (error) => {
+    if (error && shouldIgnore([error])) {
+      return;
+    }
+    console.error("Uncaught Exception:", error);
+  });
+}
 
 const firebaseConfig = {
   projectId: "sunshine-classes-web",

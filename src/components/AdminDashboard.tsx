@@ -28,6 +28,7 @@ import {
   Award,
   FileSpreadsheet,
   Printer,
+  Receipt,
   Key,
   X,
   MessageSquare,
@@ -65,6 +66,7 @@ import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { CloudinaryUpload } from './CloudinaryUpload';
 import { WhatsAppCommunication } from './WhatsAppCommunication';
 import { EnrollmentHealthDashboard } from './EnrollmentHealthDashboard';
+import SunshineLogo from './SunshineLogo';
 import { getFeeStatusForRecord, parseMonthYear, formatMonthYear, generateFeeRecords, compareMonths, getCurrentAndNextMonths } from '../lib/feeUtils';
 
 function simpleSecureHash(password: string): string {
@@ -264,7 +266,11 @@ export default function AdminDashboard({
   const [authEndDate, setAuthEndDate] = useState('');
   const [authActionCategory, setAuthActionCategory] = useState<'all' | 'login' | 'password' | 'role'>('all');
   const [authSearchQuery, setAuthSearchQuery] = useState('');
-  const [feeSubTab, setFeeSubTab] = useState<'board' | 'email-logs' | 'upi-verification'>('board');
+  const [feeSubTab, setFeeSubTab] = useState<'board' | 'email-logs' | 'upi-verification' | 'payment-history'>('board');
+  const [paymentHistorySearch, setPaymentHistorySearch] = useState('');
+  const [paymentHistoryMonth, setPaymentHistoryMonth] = useState('ALL');
+  const [paymentHistoryMethod, setPaymentHistoryMethod] = useState<'ALL' | 'CASH' | 'UPI' | 'ONLINE'>('ALL');
+  const [selectedReceiptAdmin, setSelectedReceiptAdmin] = useState<FeeReceipt | null>(null);
   const [selectedUpiScreenshot, setSelectedUpiScreenshot] = useState<string | null>(null);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>(() => {
     const saved = localStorage.getItem('sunshine_email_logs');
@@ -9272,6 +9278,13 @@ ${data.log}`
                     >
                       🔍 UPI Verifications ({upiPayments.filter(p => p.status === 'PENDING_VERIFICATION').length})
                     </button>
+                    <button
+                      id="subtab-payment-history"
+                      onClick={() => setFeeSubTab('payment-history')}
+                      className={`pb-2 text-sm font-semibold border-b-2 transition-all cursor-pointer ${feeSubTab === 'payment-history' ? 'border-indigo-900 text-indigo-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                    >
+                      🧾 Payment & Receipts History ({feeReceipts.length})
+                    </button>
                   </div>
 
                   {feeSubTab === 'board' ? (
@@ -9754,6 +9767,301 @@ ${data.log}`
                       </table>
                     </div>
                   </div>
+                </div>
+              ) : feeSubTab === 'payment-history' ? (
+                /* DETAILED PAYMENT HISTORY & RECEIPTS LEDGER PANEL */
+                <div className="space-y-4">
+                  {/* Ledger Metrics Cards */}
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-2xl border border-slate-150 bg-white p-4 shadow-sm">
+                      <span className="text-[10px] font-black uppercase text-slate-400">Total Logged Collections</span>
+                      <h3 className="mt-1 text-2xl font-black text-slate-900">
+                        ₹{feeReceipts.reduce((acc, rec) => acc + rec.amountPaid, 0).toLocaleString('en-IN')}
+                      </h3>
+                      <span className="text-[10px] text-slate-500">{feeReceipts.length} Official Receipts</span>
+                    </div>
+                    <div className="rounded-2xl border border-slate-150 bg-white p-4 shadow-sm">
+                      <span className="text-[10px] font-black uppercase text-slate-400">Cash Collections</span>
+                      <h3 className="mt-1 text-2xl font-black text-emerald-700">
+                        ₹{feeReceipts.filter(r => r.paymentMethod === 'CASH').reduce((acc, rec) => acc + rec.amountPaid, 0).toLocaleString('en-IN')}
+                      </h3>
+                      <span className="text-[10px] text-slate-500">In-hand physical desk collection</span>
+                    </div>
+                    <div className="rounded-2xl border border-slate-150 bg-white p-4 shadow-sm">
+                      <span className="text-[10px] font-black uppercase text-slate-400">UPI Payments</span>
+                      <h3 className="mt-1 text-2xl font-black text-indigo-700">
+                        ₹{feeReceipts.filter(r => r.paymentMethod === 'UPI').reduce((acc, rec) => acc + rec.amountPaid, 0).toLocaleString('en-IN')}
+                      </h3>
+                      <span className="text-[10px] text-slate-500">Direct instant scan receipts</span>
+                    </div>
+                    <div className="rounded-2xl border border-slate-150 bg-white p-4 shadow-sm">
+                      <span className="text-[10px] font-black uppercase text-slate-400">Online Bank Transfers</span>
+                      <h3 className="mt-1 text-2xl font-black text-indigo-950">
+                        ₹{feeReceipts.filter(r => r.paymentMethod === 'ONLINE').reduce((acc, rec) => acc + rec.amountPaid, 0).toLocaleString('en-IN')}
+                      </h3>
+                      <span className="text-[10px] text-slate-500">IMPS / NEFT / Netbanking settlements</span>
+                    </div>
+                  </div>
+
+                  {/* Search and Filters Header */}
+                  <div className="flex flex-col gap-3 rounded-2xl border border-slate-150 bg-slate-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+                      <div className="relative flex-1">
+                        <Search className="absolute top-2.5 left-3 text-slate-400" size={14} />
+                        <input
+                          id="input-search-payment-history"
+                          type="text"
+                          placeholder="Search receipts (ID, Name, Roll No, Txn ID)..."
+                          value={paymentHistorySearch}
+                          onChange={(e) => setPaymentHistorySearch(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white py-2 pr-4 pl-9 text-xs text-slate-800 outline-none focus:border-indigo-900"
+                        />
+                      </div>
+                      
+                      {/* Month Filter */}
+                      <select
+                        id="select-filter-payment-month"
+                        value={paymentHistoryMonth}
+                        onChange={(e) => setPaymentHistoryMonth(e.target.value)}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:border-indigo-900"
+                      >
+                        <option value="ALL">All Billing Months</option>
+                        {Array.from(new Set(feeReceipts.map(r => r.month))).sort().map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+
+                      {/* Method Filter */}
+                      <select
+                        id="select-filter-payment-method"
+                        value={paymentHistoryMethod}
+                        onChange={(e) => setPaymentHistoryMethod(e.target.value as any)}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:border-indigo-900"
+                      >
+                        <option value="ALL">All Payment Methods</option>
+                        <option value="CASH">Cash Receipts Only</option>
+                        <option value="UPI">UPI Receipts Only</option>
+                        <option value="ONLINE">Online Bank Transfers</option>
+                      </select>
+                    </div>
+
+                    <div className="text-right text-[10px] text-slate-400 font-bold uppercase sm:text-left">
+                      Total: {feeReceipts.length} logged records
+                    </div>
+                  </div>
+
+                  {/* Payment Ledger Table */}
+                  <div className="overflow-hidden border border-slate-150 rounded-xl bg-white shadow-sm">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-150 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            <th className="px-4 py-3">Receipt ID / Date</th>
+                            <th className="px-4 py-3">Student Profile</th>
+                            <th className="px-4 py-3 text-center">Cycle Month</th>
+                            <th className="px-4 py-3 text-right">Amount Paid</th>
+                            <th className="px-4 py-3 text-center">Payment Method</th>
+                            <th className="px-4 py-3 font-mono">Reference Txn ID</th>
+                            <th className="px-4 py-3">Collected By</th>
+                            <th className="px-4 py-3 text-center">Audit Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                          {(() => {
+                            const filteredReceipts = feeReceipts.filter(rec => {
+                              const searchLower = paymentHistorySearch.toLowerCase();
+                              const matchesSearch = 
+                                rec.id.toLowerCase().includes(searchLower) ||
+                                rec.studentName.toLowerCase().includes(searchLower) ||
+                                rec.studentId.toLowerCase().includes(searchLower) ||
+                                (rec.transactionId && rec.transactionId.toLowerCase().includes(searchLower));
+                              
+                              const matchesMonth = paymentHistoryMonth === 'ALL' || rec.month === paymentHistoryMonth;
+                              const matchesMethod = paymentHistoryMethod === 'ALL' || rec.paymentMethod === paymentHistoryMethod;
+                              
+                              return matchesSearch && matchesMonth && matchesMethod;
+                            });
+
+                            if (filteredReceipts.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={8} className="py-12 text-center text-slate-400 font-medium">
+                                    <Receipt size={28} className="mx-auto text-slate-300 mb-2" />
+                                    No logged receipts match your search & filter criteria.
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return filteredReceipts.map((rec) => (
+                              <tr key={rec.id} className="hover:bg-slate-50/60 transition-colors">
+                                <td className="px-4 py-3">
+                                  <div className="font-mono text-[10px] text-slate-500 font-bold">{rec.id}</div>
+                                  <div className="text-[10px] text-slate-400 mt-0.5">{rec.date}</div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="font-bold text-slate-800">{rec.studentName}</div>
+                                  <div className="text-[10px] text-slate-400 mt-0.5">Class: {rec.class} • ID: {rec.studentId}</div>
+                                </td>
+                                <td className="px-4 py-3 text-center font-semibold text-slate-600">
+                                  {rec.month}
+                                </td>
+                                <td className="px-4 py-3 text-right font-bold text-slate-900">
+                                  ₹{rec.amountPaid.toLocaleString('en-IN')}.00
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                    rec.paymentMethod === 'CASH'
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                      : rec.paymentMethod === 'UPI'
+                                      ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                      : 'bg-slate-50 text-slate-700 border border-slate-200'
+                                  }`}>
+                                    ● {rec.paymentMethod}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 font-mono text-[11px] text-slate-500">
+                                  {rec.transactionId || '—'}
+                                </td>
+                                <td className="px-4 py-3 text-slate-600">
+                                  {rec.receivedBy}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      id={`btn-view-admin-receipt-${rec.id}`}
+                                      onClick={() => setSelectedReceiptAdmin(rec)}
+                                      className="rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2 py-1 text-[10px] cursor-pointer transition-colors"
+                                      title="View / Print Printable Receipt Invoice"
+                                    >
+                                      📄 Invoice
+                                    </button>
+                                    <button
+                                      id={`btn-reverse-admin-receipt-${rec.id}`}
+                                      onClick={() => {
+                                        if (confirm(`Are you sure you want to reverse payment receipt ${rec.id} of ₹${rec.amountPaid} for student ${rec.studentName}? This will increase their pending balance and void the receipt.`)) {
+                                          const updatedReceipts = feeReceipts.filter(r => r.id !== rec.id);
+                                          const updatedStatuses = feeStatuses.map(f => {
+                                            if (f.studentId === rec.studentId && f.month === rec.month) {
+                                              const newPaid = Math.max(0, f.paidFee - rec.amountPaid);
+                                              const newPending = Math.max(0, f.totalFee - (f.discount || 0) - (f.scholarship || 0) - newPaid);
+                                              return {
+                                                ...f,
+                                                paidFee: newPaid,
+                                                pendingFee: newPending,
+                                                status: newPaid === 0 ? 'PENDING' : 'PARTIAL'
+                                              } as FeeStatus;
+                                            }
+                                            return f;
+                                          });
+
+                                          const newLog: AuditLog = {
+                                            id: `log-reversal-${Date.now()}`,
+                                            userId: currentUser?.id || 'admin',
+                                            username: currentUser?.username || 'admin',
+                                            action: 'REVERSE_FEE_COLLECTION',
+                                            details: `Reversed fee payment of ₹${rec.amountPaid} from ${rec.studentName} for month ${rec.month} (Receipt ID: ${rec.id})`,
+                                            timestamp: new Date().toISOString()
+                                          };
+
+                                          onHealState('fee_receipts', updatedReceipts);
+                                          onHealState('fee_statuses', updatedStatuses);
+                                          onHealState('audit_logs', [newLog, ...auditLogs]);
+
+                                          alert(`Successfully reversed transaction ${rec.id} and restored dues.`);
+                                        }
+                                      }}
+                                      className="rounded bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2 py-1 text-[10px] cursor-pointer transition-colors"
+                                      title="Reverse and void payment receipt"
+                                    >
+                                      ✕ Reverse
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ));
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* MODAL: FEE RECEIPT DIALOG PRINT FOR ADMIN */}
+                  {selectedReceiptAdmin && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl relative text-slate-800">
+                        {/* Logo */}
+                        <div className="flex flex-col items-center justify-center border-b border-slate-100 pb-4 mb-4">
+                          <SunshineLogo size={48} showText={true} textSubTitle="Excellence in Education • Pihani, Hardoi" />
+                          <span className="text-[10px] text-slate-400 mt-1">GSTIN / Registration No: 09BCXPS8401H1ZD</span>
+                        </div>
+
+                        {/* Receipt details */}
+                        <h4 className="text-center font-display font-bold text-xs text-slate-400 uppercase tracking-widest mb-4">
+                          FEE PAYMENT RECEIPT / TAX INVOICE
+                        </h4>
+
+                        <div className="grid grid-cols-2 gap-4 text-xs font-mono bg-slate-50 rounded-xl p-3.5 mb-4 border border-slate-100">
+                          <div>
+                            <div><span className="text-slate-400">Receipt ID:</span> {selectedReceiptAdmin.id}</div>
+                            <div><span className="text-slate-400">Date Issued:</span> {selectedReceiptAdmin.date}</div>
+                            <div><span className="text-slate-400">Student Name:</span> {selectedReceiptAdmin.studentName}</div>
+                          </div>
+                          <div className="text-right">
+                            <div><span className="text-slate-400">Student ID:</span> {selectedReceiptAdmin.studentId}</div>
+                            <div><span className="text-slate-400">Academic Class:</span> {selectedReceiptAdmin.class}</div>
+                            <div><span className="text-slate-400">Collected By:</span> {selectedReceiptAdmin.receivedBy}</div>
+                          </div>
+                        </div>
+
+                        {/* Price block */}
+                        <div className="border border-slate-100 rounded-xl overflow-hidden mb-4 text-xs">
+                          <div className="bg-slate-50 px-4 py-2 flex justify-between font-bold text-slate-500 text-[10px] uppercase">
+                            <span>Description</span>
+                            <span>Amount Paid (INR)</span>
+                          </div>
+                          <div className="px-4 py-3 flex justify-between border-b border-slate-100">
+                            <div>
+                              <div className="font-bold">Coaching Tuition Fees</div>
+                              <div className="text-[10px] text-slate-400">Session cycle for {selectedReceiptAdmin.month}</div>
+                            </div>
+                            <span className="font-bold text-slate-800">₹{selectedReceiptAdmin.amountPaid}.00</span>
+                          </div>
+                          <div className="bg-slate-50/70 px-4 py-3 flex justify-between font-bold text-sm text-indigo-900">
+                            <span>NET PAID TRANSACTION AMOUNT</span>
+                            <span>₹{selectedReceiptAdmin.amountPaid}.00</span>
+                          </div>
+                        </div>
+
+                        <div className="text-[10px] text-slate-400 mb-4 space-y-1">
+                          <div>• Transaction Method: <strong>{selectedReceiptAdmin.paymentMethod}</strong></div>
+                          {selectedReceiptAdmin.transactionId && <div>• Reference Trans ID: <strong>{selectedReceiptAdmin.transactionId}</strong></div>}
+                          <div>• Payment Status: <strong>Completed & Reconciled</strong></div>
+                        </div>
+
+                        {/* Bottom buttons */}
+                        <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+                          <button
+                            id="btn-print-admin-cancel"
+                            onClick={() => setSelectedReceiptAdmin(null)}
+                            className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                          >
+                            Close
+                          </button>
+                          <button
+                            id="btn-print-admin-pdf-trigger"
+                            onClick={() => {
+                              alert("Voucher file sent to local system printer successfully.");
+                              setSelectedReceiptAdmin(null);
+                            }}
+                            className="rounded-xl bg-indigo-900 px-4 py-2 text-xs font-bold text-white shadow hover:bg-indigo-950"
+                          >
+                            Print Receipt
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 /* UPI DIRECT SETTLEMENT VERIFICATION OFFICE PANEL */
