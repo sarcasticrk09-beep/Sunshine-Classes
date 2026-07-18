@@ -1395,24 +1395,45 @@ export default function App() {
 
         // Instant client-side state propagation for real-time responsiveness
         if (res.student) {
-          setStudents(prev => [res.student, ...prev]);
-          localStorage.setItem('sunshine_students', JSON.stringify([res.student, ...students]));
+          setStudents(prev => {
+            const filtered = prev.filter((s: any) => s.id !== res.student.id);
+            const updated = [res.student, ...filtered];
+            localStorage.setItem('sunshine_students', JSON.stringify(updated));
+            return updated;
+          });
         }
         if (res.admission) {
-          setAdmissions(prev => [res.admission, ...prev]);
-          localStorage.setItem('sunshine_admissions', JSON.stringify([res.admission, ...admissions]));
+          setAdmissions(prev => {
+            const filtered = prev.filter((a: any) => a.id !== res.admission.id);
+            const updated = [res.admission, ...filtered];
+            localStorage.setItem('sunshine_admissions', JSON.stringify(updated));
+            return updated;
+          });
         }
         if (res.user) {
-          setUsers(prev => [res.user, ...prev]);
-          localStorage.setItem('sunshine_users', JSON.stringify([res.user, ...users]));
+          setUsers(prev => {
+            const filtered = prev.filter((u: any) => u.id !== res.user.id);
+            const updated = [res.user, ...filtered];
+            localStorage.setItem('sunshine_users', JSON.stringify(updated));
+            return updated;
+          });
         }
-        if (res.feeRecords) {
-          setFeeStatuses(prev => [...prev, ...res.feeRecords]);
-          localStorage.setItem('sunshine_fee_statuses', JSON.stringify([...feeStatuses, ...res.feeRecords]));
+        if (res.feeRecords && res.feeRecords.length > 0) {
+          setFeeStatuses(prev => {
+            const matchedIds = new Set(res.feeRecords.map((f: any) => f.id));
+            const filtered = prev.filter((f: any) => !matchedIds.has(f.id));
+            const updated = [...filtered, ...res.feeRecords];
+            localStorage.setItem('sunshine_fee_statuses', JSON.stringify(updated));
+            return updated;
+          });
         }
         if (res.auditLog) {
-          setAuditLogs(prev => [res.auditLog, ...prev]);
-          localStorage.setItem('sunshine_audit_logs', JSON.stringify([res.auditLog, ...auditLogs]));
+          setAuditLogs(prev => {
+            const filtered = prev.filter((a: any) => a.id !== res.auditLog.id);
+            const updated = [res.auditLog, ...filtered];
+            localStorage.setItem('sunshine_audit_logs', JSON.stringify(updated));
+            return updated;
+          });
         }
 
         // Show credentials popup for approved enrollment

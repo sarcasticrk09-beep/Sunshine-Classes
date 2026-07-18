@@ -205,6 +205,52 @@ export default function LandingPage({
   const [isAdmLoading, setIsAdmLoading] = useState(false);
   const [admError, setAdmError] = useState<string | null>(null);
 
+  // Google Form style troubleshooting state
+  const [showSupportForm, setShowSupportForm] = useState(false);
+  const [supportName, setSupportName] = useState('');
+  const [supportEmail, setSupportEmail] = useState('');
+  const [supportMobile, setSupportMobile] = useState('');
+  const [supportClass, setSupportClass] = useState('Class 10');
+  const [supportErrorMsg, setSupportErrorMsg] = useState('');
+  const [supportNotes, setSupportNotes] = useState('');
+  const [isSupportSubmitting, setIsSupportSubmitting] = useState(false);
+  const [supportSuccess, setSupportSuccess] = useState(false);
+
+  const handleSupportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supportName.trim() || !supportMobile.trim()) {
+      alert("Please fill in the required fields (Student Name and Mobile Number).");
+      return;
+    }
+
+    setIsSupportSubmitting(true);
+    try {
+      const response = await fetch("/api/support-tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentName: supportName,
+          email: supportEmail,
+          mobile: supportMobile,
+          className: supportClass,
+          errorMessage: supportErrorMsg || "Manual user failure report",
+          notes: supportNotes
+        })
+      });
+      const res = await response.json();
+      if (res.status === "success") {
+        setSupportSuccess(true);
+      } else {
+        alert(res.message || "Failed to submit report. Please try again.");
+      }
+    } catch (err: any) {
+      console.error("Support form submit error:", err);
+      alert("Error submitting support form. Please check your network and try again.");
+    } finally {
+      setIsSupportSubmitting(false);
+    }
+  };
+
   const handleContactSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setIsContactSubmitted(true);
@@ -1138,27 +1184,70 @@ export default function LandingPage({
                       </div>
                     </div>
 
-                     {admError && (
-                      <div className="rounded-xl bg-red-50 border border-red-100 p-3.5 text-xs text-red-600 font-bold font-sans mt-4">
-                        ⚠️ {admError}
+                    {admError && (
+                      <div className="rounded-xl bg-red-50 border border-red-100 p-4 text-xs text-red-600 font-sans mt-4 space-y-3 shadow-sm" id="enrollment-error-container">
+                        <div className="flex items-start gap-2">
+                          <span className="text-sm">⚠️</span>
+                          <div>
+                            <span className="font-bold block text-red-800">Enrollment Attempt Failed</span>
+                            <span className="text-red-700">{admError}</span>
+                          </div>
+                        </div>
+                        <div className="pt-2 border-t border-red-200 flex justify-between items-center gap-2">
+                          <span className="text-[10px] text-red-500 font-medium font-sans uppercase tracking-wider">Report this error to admin panel</span>
+                          <button
+                            id="btn-trigger-support-form-error"
+                            type="button"
+                            onClick={() => {
+                              setSupportName(admName || '');
+                              setSupportMobile(admMobile || '');
+                              setSupportClass(admClass || 'Class 10');
+                              setSupportErrorMsg(admError);
+                              setShowSupportForm(true);
+                              setSupportSuccess(false);
+                            }}
+                            className="bg-red-600 hover:bg-red-700 text-white font-black px-3 py-1.5 rounded-lg transition-all cursor-pointer shadow-sm text-[10px] flex items-center gap-1.5"
+                          >
+                            📋 File Support Ticket
+                          </button>
+                        </div>
                       </div>
                     )}
 
-                    <div className="flex justify-end pt-2 items-center gap-4">
-                      {isAdmLoading && (
-                        <span className="text-xs text-slate-500 flex items-center gap-2 font-sans animate-pulse font-bold">
-                          <span className="h-3 w-3 border-2 border-brand-orange border-t-transparent rounded-full animate-spin"></span>
-                          Processing Admission File...
-                        </span>
-                      )}
-                      <button
-                        id="btn-admission-submit"
-                        type="submit"
-                        disabled={isAdmLoading}
-                        className={`rounded-xl bg-brand-orange hover:bg-amber-500 text-white px-6 py-3 text-xs font-black shadow-md transition-all flex items-center gap-2 ${isAdmLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
-                      >
-                        {isAdmLoading ? "Submitting..." : "Submit Admission File"}
-                      </button>
+                    <div className="flex justify-between pt-4 items-center gap-4">
+                      <div>
+                        <button
+                          id="btn-open-general-support"
+                          type="button"
+                          onClick={() => {
+                            setSupportName(admName || '');
+                            setSupportMobile(admMobile || '');
+                            setSupportClass(admClass || 'Class 10');
+                            setSupportErrorMsg('General Form Submission Issue');
+                            setShowSupportForm(true);
+                            setSupportSuccess(false);
+                          }}
+                          className="text-xs text-brand-blue hover:text-brand-blue-hover font-bold hover:underline cursor-pointer"
+                        >
+                          ❓ Having issues? Open Support Form
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        {isAdmLoading && (
+                          <span className="text-xs text-slate-500 flex items-center gap-2 font-sans animate-pulse font-bold">
+                            <span className="h-3 w-3 border-2 border-brand-orange border-t-transparent rounded-full animate-spin"></span>
+                            Processing Admission File...
+                          </span>
+                        )}
+                        <button
+                          id="btn-admission-submit"
+                          type="submit"
+                          disabled={isAdmLoading}
+                          className={`rounded-xl bg-brand-orange hover:bg-amber-500 text-white px-6 py-3 text-xs font-black shadow-md transition-all flex items-center gap-2 ${isAdmLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        >
+                          {isAdmLoading ? "Submitting..." : "Submit Admission File"}
+                        </button>
+                      </div>
                     </div>
                   </form>
                 </div>
@@ -1703,6 +1792,230 @@ export default function LandingPage({
         </div>
       </footer>
 
+      {/* GOOGLE FORM-STYLE ENROLLMENT FAILURE REPORTING MODAL */}
+      {showSupportForm && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" id="google-form-support-overlay">
+          <div className="relative w-full max-w-2xl bg-[#f0ebf8] dark:bg-slate-950 rounded-2xl shadow-2xl border border-[#d1c4e9] overflow-hidden my-8 animate-in fade-in zoom-in duration-200 text-left">
+            {/* Google Forms Top Purple Bar */}
+            <div className="h-2.5 bg-[#673ab7]" id="gform-top-accent"></div>
+            
+            {/* Main Form Scroller */}
+            <div className="p-4 sm:p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+              
+              {/* Header card */}
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-3 relative">
+                {/* Form header */}
+                <h3 className="font-sans text-2xl font-normal text-slate-900 dark:text-white" id="gform-title">
+                  Sunshine Classes - Enrollment Support Form
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-sans">
+                  Did you encounter an error or failure while trying to submit your online enrollment? 
+                  Please fill out this quick reporting form. Our administration team will review your details and manually initiate or repair your student record.
+                </p>
+                <div className="text-[10px] text-red-600 font-semibold border-t border-slate-100 dark:border-slate-800 pt-2.5 flex items-center gap-1">
+                  <span>*</span> Indicates required question
+                </div>
+                
+                <button
+                  id="btn-close-support-form-top"
+                  type="button"
+                  onClick={() => setShowSupportForm(false)}
+                  className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer text-sm font-bold p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {supportSuccess ? (
+                /* SUCCESS RESPONSE CARD */
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm text-left space-y-5">
+                  <h4 className="font-sans text-xl font-normal text-slate-900 dark:text-white">
+                    Enrollment Support Form
+                  </h4>
+                  <div className="text-xs text-slate-700 dark:text-slate-300 space-y-1 font-sans">
+                    <p className="font-semibold text-emerald-600 dark:text-emerald-400">✓ Your response has been recorded.</p>
+                    <p className="text-slate-500 mt-2 leading-relaxed">
+                      Thank you for reporting this issue. Our administrative staff will review your case immediately and contact you at the mobile number provided.
+                    </p>
+                  </div>
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+                    <button
+                      id="btn-support-form-submit-another"
+                      type="button"
+                      onClick={() => setSupportSuccess(false)}
+                      className="text-xs text-[#673ab7] hover:underline font-bold cursor-pointer bg-transparent border-0 p-0"
+                    >
+                      Submit another response
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      id="btn-support-form-close-success"
+                      type="button"
+                      onClick={() => setShowSupportForm(false)}
+                      className="text-xs text-slate-500 hover:underline font-bold cursor-pointer bg-transparent border-0 p-0"
+                    >
+                      Close Window
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* INPUT CARDS FORM */
+                <form onSubmit={handleSupportSubmit} className="space-y-4">
+                  
+                  {/* Candidate Name Card */}
+                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-2 text-left">
+                    <label className="block text-sm font-semibold text-slate-900 dark:text-slate-100 font-sans">
+                      Candidate's Full Name <span className="text-red-500">*</span>
+                    </label>
+                    <p className="text-[10px] text-slate-400">Please write the student's legal name used in the enrollment attempt.</p>
+                    <input
+                      type="text"
+                      required
+                      id="gform-input-name"
+                      value={supportName}
+                      onChange={(e) => setSupportName(e.target.value)}
+                      placeholder="Your answer"
+                      className="w-full max-w-md border-b-2 border-slate-200 dark:border-slate-700 bg-transparent py-2 text-xs text-slate-800 dark:text-slate-100 outline-none focus:border-[#673ab7] transition-all font-sans"
+                    />
+                  </div>
+
+                  {/* Contact Number Card */}
+                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-2 text-left">
+                    <label className="block text-sm font-semibold text-slate-900 dark:text-slate-100 font-sans">
+                      Contact Phone / WhatsApp Number <span className="text-red-500">*</span>
+                    </label>
+                    <p className="text-[10px] text-slate-400">Where can our support panel contact you to coordinate?</p>
+                    <input
+                      type="tel"
+                      required
+                      id="gform-input-phone"
+                      value={supportMobile}
+                      onChange={(e) => setSupportMobile(e.target.value)}
+                      placeholder="Your answer"
+                      className="w-full max-w-md border-b-2 border-slate-200 dark:border-slate-700 bg-transparent py-2 text-xs text-slate-800 dark:text-slate-100 outline-none focus:border-[#673ab7] transition-all font-sans"
+                    />
+                  </div>
+
+                  {/* Email Address Card */}
+                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-2 text-left">
+                    <label className="block text-sm font-semibold text-slate-900 dark:text-slate-100 font-sans">
+                      Correspondence Email Address
+                    </label>
+                    <p className="text-[10px] text-slate-400">Optional. Enter if you wish to receive credentials copy via email.</p>
+                    <input
+                      type="email"
+                      id="gform-input-email"
+                      value={supportEmail}
+                      onChange={(e) => setSupportEmail(e.target.value)}
+                      placeholder="Your answer"
+                      className="w-full max-w-md border-b-2 border-slate-200 dark:border-slate-700 bg-transparent py-2 text-xs text-slate-800 dark:text-slate-100 outline-none focus:border-[#673ab7] transition-all font-sans"
+                    />
+                  </div>
+
+                  {/* Class Applying Card */}
+                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-2 text-left">
+                    <label className="block text-sm font-semibold text-slate-900 dark:text-slate-100 font-sans">
+                      Academic Class Group <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      id="gform-select-class"
+                      value={supportClass}
+                      onChange={(e) => setSupportClass(e.target.value)}
+                      className="w-full max-w-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs text-slate-800 dark:text-slate-100 outline-none focus:border-[#673ab7]"
+                    >
+                      <option value="Class 10">Class 10</option>
+                      <option value="Class 9">Class 9</option>
+                      <option value="Classes 5 to 8">Classes 5 to 8</option>
+                      <option value="Classes 1 to 4">Classes 1 to 4</option>
+                    </select>
+                  </div>
+
+                  {/* Error Message Card */}
+                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-2 text-left">
+                    <label className="block text-sm font-semibold text-slate-900 dark:text-slate-100 font-sans">
+                      Error Message / Failure Reason <span className="text-red-500">*</span>
+                    </label>
+                    <p className="text-[10px] text-slate-400">Describe the specific error, or paste any warning text displayed.</p>
+                    <textarea
+                      required
+                      id="gform-input-error"
+                      rows={2}
+                      value={supportErrorMsg}
+                      onChange={(e) => setSupportErrorMsg(e.target.value)}
+                      placeholder="Your answer"
+                      className="w-full border-b-2 border-slate-200 dark:border-slate-700 bg-transparent py-2 text-xs text-slate-800 dark:text-slate-100 outline-none focus:border-[#673ab7] transition-all font-sans resize-none"
+                    />
+                  </div>
+
+                  {/* Additional Remarks Card */}
+                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-2 text-left">
+                    <label className="block text-sm font-semibold text-slate-900 dark:text-slate-100 font-sans">
+                      Additional Remarks / Help Notes
+                    </label>
+                    <p className="text-[10px] text-slate-400">Any other details you would like to submit to our administrative team.</p>
+                    <textarea
+                      id="gform-input-notes"
+                      rows={2}
+                      value={supportNotes}
+                      onChange={(e) => setSupportNotes(e.target.value)}
+                      placeholder="Your answer"
+                      className="w-full border-b-2 border-slate-200 dark:border-slate-700 bg-transparent py-2 text-xs text-slate-800 dark:text-slate-100 outline-none focus:border-[#673ab7] transition-all font-sans resize-none"
+                    />
+                  </div>
+
+                  {/* Actions footer */}
+                  <div className="flex justify-between items-center pt-2">
+                    <button
+                      id="btn-gform-clear"
+                      type="button"
+                      onClick={() => {
+                        setSupportName('');
+                        setSupportEmail('');
+                        setSupportMobile('');
+                        setSupportErrorMsg('');
+                        setSupportNotes('');
+                      }}
+                      className="text-xs text-[#673ab7] hover:bg-[#673ab7]/5 px-4 py-2 rounded-lg font-bold transition-all cursor-pointer bg-transparent border-0"
+                    >
+                      Clear form
+                    </button>
+                    
+                    <div className="flex items-center gap-3">
+                      <button
+                        id="btn-gform-cancel"
+                        type="button"
+                        onClick={() => setShowSupportForm(false)}
+                        className="rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 px-4 py-2 text-xs font-bold transition-all cursor-pointer bg-transparent border-0"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        id="btn-gform-submit"
+                        type="submit"
+                        disabled={isSupportSubmitting}
+                        className="rounded-lg bg-[#673ab7] hover:bg-[#5e35b1] text-white px-5 py-2 text-xs font-bold shadow-md transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        {isSupportSubmitting ? (
+                          <>
+                            <span className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                            Submitting...
+                          </>
+                        ) : (
+                          "Submit"
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              )}
+            </div>
+            <div className="bg-[#f0ebf8] dark:bg-slate-900 py-3.5 px-6 border-t border-slate-200 dark:border-slate-800 text-[10px] text-slate-500 flex justify-between items-center">
+              <span>This form was created inside Sunshine Classes Support Desk.</span>
+              <span className="font-bold font-sans">Google Forms Style</span>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

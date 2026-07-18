@@ -64,6 +64,7 @@ import { googleSignIn, getCachedAccessToken, clearCachedAccessToken, db } from '
 import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { CloudinaryUpload } from './CloudinaryUpload';
 import { WhatsAppCommunication } from './WhatsAppCommunication';
+import { EnrollmentHealthDashboard } from './EnrollmentHealthDashboard';
 import { getFeeStatusForRecord, parseMonthYear, formatMonthYear, generateFeeRecords, compareMonths, getCurrentAndNextMonths } from '../lib/feeUtils';
 
 function simpleSecureHash(password: string): string {
@@ -4406,6 +4407,52 @@ export default function AdminDashboard({
   const [studentFilterStatus, setStudentFilterStatus] = useState<string>('ACTIVE');
   const [studentSearchQuery, setStudentSearchQuery] = useState<string>('');
 
+  // Premium Admissions & Telemetry Health States
+  const [studentSubTab, setStudentSubTab] = useState<'directory' | 'admissions-health'>('directory');
+  const [telemetryData, setTelemetryData] = useState<any>(null);
+  const [isTelemetryLoading, setIsTelemetryLoading] = useState(false);
+  const [telemetrySearch, setTelemetrySearch] = useState('');
+  const [telemetryFilterClass, setTelemetryFilterClass] = useState('all');
+  const [telemetryFilterStatus, setTelemetryFilterStatus] = useState('all');
+  const [telemetrySortField, setTelemetrySortField] = useState('date');
+  const [telemetrySortOrder, setTelemetrySortOrder] = useState<'asc' | 'desc'>('desc');
+  const [telemetryPage, setTelemetryPage] = useState(1);
+  const telemetryItemsPerPage = 10;
+
+  const fetchTelemetry = async () => {
+    setIsTelemetryLoading(true);
+    try {
+      const res = await fetch('/api/admin/enrollment-health');
+      const json = await res.json();
+      if (json.status === 'success') {
+        setTelemetryData(json);
+      }
+    } catch (err) {
+      console.error("Failed to fetch enrollment telemetry:", err);
+    } finally {
+      setIsTelemetryLoading(false);
+    }
+  };
+
+  const handleRetryEnrollment = async (enrollmentId: string) => {
+    try {
+      const res = await fetch('/api/admin/retry-enrollment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enrollmentId })
+      });
+      const json = await res.json();
+      if (json.status === 'success') {
+        alert("🎉 Enrollment successfully recovered! Profile, Auth, and Fee Records initialized.");
+        fetchTelemetry();
+      } else {
+        alert(`⚠️ Failed to recover enrollment: ${json.message}`);
+      }
+    } catch (err: any) {
+      alert(`⚠️ Error during recovery: ${err.message}`);
+    }
+  };
+
   // Bulk WhatsApp Messaging States with waBulk prefix to avoid conflict
   const [waBulkTargetType, setWaBulkTargetType] = useState<'all' | 'batch' | 'class'>('all');
   const [waBulkTargetBatchId, setWaBulkTargetBatchId] = useState('');
@@ -6628,8 +6675,42 @@ ${data.log}`
           {/* TAB 2: MANAGE STUDENTS */}
           {activeTab === 'students' && (
             <div className="space-y-6">
-              {/* PENDING ONLINE ADMISSIONS PANEL */}
-              {(() => {
+              {/* Premium Sub-Tab Navigation Switcher */}
+              <div className="flex border-b border-slate-200 pb-px mb-6 gap-6" id="student-admissions-sub-tabs">
+                <button
+                  type="button"
+                  id="subtab-active-directory"
+                  onClick={() => setStudentSubTab('directory')}
+                  className={`pb-3 text-xs sm:text-sm font-extrabold transition-all relative ${
+                    studentSubTab === 'directory'
+                      ? 'text-indigo-900 border-b-2 border-indigo-900 font-black'
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  👥 Active Students Directory
+                </button>
+                <button
+                  type="button"
+                  id="subtab-online-admissions"
+                  onClick={() => {
+                    setStudentSubTab('admissions-health');
+                    fetchTelemetry();
+                  }}
+                  className={`pb-3 text-xs sm:text-sm font-extrabold transition-all relative flex items-center gap-1.5 ${
+                    studentSubTab === 'admissions-health'
+                      ? 'text-indigo-900 border-b-2 border-indigo-900 font-black'
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  🚀 Online Admissions & Health Monitor
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                </button>
+              </div>
+
+              {studentSubTab === 'directory' ? (
+                <div className="space-y-6">
+                  {/* PENDING ONLINE ADMISSIONS PANEL */}
+                  {(() => {
                 const pendingAdmissions = Array.isArray(admissions) 
                   ? admissions.filter((a) => a.status === 'PENDING') 
                   : [];
@@ -7621,7 +7702,18 @@ ${data.log}`
                 </div>
               )}
             </div>
+          ) : (
+            <EnrollmentHealthDashboard
+              telemetryData={telemetryData}
+              fetchTelemetry={fetchTelemetry}
+              isTelemetryLoading={isTelemetryLoading}
+              handleRetryEnrollment={handleRetryEnrollment}
+              students={students}
+              users={users}
+            />
           )}
+        </div>
+      )}
 
           {/* TAB 3: MANAGE TEACHERS */}
           {activeTab === 'teachers' && (

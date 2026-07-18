@@ -27,34 +27,80 @@ try {
   // Silent catch
 }
 
-// Global console filter to prevent Firestore connectivity warnings from flooding the preview/runner console logs.
-// In sandboxed environments or during initial container startups, Firestore websocket connection attempts
-// may warn about being offline; since we gracefully fall back to zero-latency LocalStorage, these warnings are benign.
+// Global console filter to prevent Firestore connectivity warnings and stream cancellations from flooding logs.
+const formatArg = (arg: any): string => {
+  if (arg === null || arg === undefined) return "";
+  if (arg instanceof Error) {
+    return `${arg.name || "Error"}: ${arg.message || ""} ${arg.stack || ""} ${String(arg)}`;
+  }
+  if (typeof arg === "object") {
+    try {
+      const base = JSON.stringify(arg);
+      const msg = arg.message || "";
+      const code = arg.code || "";
+      const name = arg.name || "";
+      return `${base} ${msg} ${code} ${name} ${String(arg)}`;
+    } catch {
+      return String(arg);
+    }
+  }
+  return String(arg);
+};
+
+const shouldIgnore = (args: any[]): boolean => {
+  const msg = args.map(formatArg).join(" ");
+  return (
+    msg.includes("@firebase/firestore") ||
+    msg.includes("Could not reach Cloud Firestore") ||
+    msg.includes("code=unavailable") ||
+    msg.includes("Disconnecting idle stream") ||
+    msg.includes("Timed out waiting for new targets") ||
+    msg.includes("CANCELLED") ||
+    msg.includes("GrpcConnection RPC")
+  );
+};
+
 const originalWarn = console.warn;
 console.warn = function (...args) {
-  const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(" ");
-  if (
-    msg.includes("@firebase/firestore") || 
-    msg.includes("Could not reach Cloud Firestore") || 
-    msg.includes("code=unavailable")
-  ) {
-    return;
-  }
+  if (shouldIgnore(args)) return;
   originalWarn.apply(console, args);
 };
 
 const originalError = console.error;
 console.error = function (...args) {
-  const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(" ");
-  if (
-    msg.includes("@firebase/firestore") || 
-    msg.includes("Could not reach Cloud Firestore") || 
-    msg.includes("code=unavailable")
-  ) {
-    return;
-  }
+  if (shouldIgnore(args)) return;
   originalError.apply(console, args);
 };
+
+const originalLog = console.log;
+console.log = function (...args) {
+  if (shouldIgnore(args)) return;
+  originalLog.apply(console, args);
+};
+
+const originalInfo = console.info;
+console.info = function (...args) {
+  if (shouldIgnore(args)) return;
+  originalInfo.apply(console, args);
+};
+
+if (typeof window !== "undefined") {
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    if (reason && shouldIgnore([reason])) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+
+  window.addEventListener("error", (event) => {
+    const error = event.error || event.message;
+    if (error && shouldIgnore([error])) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+}
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
