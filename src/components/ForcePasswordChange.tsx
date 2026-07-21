@@ -67,7 +67,7 @@ export const ForcePasswordChange: React.FC<ForcePasswordChangeProps> = ({ onSucc
         }
       }
 
-      await changePassword(newPassword);
+      await changePassword(currentPassword, newPassword);
       setSuccess(true);
       setTimeout(() => {
         if (onSuccess) onSuccess();

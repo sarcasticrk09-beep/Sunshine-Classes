@@ -77,6 +77,20 @@ class CloudinaryService {
    * Validates file format and size
    */
   validateFile(file: File, options: CloudinaryUploadOptions = {}): { isValid: boolean; error?: string } {
+    if (!file) {
+      return {
+        isValid: false,
+        error: "Invalid file object. No file selected for upload.",
+      };
+    }
+
+    if (!file.name || typeof file.name !== "string") {
+      return {
+        isValid: false,
+        error: "Invalid file name. Upload aborted.",
+      };
+    }
+
     const allowedExtensions = options.allowedTypes || ["jpg", "jpeg", "png", "webp", "pdf", "docx", "xlsx"];
     const maxBytes = options.maxSize || 10 * 1024 * 1024; // Default 10MB limit
 
@@ -98,7 +112,8 @@ class CloudinaryService {
     }
 
     // Malware/Harmful block
-    if (file.type && (file.type.includes("javascript") || file.type.includes("html") || file.type.includes("executable") || file.type.includes("x-msdownload"))) {
+    const fileType = file.type || "";
+    if (fileType && (fileType.includes("javascript") || fileType.includes("html") || fileType.includes("executable") || fileType.includes("x-msdownload"))) {
       return {
         isValid: false,
         error: "Executable or potentially harmful scripts are strictly blocked.",
@@ -193,7 +208,8 @@ class CloudinaryService {
     }
 
     // 3. For live production signed upload, construct FormData & POST to Cloudinary API
-    const resourceType = file.type.startsWith("image/") ? "image" : "raw";
+    const fileTypeStr = file?.type || "";
+    const resourceType = fileTypeStr.startsWith("image/") ? "image" : "raw";
     const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
 
     const formData = new FormData();

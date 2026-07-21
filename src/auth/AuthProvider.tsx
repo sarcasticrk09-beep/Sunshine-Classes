@@ -602,9 +602,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   /**
    * Passcode/Password update for currently logged-in user
    */
-  const changePassword = async (newPassword: string): Promise<void> => {
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<void> => {
     if (!currentUser) {
       throw new Error("No authenticated session active.");
+    }
+
+    const usersList = await getERPData<any>('users', SEED_USERS);
+    const userDbEntry = usersList.find((u: any) => u.id === currentUser.id || u.username?.toLowerCase() === currentUser.username?.toLowerCase());
+
+    if (!userDbEntry) {
+      throw new Error("User profile not found in ERP records.");
+    }
+
+    // Verify current password!
+    if (userDbEntry.password) {
+      const hashedCurrent = simpleSecureHash(currentPassword);
+      const storedHash = userDbEntry.password;
+      const match = hashedCurrent === storedHash || 
+                    hashedCurrent.replace('sha256_', 'sha256_mock_') === storedHash || 
+                    hashedCurrent.replace('sha256_mock_', 'sha256_') === storedHash;
+
+      if (!match) {
+        throw new Error("The current password you entered is incorrect.");
+      }
     }
 
     // Generate a fresh session ID for this user (logs out other tabs/devices)
@@ -619,7 +639,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     }
 
-    const usersList = await getERPData<any>('users', SEED_USERS);
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
     const timeStr = now.toTimeString().split(' ')[0];
@@ -639,12 +658,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const updated = {
           ...u,
           password: simpleSecureHash(newPassword),
-          plainPassword: newPassword,
           forcePasswordChange: false,
           firstLogin: false,
           activeSessionId: newSessionId,
           passwordHistory: history
         };
+        // Explicitly delete any plaintext or plainPassword keys
+        delete updated.plainPassword;
         return updated;
       }
       return u;
@@ -652,29 +672,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     await syncERPData('users', updatedUsers);
     
-    // Update active session locally so state matches
-    const sessionStr = sessionStorage.getItem('sunshine_active_session') || localStorage.getItem('sunshine_active_session');
-    if (sessionStr) {
-      try {
-        const session = JSON.parse(sessionStr);
-        if (session && session.user) {
-          const userCopy = { ...session.user };
-          userCopy.plainPassword = newPassword;
-          userCopy.password = simpleSecureHash(newPassword);
-          userCopy.forcePasswordChange = false;
-          userCopy.activeSessionId = newSessionId;
-          
-          session.user = userCopy;
-          sessionStorage.setItem('sunshine_active_session', JSON.stringify(session));
-          localStorage.setItem('sunshine_active_session', JSON.stringify(session));
-          setCurrentUser(userCopy);
-        }
-      } catch (e) {
-        console.warn("Error updating session storage password hash:", e);
-      }
-    }
+    // Revoke sessions and force log out immediately
+    sessionStorage.removeItem('sunshine_active_session');
+    localStorage.removeItem('sunshine_active_session');
+    setCurrentUser(null);
+    setRole(null);
 
-    await writeAuditLog(currentUser.id, currentUser.username, 'PASSWORD_CHANGE', "User updated their login passcode successfully.");
+    await writeAuditLog(currentUser.id, currentUser.username, 'PASSWORD_CHANGE', "User updated their login passcode successfully. All sessions revoked and forced re-login.");
   };
 
   return (

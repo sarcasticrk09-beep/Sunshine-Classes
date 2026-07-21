@@ -134,34 +134,64 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
   };
 
   const capturePhoto = () => {
-    if (!videoRef.current) return;
+    try {
+      if (!videoRef.current) return;
 
-    const video = videoRef.current;
-    const canvas = document.createElement("canvas");
-    const width = video.videoWidth || 640;
-    const height = video.videoHeight || 480;
-    
-    canvas.width = width;
-    canvas.height = height;
-    
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    
-    // Mirror the captured frame to match the user's view
-    ctx.translate(width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, width, height);
-    ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
+      const video = videoRef.current;
+      const canvas = document.createElement("canvas");
+      const width = video.videoWidth || 640;
+      const height = video.videoHeight || 480;
+      
+      canvas.width = width;
+      canvas.height = height;
+      
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      
+      // Mirror the captured frame to match the user's view
+      ctx.translate(width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, width, height);
+      ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
 
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const capturedFile = new File([blob], `camera_${Date.now()}.jpg`, {
-          type: "image/jpeg",
-        });
-        stopCamera();
-        preProcessFile(capturedFile);
+      try {
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+        if (dataUrl && dataUrl.startsWith("data:image/")) {
+          const byteString = atob(dataUrl.split(',')[1]);
+          const mimeString = dataUrl.split(',')[0].split(':')[1].split(';')[0];
+          const ab = new ArrayBuffer(byteString.length);
+          const ia = new Uint8Array(ab);
+          for (let i = 0; i < byteString.length; i++) {
+            ia[i] = byteString.charCodeAt(i);
+          }
+          const blob = new Blob([ab], { type: mimeString });
+          const capturedFile = new File([blob], `camera_${Date.now()}.jpg`, {
+            type: "image/jpeg",
+          });
+          stopCamera();
+          preProcessFile(capturedFile);
+          return;
+        }
+      } catch (err) {
+        console.warn("Synchronous webcam dataURL capture failed, falling back to toBlob", err);
       }
-    }, "image/jpeg", 0.95);
+
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const capturedFile = new File([blob], `camera_${Date.now()}.jpg`, {
+            type: "image/jpeg",
+          });
+          stopCamera();
+          preProcessFile(capturedFile);
+        } else {
+          console.error("Canvas toBlob returned null.");
+          setError("Failed to process captured photo. Please try uploading a file instead.");
+        }
+      }, "image/jpeg", 0.95);
+    } catch (err: any) {
+      console.error("Failed to capture photo from webcam:", err);
+      setError("Webcam capture failed: " + (err.message || "Unknown error"));
+    }
   };
 
   useEffect(() => {
@@ -321,75 +351,134 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
   const handleCropSave = async () => {
     if (!cropImageRef.current || !currentFile) return;
 
-    const img = cropImageRef.current;
-    const canvas = document.createElement("canvas");
-    canvas.width = 300;
-    canvas.height = 300;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    try {
+      const img = cropImageRef.current;
+      const canvas = document.createElement("canvas");
+      canvas.width = 300;
+      canvas.height = 300;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-    // Calculations based on 200x200px crop circle container
-    const cropBoxSize = 200;
-    const containerSize = 280;
-    
-    // Original image physical vs display scale
-    const displayWidth = img.width;
-    const displayHeight = img.height;
-    
-    // Scale factor
-    const scaleX = img.naturalWidth / displayWidth;
-    const scaleY = img.naturalHeight / displayHeight;
+      // Calculations based on 200x200px crop circle container
+      const cropBoxSize = 200;
+      const containerSize = 280;
+      
+      // Original image physical vs display scale
+      const displayWidth = img.clientWidth || img.width || containerSize;
+      const displayHeight = img.clientHeight || img.height || containerSize;
+      
+      // Scale factor
+      const scaleX = (img.naturalWidth && displayWidth) ? (img.naturalWidth / displayWidth) : 1;
+      const scaleY = (img.naturalHeight && displayHeight) ? (img.naturalHeight / displayHeight) : 1;
 
-    // Middle coordinate of crop circle relative to display image top-left
-    const centerX = containerSize / 2;
-    const centerY = containerSize / 2;
+      // Middle coordinate of crop circle relative to display image top-left
+      const centerX = containerSize / 2;
+      const centerY = containerSize / 2;
 
-    // Display coordinates of cropping region center (adjusted for dragging offsets)
-    const cropDisplayX = centerX - offset.x;
-    const cropDisplayY = centerY - offset.y;
+      // Display coordinates of cropping region center (adjusted for dragging offsets)
+      const cropDisplayX = centerX - offset.x;
+      const cropDisplayY = centerY - offset.y;
 
-    // Crop box width/height in display size
-    const displayCropW = cropBoxSize / zoom;
-    const displayCropH = cropBoxSize / zoom;
+      // Crop box width/height in display size
+      const displayCropW = cropBoxSize / zoom;
+      const displayCropH = cropBoxSize / zoom;
 
-    // Map back to natural image coordinates
-    const sourceX = (cropDisplayX - displayCropW / 2) * scaleX;
-    const sourceY = (cropDisplayY - displayCropH / 2) * scaleY;
-    const sourceW = displayCropW * scaleX;
-    const sourceH = displayCropH * scaleY;
+      // Map back to natural image coordinates
+      const sourceX = (cropDisplayX - displayCropW / 2) * scaleX;
+      const sourceY = (cropDisplayY - displayCropH / 2) * scaleY;
+      const sourceW = displayCropW * scaleX;
+      const sourceH = displayCropH * scaleY;
 
-    // Render onto canvas
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, 300, 300);
+      // Render onto canvas
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, 300, 300);
 
-    // Apply rotation if any
-    if (rotation !== 0) {
-      ctx.translate(150, 150);
-      ctx.rotate((rotation * Math.PI) / 180);
-      ctx.translate(-150, -150);
-    }
-
-    ctx.drawImage(
-      img,
-      Math.max(0, sourceX),
-      Math.max(0, sourceY),
-      Math.min(img.naturalWidth, sourceW),
-      Math.min(img.naturalHeight, sourceH),
-      0,
-      0,
-      300,
-      300
-    );
-
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const croppedFile = new File([blob], `cropped_${currentFile.name}`, {
-          type: "image/jpeg",
-        });
-        setShowCropModal(false);
-        uploadProcessedFile(croppedFile);
+      // Apply rotation if any
+      if (rotation !== 0) {
+        ctx.translate(150, 150);
+        ctx.rotate((rotation * Math.PI) / 180);
+        ctx.translate(-150, -150);
       }
-    }, "image/jpeg", 0.95);
+
+      const nw = img.naturalWidth || img.width || 300;
+      const nh = img.naturalHeight || img.height || 300;
+
+      let dx = isFinite(sourceX) ? Math.max(0, sourceX) : 0;
+      let dy = isFinite(sourceY) ? Math.max(0, sourceY) : 0;
+      let dw = isFinite(sourceW) ? Math.min(nw, sourceW) : nw;
+      let dh = isFinite(sourceH) ? Math.min(nh, sourceH) : nh;
+
+      // Force clamp to natural bounds to prevent out of bounds IndexSizeError/InvalidStateError in browser
+      if (dx >= nw) dx = 0;
+      if (dy >= nh) dy = 0;
+      if (dx + dw > nw) {
+        dw = nw - dx;
+      }
+      if (dy + dh > nh) {
+        dh = nh - dy;
+      }
+
+      // Final sanitization of dimensions
+      if (dw <= 0 || isNaN(dw)) dw = nw;
+      if (dh <= 0 || isNaN(dh)) dh = nh;
+      if (dw <= 0) dw = 1;
+      if (dh <= 0) dh = 1;
+
+      ctx.drawImage(
+        img,
+        dx,
+        dy,
+        dw,
+        dh,
+        0,
+        0,
+        300,
+        300
+      );
+
+      // Attempt high-stability synchronous conversion first to bypass any iframe sandboxing limitations on toBlob
+      try {
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+        if (dataUrl && dataUrl.startsWith("data:image/")) {
+          const byteString = atob(dataUrl.split(',')[1]);
+          const mimeString = dataUrl.split(',')[0].split(':')[1].split(';')[0];
+          const ab = new ArrayBuffer(byteString.length);
+          const ia = new Uint8Array(ab);
+          for (let i = 0; i < byteString.length; i++) {
+            ia[i] = byteString.charCodeAt(i);
+          }
+          const blob = new Blob([ab], { type: mimeString });
+          const croppedFile = new File([blob], `cropped_${currentFile.name}`, {
+            type: "image/jpeg",
+          });
+          setShowCropModal(false);
+          uploadProcessedFile(croppedFile);
+          return;
+        }
+      } catch (err) {
+        console.warn("Synchronous crop canvas dataURL conversion failed, falling back to toBlob", err);
+      }
+
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const croppedFile = new File([blob], `cropped_${currentFile.name}`, {
+            type: "image/jpeg",
+          });
+          setShowCropModal(false);
+          uploadProcessedFile(croppedFile);
+        } else {
+          // Fallback to original
+          console.warn("Canvas toBlob returned null for cropped image, uploading original.");
+          setShowCropModal(false);
+          uploadProcessedFile(currentFile);
+        }
+      }, "image/jpeg", 0.95);
+    } catch (err: any) {
+      console.error("Failed to crop image:", err);
+      // Fallback: upload original file
+      setShowCropModal(false);
+      uploadProcessedFile(currentFile);
+    }
   };
 
   // Drag listeners inside Crop Modal

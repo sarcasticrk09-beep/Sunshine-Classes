@@ -86,7 +86,7 @@ export const Login: React.FC<LoginProps> = ({ onBackToWebsite }) => {
     }
     setPassChanging(true);
     try {
-      await changePassword(newPassword);
+      await changePassword(password, newPassword);
       alert("Password hardened successfully! Welcome to Sunshine Classes.");
     } catch (err: any) {
       setPassError(err.message || 'Failed to update passcode.');

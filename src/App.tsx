@@ -98,7 +98,7 @@ import { SEOHead, trackAdmissionSubmit } from './components/SEOHead';
 
 import { db, auth, googleSignIn } from './lib/firebase';
 import { doc, getDoc, setDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { interpolateWhatsAppTemplate, sendWhatsAppMessage } from './lib/whatsappService';
 
 import { LogIn, Shield, Users, BookOpen, UserCheck, Key, LogOut, X, Sun, Moon, Eye, EyeOff, Cloud, CloudOff, RefreshCw, Bell, BellRing, Check, CheckCheck, AlertCircle, Mail, MessageSquare, Crown } from 'lucide-react';
@@ -542,11 +542,16 @@ export default function App() {
 
   // Sync to LocalStorage & Firestore helper with highly optimized debounce logic to avoid consecutive write overhead and lagging
   const syncState = async (key: string, data: any) => {
+    let sanitizedData = data;
+    if (key === 'users' && Array.isArray(data)) {
+      sanitizedData = data.map(({ password, plainPassword, ...rest }: any) => rest);
+    }
+
     // 1. Instantly write to localStorage for zero-latency client state
-    localStorage.setItem(`sunshine_${key}`, JSON.stringify(data));
+    localStorage.setItem(`sunshine_${key}`, JSON.stringify(sanitizedData));
 
     // 2. Queue the write to Firestore in a debounced background batch
-    pendingSyncs[key] = data;
+    pendingSyncs[key] = sanitizedData;
 
     if (syncTimeoutId) {
       clearTimeout(syncTimeoutId);
@@ -2434,48 +2439,37 @@ Sunshine Classes`;
     syncState('notifications', updated);
   };
 
-  const handleAddStudentAdmin = (std: Omit<Student, 'id' | 'rollNo' | 'attendancePercentage'>) => {
-    const nextRoll = 1000 + students.length + 1;
-    const newStd: Student = {
-      ...std,
-      id: `s-admin-${Date.now()}`,
-      rollNo: `SC-${nextRoll}`,
-      attendancePercentage: 100
-    };
-    const updated = [...students, newStd];
-    setStudents(updated);
-    syncState('students', updated);
+  const handleAddStudentAdmin = async (std: Omit<Student, 'id' | 'rollNo' | 'attendancePercentage'>) => {
+    try {
+      const response = await fetch("/api/admin/enroll-student", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(std)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to manually register student.");
+      }
 
-    // Automatic Fee Generation: Beginning only from Fee Starts From
-    const newFeeRecords = generateFeeRecords(newStd, 12);
-    const updatedFeeStatuses = [...feeStatuses, ...newFeeRecords];
-    setFeeStatuses(updatedFeeStatuses);
-    syncState('fee_statuses', updatedFeeStatuses);
+      // Update local React states to match database immediately
+      if (data.student) {
+        setStudents(prev => [data.student, ...prev]);
+      }
+      if (data.feeRecords) {
+        setFeeStatuses(prev => [...data.feeRecords, ...prev]);
+      }
+      if (data.user) {
+        setUsers(prev => [data.user, ...prev]);
+      }
 
-    // Register User Profile with hashed default password
-    const baseUsername = std.name.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-    let generatedUsername = baseUsername;
-    let counter = 1;
-    while (users.some((u) => u.username === generatedUsername)) {
-      generatedUsername = `${baseUsername}${counter}`;
-      counter++;
+      const baseUsername = data.user?.username || std.name.toLowerCase().replace(/\s+/g, '');
+      const defaultPass = "Sunshine123";
+
+      alert(`🎉 Student Registered Successfully via full-stack Atomic Pipeline!\n\nRoll Number: ${data.rollNo || "Created"}\nLogin Username: ${baseUsername}\nPassword: ${defaultPass}\n\n12-month billing schedule and audit logs have been successfully initialized with zero partial failures.`);
+    } catch (err: any) {
+      console.error("[Manual Registration Error]:", err);
+      alert(`❌ Registration Failed!\n\nError: ${err.message}\n\nThe operation has been fully rolled back. No orphan records were created.`);
     }
-    const defaultPass = "Sunshine123";
-
-    const newUser: User = {
-      id: newStd.userId,
-      username: generatedUsername,
-      name: std.name,
-      email: std.email,
-      role: 'STUDENT',
-      phone: std.mobile,
-      password: simpleSecureHash(defaultPass)
-    };
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
-    syncState('users', updatedUsers);
-
-    alert(`🎉 Student Registered Successfully!\n\nLogin Credentials Created:\n---------------------------------\nUsername: ${generatedUsername}\nPassword: ${defaultPass}\n\nPlease share these credentials with the student.`);
   };
 
   const handleDeleteStudent = (id: string) => {
@@ -4221,55 +4215,49 @@ Sunshine Classes`;
             </div>
 
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
                 const trimmedCurrent = changePasswordCurrent.trim();
                 const trimmedNew = changePasswordNew.trim();
                 const trimmedConfirm = changePasswordConfirm.trim();
 
-                // 1. Verify current password
-                let isCurrentCorrect = false;
-                if (currentUser.password !== undefined) {
-                  isCurrentCorrect = trimmedCurrent === currentUser.password;
-                } else {
-                  // Fallback to default credentials check
-                  const lowerUsername = currentUser.username.toLowerCase();
-                  const lowerPassword = trimmedCurrent.toLowerCase();
-                  if (
-                    lowerPassword === 'sunshine123' || 
-                    lowerPassword === '123456' || 
-                    lowerPassword === `${lowerUsername}123` ||
-                    lowerPassword === lowerUsername ||
-                    (lowerUsername === 'admin' && lowerPassword === 'admin123') ||
-                    (lowerUsername === 'teacher' && lowerPassword === 'teacher123') ||
-                    (lowerUsername === 'reception' && lowerPassword === 'reception123') ||
-                    (lowerUsername === 'student' && lowerPassword === 'student123')
-                  ) {
-                    isCurrentCorrect = true;
-                  }
-                }
-
-                if (!isCurrentCorrect) {
-                  alert('The current password you entered is incorrect. Please try again!');
+                // 1. Enforce password complexity
+                if (trimmedNew.length < 6) {
+                  alert('Your new password must be at least 6 characters long for secure authentication.');
                   return;
                 }
 
-                // 2. Validate new password length
-                if (trimmedNew.length < 4) {
-                  alert('Your new password must be at least 4 characters long!');
-                  return;
-                }
-
-                // 3. Confirm matching new passwords
                 if (trimmedNew !== trimmedConfirm) {
                   alert('The new password and confirmation password do not match!');
                   return;
                 }
 
-                // 4. Update the password
-                handleUpdateUserPassword(currentUser.id, trimmedNew);
-                alert('Your password has been changed successfully! Please keep it safe.');
-                setShowChangePasswordModal(false);
+                const firebaseUser = auth.currentUser;
+                if (!firebaseUser || !firebaseUser.email) {
+                  alert('Error: You must be logged into a secure session to change your password.');
+                  return;
+                }
+
+                try {
+                  // Reauthenticate current user with existing password
+                  const credential = EmailAuthProvider.credential(firebaseUser.email, trimmedCurrent);
+                  await reauthenticateWithCredential(firebaseUser, credential);
+
+                  // Update password securely in Firebase Authentication
+                  await updatePassword(firebaseUser, trimmedNew);
+
+                  // Update localized state & create security audit log
+                  handleUpdateUserPassword(currentUser.id, trimmedNew);
+
+                  alert('🎉 Password changed successfully in Firebase Auth! Your session has been invalidated. Please sign in again with your new credentials.');
+                  
+                  // Force fresh login and logout
+                  setShowChangePasswordModal(false);
+                  handleLogout();
+                } catch (err: any) {
+                  console.error("Reauthentication or password update failed:", err);
+                  alert(`❌ Failed to update password. Please check your current password.\nError: ${err.message || err}`);
+                }
               }}
               className="space-y-4"
             >

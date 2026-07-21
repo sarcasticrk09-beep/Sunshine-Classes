@@ -79,34 +79,7 @@ function simpleSecureHash(password: string): string {
 }
 
 function getDecryptedPassword(user: any): string {
-  if (user.plainPassword) {
-    return user.plainPassword;
-  }
-  
-  // Check known default/seeded passcodes by hashing them and comparing with user.password
-  const lowerUser = user.username.toLowerCase();
-  const candidatePasswords = [
-    'Sunshine123',
-    `${lowerUser}123`,
-    'admin123',
-    'teacher123',
-    'reception123',
-    'student123',
-    'default123',
-    'sunshine123'
-  ];
-  
-  for (const pwd of candidatePasswords) {
-    if (user.password === simpleSecureHash(pwd) || user.password === pwd) {
-      return pwd;
-    }
-  }
-  
-  if (user.password && !user.password.startsWith('sha256_mock_') && !user.password.startsWith('sha256_')) {
-    return user.password;
-  }
-  
-  return 'Sunshine123';
+  return 'Hashed & Secured (SHA-256)';
 }
 
 interface AdminDashboardProps {
@@ -11455,11 +11428,12 @@ ${data.log}`
                         maxSizeMB={subConfig.cloudinaryMaxFileSize}
                         initialUrl={newMaterial.fileData}
                         onUploadSuccess={(url, publicId, fileName) => {
+                          const safeFileName = fileName || publicId || 'uploaded_document';
                           setNewMaterial({
                             ...newMaterial,
-                            file: fileName,
+                            file: safeFileName,
                             size: "Cloud Uploaded",
-                            title: newMaterial.title || fileName.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " "),
+                            title: newMaterial.title || safeFileName.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " "),
                             fileData: url
                           });
                         }}
@@ -18049,16 +18023,35 @@ ${data.log}`
               </div>
 
               {/* Password Field (Optional) */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-display">Reset Password</label>
-                <input
-                  id="input-manage-password"
-                  type="text"
-                  placeholder="Leave blank to keep current password"
-                  value={newPasswordForUser}
-                  onChange={(e) => setNewPasswordForUser(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-semibold"
-                />
+              <div className="space-y-2">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-display font-bold text-indigo-950">Reset Password</label>
+                <div className="flex gap-2">
+                  <input
+                    id="input-manage-password"
+                    type="text"
+                    placeholder="Leave blank to keep current password"
+                    value={newPasswordForUser}
+                    onChange={(e) => setNewPasswordForUser(e.target.value)}
+                    className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900 focus:bg-white font-semibold font-mono"
+                  />
+                  <button
+                    id="btn-generate-temp-password"
+                    type="button"
+                    onClick={() => {
+                      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#%&*';
+                      let temp = 'Temp-';
+                      for (let i = 0; i < 8; i++) {
+                        temp += chars.charAt(Math.floor(Math.random() * chars.length));
+                      }
+                      setNewPasswordForUser(temp);
+                      setUserForceChange(true);
+                      alert(`🔑 Generated Temporary Password:\n\n${temp}\n\nThis has been copied to the input. Share this temporary password with the user. They will be forced to change it upon next login.`);
+                    }}
+                    className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-100 transition-colors cursor-pointer shrink-0"
+                  >
+                    Generate
+                  </button>
+                </div>
               </div>
 
               {/* Toggle Switches */}
@@ -18131,7 +18124,7 @@ ${data.log}`
                 <button
                   id="btn-save-manage-user"
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     const cleanUsername = editUsername.trim().toLowerCase();
                     if (!cleanUsername) {
                       alert('Please specify a valid username!');
@@ -18145,16 +18138,35 @@ ${data.log}`
                       return;
                     }
 
-                    let hashedNewPassword = '';
-                    if (newPasswordForUser.trim()) {
-                      const newPwd = newPasswordForUser.trim();
+                    const newPwd = newPasswordForUser.trim();
+                    if (newPwd) {
                       if (strictMode) {
                         if (newPwd.length < 8 || !/[A-Z]/.test(newPwd) || !/[0-9]/.test(newPwd)) {
                           alert('Security Hardening Policy: Reset passwords must be at least 8 characters long, contain at least one uppercase letter (A-Z) and at least one number (0-9).');
                           return;
                         }
                       }
-                      hashedNewPassword = simpleSecureHash(newPwd);
+
+                      // Call Firebase Admin API via server route to update user password
+                      try {
+                        const res = await fetch("/api/admin/update-user", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            uid: resettingUser.userId,
+                            password: newPwd
+                          })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          throw new Error(data.error || "Failed to sync reset password with Firebase Auth.");
+                        }
+                        console.log("[Admin Reset Password] Firebase Auth updated successfully for UID:", resettingUser.userId);
+                      } catch (err: any) {
+                        console.error("[Admin Reset Password Error]:", err);
+                        alert(`❌ Warning: Failed to update user's Firebase Auth account.\n\nError: ${err.message || err}`);
+                        return;
+                      }
                     }
 
                     const updated = users.map(u => {
@@ -18166,9 +18178,6 @@ ${data.log}`
                           isLocked: userLocked,
                           forcePasswordChange: userForceChange
                         };
-                        if (hashedNewPassword) {
-                          updatedUser.password = hashedNewPassword;
-                        }
                         return updatedUser;
                       }
                       return u;
@@ -18177,7 +18186,7 @@ ${data.log}`
                     if (onUpdateUsers) {
                       onUpdateUsers(updated);
                     }
-                    alert(`Account properties for ${resettingUser.name} have been updated successfully!`);
+                    alert(`Account properties for ${resettingUser.name} have been updated successfully and synchronized securely!`);
                     setResettingUser(null);
                   }}
                   className="flex-1 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 text-xs shadow transition-colors cursor-pointer"

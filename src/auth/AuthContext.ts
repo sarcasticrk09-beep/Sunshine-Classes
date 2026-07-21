@@ -9,7 +9,7 @@ export interface AuthContextType {
   login: (emailOrUsername: string, password: string, remember: boolean) => Promise<boolean>;
   logout: () => Promise<void>;
   googleLogin: () => Promise<boolean>;
-  changePassword: (newPassword: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);

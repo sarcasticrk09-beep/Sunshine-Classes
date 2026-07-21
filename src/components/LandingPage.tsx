@@ -266,21 +266,87 @@ export default function LandingPage({
     e.preventDefault();
     setIsAdmLoading(true);
     setAdmError(null);
+
+    const sName = admName.trim();
+    const sFather = admFather.trim();
+    const sMother = admMother.trim();
+    const sMobile = admMobile.trim();
+    const sWhatsapp = admWhatsapp.trim();
+    const sParentMobile = admParentMobile.trim();
+    const sEmail = admEmail.trim();
+    const sAddress = admAddress.trim();
+    const sAadhar = admAadhar.trim();
+
+    // 1. Data Length Validations
+    if (sName.length < 3) {
+      setAdmError("Student Name must be at least 3 characters long.");
+      setIsAdmLoading(false);
+      return;
+    }
+    if (sFather.length < 3) {
+      setAdmError("Father's Name must be at least 3 characters long.");
+      setIsAdmLoading(false);
+      return;
+    }
+    if (sMother.length < 3) {
+      setAdmError("Mother's Name must be at least 3 characters long.");
+      setIsAdmLoading(false);
+      return;
+    }
+    if (sAddress.length < 8) {
+      setAdmError("Please provide a more complete correspondence address (minimum 8 characters).");
+      setIsAdmLoading(false);
+      return;
+    }
+
+    // 2. 10-Digit Mobile Phone Validations
+    const phoneRegex = /^[0-9]{10}$/;
+    if (!phoneRegex.test(sMobile)) {
+      setAdmError("Mobile calling number must be a valid 10-digit number.");
+      setIsAdmLoading(false);
+      return;
+    }
+    if (!phoneRegex.test(sWhatsapp)) {
+      setAdmError("Student WhatsApp number must be a valid 10-digit number.");
+      setIsAdmLoading(false);
+      return;
+    }
+    if (!phoneRegex.test(sParentMobile)) {
+      setAdmError("Parent's WhatsApp number must be a valid 10-digit number.");
+      setIsAdmLoading(false);
+      return;
+    }
+
+    // 3. Email Format Validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (sEmail && !emailRegex.test(sEmail)) {
+      setAdmError("Please enter a valid student email address.");
+      setIsAdmLoading(false);
+      return;
+    }
+
+    // 4. Aadhar Card Number Format Validation
+    if (sAadhar && sAadhar.length !== 12) {
+      setAdmError("Aadhar Card Number must be exactly 12 digits long.");
+      setIsAdmLoading(false);
+      return;
+    }
+
     try {
       const admId = await onAddAdmission({
-        studentName: admName,
-        fatherName: admFather,
-        motherName: admMother,
+        studentName: sName,
+        fatherName: sFather,
+        motherName: sMother,
         dob: admDob,
         gender: admGender,
         className: admClass,
         previousSchool: admPrevSchool || undefined,
-        mobile: admMobile,
-        whatsapp: admWhatsapp,
-        parentMobile: admParentMobile,
-        email: admEmail,
-        address: admAddress,
-        aadhar: admAadhar || undefined,
+        mobile: sMobile,
+        whatsapp: sWhatsapp,
+        parentMobile: sParentMobile,
+        email: sEmail || undefined,
+        address: sAddress,
+        aadhar: sAadhar || undefined,
         preferredBatch: admBatch,
         preferredTiming: admTiming,
         photoUrl: admPhotoUrl || undefined
@@ -1933,11 +1999,10 @@ export default function LandingPage({
                   {/* Error Message Card */}
                   <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-2 text-left">
                     <label className="block text-sm font-semibold text-slate-900 dark:text-slate-100 font-sans">
-                      Error Message / Failure Reason <span className="text-red-500">*</span>
+                      Error Message / Failure Reason
                     </label>
-                    <p className="text-[10px] text-slate-400">Describe the specific error, or paste any warning text displayed.</p>
+                    <p className="text-[10px] text-slate-400">Optional. Describe the specific error or paste any warning text displayed.</p>
                     <textarea
-                      required
                       id="gform-input-error"
                       rows={2}
                       value={supportErrorMsg}

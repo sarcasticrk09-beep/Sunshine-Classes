@@ -2726,7 +2726,7 @@ export default function StudentDashboard({
                           }
                         }
 
-                        await changePassword(newPwdInput);
+                        await changePassword(currentPwdInput, newPwdInput);
                         setPwdSuccessMsg('Your password has been changed successfully! All other active sessions have been invalidated.');
                         setCurrentPwdInput('');
                         setNewPwdInput('');
