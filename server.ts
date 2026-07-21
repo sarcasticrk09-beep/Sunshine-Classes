@@ -8,7 +8,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import nodemailer from "nodemailer";
-import { initializeApp as initializeAdminApp, applicationDefault } from "firebase-admin/app";
+import { initializeApp as initializeAdminApp, cert } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import helmet from "helmet";
 import compression from "compression";
@@ -20,21 +20,27 @@ import { z } from "zod";
 import "dotenv/config";
 
 // Initialize Firebase Admin SDK
+const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+
+if (!serviceAccountJson) {
+  console.error("[Firebase Admin SDK] Critical Error: FIREBASE_SERVICE_ACCOUNT_JSON environment variable is missing.");
+  process.exit(1);
+}
+
 try {
-  initializeAdminApp({
-    projectId: "sunshine-classes-web",
-    credential: applicationDefault()
-  });
-  console.log("[Firebase Admin SDK] Initialized with applicationDefault");
-} catch (e) {
-  try {
-    initializeAdminApp({
-      projectId: "sunshine-classes-web"
-    });
-    console.log("[Firebase Admin SDK] Initialized with projectId fallback");
-  } catch (err: any) {
-    console.error("[Firebase Admin SDK] Initialization failed:", err);
+  const serviceAccount = JSON.parse(serviceAccountJson);
+  
+  if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
+    throw new Error("Missing required fields in FIREBASE_SERVICE_ACCOUNT_JSON (project_id, private_key, client_email)");
   }
+
+  initializeAdminApp({
+    credential: cert(serviceAccount)
+  });
+  console.log("[Firebase Admin SDK] Initialized successfully with Service Account.");
+} catch (e: any) {
+  console.error("[Firebase Admin SDK] Critical Error during initialization:", e.message);
+  process.exit(1);
 }
 
 // Initialize server-side firebase instance
