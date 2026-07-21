@@ -887,7 +887,6 @@ export default function TeacherDashboard({
                     cloudName={subConfig.cloudinaryCloudName}
                     uploadPreset={subConfig.cloudinaryUploadPreset}
                     apiKey={subConfig.cloudinaryApiKey}
-                    apiSecret={subConfig.cloudinaryApiSecret}
                     maxSizeMB={subConfig.cloudinaryMaxFileSize}
                     initialUrl={hwFileUrl}
                     onUploadSuccess={(url) => setHwFileUrl(url)}
@@ -1179,7 +1178,6 @@ export default function TeacherDashboard({
                         cloudName={subConfig.cloudinaryCloudName}
                         uploadPreset={subConfig.cloudinaryUploadPreset}
                         apiKey={subConfig.cloudinaryApiKey}
-                        apiSecret={subConfig.cloudinaryApiSecret}
                         maxSizeMB={subConfig.cloudinaryMaxFileSize}
                         initialUrl={editHwFileUrl}
                         onUploadSuccess={(url) => setEditHwFileUrl(url)}

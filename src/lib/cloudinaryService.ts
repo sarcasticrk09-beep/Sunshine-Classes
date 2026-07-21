@@ -1,7 +1,9 @@
 /**
  * Cloudinary Storage Integration Service
- * Manages secure file uploads, validation, compression/optimization, and simulation fallback
+ * Manages secure file uploads, validation, compression/optimization, and direct unsigned upload.
  */
+
+import { cloudinaryService, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from '../services/cloudinaryService';
 
 export interface CloudinaryUploadResult {
   url: string;
@@ -18,44 +20,21 @@ export interface CloudinaryUploadResult {
  */
 export function validateUploadedFile(
   file: File,
-  allowedExtensions: string[] = ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'docx', 'xlsx'],
+  allowedExtensions: string[] = ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
   maxSizeMB: number = 10
 ): { isValid: boolean; error?: string } {
-  const ext = file.name.split('.').pop()?.toLowerCase();
-  if (!ext || !allowedExtensions.includes(ext)) {
-    return {
-      isValid: false,
-      error: `Unsupported file type ".${ext || ''}". Allowed types are: ${allowedExtensions.join(', ').toUpperCase()}`
-    };
-  }
-
-  const fileSizeBytes = file.size;
-  const maxSizeRefs = maxSizeMB * 1024 * 1024;
-  if (fileSizeBytes > maxSizeRefs) {
-    return {
-      isValid: false,
-      error: `File size exceeds the maximum permitted limit of ${maxSizeMB}MB (Current size: ${(fileSizeBytes / (1024 * 1024)).toFixed(2)}MB)`
-    };
-  }
-
-  // Prevent executable extensions (XSS & File Execution prevention)
-  const dangerousExts = ['exe', 'bat', 'sh', 'js', 'vbs', 'com', 'cmd', 'scr', 'msi'];
-  if (ext && dangerousExts.includes(ext)) {
-    return {
-      isValid: false,
-      error: `Security Alert: Executable or scripting files are strictly blocked for upload.`
-    };
-  }
-
-  return { isValid: true };
+  return cloudinaryService.validateFile(file, {
+    allowedTypes: allowedExtensions,
+    maxSize: maxSizeMB * 1024 * 1024
+  });
 }
 
 /**
- * Uploads a file to Cloudinary using an XMLHttpRequest to support progress tracking, cancellation, and fallback simulation.
+ * Uploads a file to Cloudinary using Unsigned Preset 'sunshine_classes' and Cloud Name 'gtn424dm'.
  */
 export function uploadFileToCloudinary(params: {
   file: File;
-  folder: 'students' | 'teachers' | 'documents' | 'study-material' | 'assignments' | 'results' | 'notices' | 'gallery' | 'settings';
+  folder: 'students' | 'teachers' | 'staff' | 'documents' | 'receipts' | 'assignments' | 'study-material' | 'results' | 'notices' | 'gallery' | 'settings' | 'homework';
   cloudName?: string;
   uploadPreset?: string;
   onProgress?: (percent: number) => void;
@@ -63,157 +42,41 @@ export function uploadFileToCloudinary(params: {
   onError?: (error: string) => void;
   cancelTokenRef?: { cancel?: () => void };
 }): void {
-  const { file, folder, cloudName, uploadPreset, onProgress, onSuccess, onError, cancelTokenRef } = params;
+  const { file, folder, onProgress, onSuccess, onError } = params;
 
-  // 1. Run local input validation
+  // 1. Run validation
   const validation = validateUploadedFile(file);
   if (!validation.isValid) {
     if (onError) onError(validation.error || 'Validation error');
     return;
   }
 
-  const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
-  const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(fileExt);
+  const folderPath = cloudinaryService.getFolderByContext(folder);
 
-  // If Cloudinary keys are missing, gracefully run in high-fidelity simulation mode
-  if (!cloudName || !uploadPreset || cloudName === 'NONE' || uploadPreset === 'NONE' || cloudName === '' || uploadPreset === '') {
-    console.log(`[CloudinaryService] Operating in Simulation Mode (No keys set). Progress and metadata are accurately modeled.`);
-    
-    let progress = 0;
-    let isCancelled = false;
-
-    if (cancelTokenRef) {
-      cancelTokenRef.cancel = () => {
-        isCancelled = true;
-        console.log(`[CloudinaryService] Upload cancelled by user`);
-        if (onError) onError('Upload cancelled by user');
-      };
+  cloudinaryService.uploadFile(file, {
+    folder: folderPath,
+    onProgress: (p) => {
+      if (onProgress) onProgress(p);
     }
-
-    const interval = setInterval(() => {
-      if (isCancelled) {
-        clearInterval(interval);
-        return;
-      }
-
-      progress += Math.floor(Math.random() * 15) + 10;
-      if (progress >= 100) {
-        progress = 100;
-        clearInterval(interval);
-
-        // Generate high-fidelity mockup urls
-        // For local simulation, we can use an ObjectURL to make sure image/PDF previews show the ACTUAL uploaded file!
-        const localObjUrl = URL.createObjectURL(file);
-        
-        // Form simulated optimized/thumbnail URLs
-        const simPublicId = `sunshine_erp/${folder}/sim_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-        const simulatedResult: CloudinaryUploadResult = {
-          url: localObjUrl, // Use local blob url for instant high-quality rendering in iframe/preview
-          publicId: simPublicId,
-          originalName: file.name,
-          size: file.size,
-          format: fileExt,
-          optimizedUrl: localObjUrl,
-          thumbnailUrl: isImage ? localObjUrl : 'https://res.cloudinary.com/demo/image/upload/v12345/document_icon.png'
-        };
-
-        console.log(`[CloudinaryService] Simulated upload completed successfully!`, simulatedResult);
-        if (onProgress) onProgress(100);
-        if (onSuccess) onSuccess(simulatedResult);
-      } else {
-        if (onProgress) onProgress(progress);
-      }
-    }, 150);
-
-    return;
-  }
-
-  // 2. Perform Real Cloudinary Upload via API
-  try {
-    const xhr = new XMLHttpRequest();
-    const url = `https://api.cloudinary.com/v1_1/${cloudName}/upload`;
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', uploadPreset);
-    formData.append('folder', `sunshine_erp/${folder}`);
-
-    xhr.open('POST', url, true);
-
-    if (cancelTokenRef) {
-      cancelTokenRef.cancel = () => {
-        xhr.abort();
-        console.log(`[CloudinaryService] Real upload cancelled by user`);
-        if (onError) onError('Upload cancelled by user');
-      };
-    }
-
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && onProgress) {
-        const percent = Math.round((event.loaded / event.total) * 100);
-        onProgress(percent);
-      }
+  }).then((res) => {
+    const isImage = res.resource_type === 'image' || ['jpg', 'jpeg', 'png', 'webp'].includes(res.format);
+    const result: CloudinaryUploadResult = {
+      url: res.secure_url,
+      publicId: res.public_id,
+      originalName: file.name,
+      size: res.bytes,
+      format: res.format,
+      optimizedUrl: res.secure_url,
+      thumbnailUrl: isImage ? res.secure_url.replace('/upload/', '/upload/c_fit,w_300,f_auto,q_auto/') : res.secure_url
     };
-
-    xhr.onload = () => {
-      if (xhr.status === 200) {
-        try {
-          const response = JSON.parse(xhr.responseText);
-          
-          // Form optimized URLs using Cloudinary's dynamic transformation features
-          // f_auto: automatic format selection, q_auto: automatic compression
-          const secureUrl = response.secure_url;
-          const pubId = response.public_id;
-          
-          let optimizedUrl = secureUrl;
-          let thumbnailUrl = secureUrl;
-
-          if (isImage) {
-            optimizedUrl = secureUrl.replace('/upload/', '/upload/f_auto,q_auto/');
-            thumbnailUrl = secureUrl.replace('/upload/', '/upload/f_auto,q_auto,w_150,h_150,c_fill/');
-          }
-
-          const result: CloudinaryUploadResult = {
-            url: secureUrl,
-            publicId: pubId,
-            originalName: file.name,
-            size: response.bytes,
-            format: response.format || fileExt,
-            optimizedUrl,
-            thumbnailUrl: isImage ? thumbnailUrl : 'https://res.cloudinary.com/demo/image/upload/v12345/document_icon.png'
-          };
-
-          console.log(`[CloudinaryService] Upload succeeded!`, result);
-          if (onProgress) onProgress(100);
-          if (onSuccess) onSuccess(result);
-        } catch (err: any) {
-          if (onError) onError(`Failed to parse Cloudinary response: ${err.message}`);
-        }
-      } else {
-        try {
-          const errResponse = JSON.parse(xhr.responseText);
-          if (onError) onError(errResponse.error?.message || `Upload failed with status code ${xhr.status}`);
-        } catch {
-          if (onError) onError(`Upload failed with status code ${xhr.status}`);
-        }
-      }
-    };
-
-    xhr.onerror = () => {
-      if (onError) onError('Network connection error occurred during file upload.');
-    };
-
-    xhr.send(formData);
-
-  } catch (error: any) {
-    console.error('[CloudinaryService] Native failure:', error);
-    if (onError) onError(`Upload failed: ${error.message}`);
-  }
+    if (onSuccess) onSuccess(result);
+  }).catch((err) => {
+    if (onError) onError(err.message || 'Upload failed');
+  });
 }
 
 /**
- * Deletes an uploaded asset from Cloudinary.
- * Since deleting requires a signed API call, we route it through our server proxy to avoid exposing API Secrets on the client!
+ * Deletes an uploaded asset from Cloudinary via backend proxy using API Secret.
  */
 export async function deleteFileFromCloudinary(params: {
   publicId: string;
@@ -221,36 +84,21 @@ export async function deleteFileFromCloudinary(params: {
   apiKey?: string;
   apiSecret?: string;
 }): Promise<{ success: boolean; log: string }> {
-  const { publicId, cloudName, apiKey, apiSecret } = params;
+  const { publicId } = params;
 
-  if (publicId.startsWith('sunshine_erp/') && publicId.includes('/sim_')) {
-    console.log(`[CloudinaryService] Deleting simulated asset: ${publicId}`);
+  if (publicId.startsWith('sunshine') && publicId.includes('/sim_')) {
     return { success: true, log: `Simulated deletion completed successfully for publicId ${publicId}` };
   }
 
-  if (!cloudName || !apiKey || !apiSecret || cloudName === 'NONE' || apiKey === 'NONE' || apiSecret === 'NONE') {
-    console.warn(`[CloudinaryService] Cannot execute real deletion: Missing credentials in request. Simulating success.`);
-    return { success: true, log: `Simulated deletion fallback for publicId ${publicId}` };
-  }
-
   try {
-    const response = await fetch('/api/delete-cloudinary', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ publicId, cloudName, apiKey, apiSecret })
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error || `HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    return { success: data.success, log: data.log || 'Asset deleted successfully' };
+    const success = await cloudinaryService.deleteFile(publicId);
+    return {
+      success,
+      log: success ? 'Asset deleted successfully' : 'Asset deletion returned failure status'
+    };
   } catch (error: any) {
     console.error('[CloudinaryService] Deletion request failed:', error);
     return { success: false, log: `Deletion Failed: ${error.message}` };
   }
 }
+

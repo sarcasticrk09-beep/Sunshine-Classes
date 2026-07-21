@@ -2625,7 +2625,6 @@ export default function StudentDashboard({
                             cloudName={subConfig.cloudinaryCloudName}
                             uploadPreset={subConfig.cloudinaryUploadPreset}
                             apiKey={subConfig.cloudinaryApiKey}
-                            apiSecret={subConfig.cloudinaryApiSecret}
                             maxSizeMB={subConfig.cloudinaryMaxFileSize}
                             initialUrl={profilePhotoUrl}
                             onUploadSuccess={(url) => setProfilePhotoUrl(url)}
@@ -2902,7 +2901,6 @@ export default function StudentDashboard({
                   cloudName={subConfig.cloudinaryCloudName}
                   uploadPreset={subConfig.cloudinaryUploadPreset}
                   apiKey={subConfig.cloudinaryApiKey}
-                  apiSecret={subConfig.cloudinaryApiSecret}
                   maxSizeMB={subConfig.cloudinaryMaxFileSize}
                   initialUrl={hwFileUrl}
                   onUploadSuccess={(url) => setHwFileUrl(url)}

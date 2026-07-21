@@ -4305,11 +4305,12 @@ export default function AdminDashboard({
   const [cfgEnableBankTransferMethod, setCfgEnableBankTransferMethod] = useState(subConfig.enableBankTransferMethod ?? true);
 
   // Cloudinary Config States
-  const [cfgCloudinaryCloudName, setCfgCloudinaryCloudName] = useState(subConfig.cloudinaryCloudName ?? '');
-  const [cfgCloudinaryUploadPreset, setCfgCloudinaryUploadPreset] = useState(subConfig.cloudinaryUploadPreset ?? '');
-  const [cfgCloudinaryApiKey, setCfgCloudinaryApiKey] = useState(subConfig.cloudinaryApiKey ?? '');
-  const [cfgCloudinaryApiSecret, setCfgCloudinaryApiSecret] = useState(subConfig.cloudinaryApiSecret ?? '');
-  const [cfgCloudinaryMaxFileSize, setCfgCloudinaryMaxFileSize] = useState(subConfig.cloudinaryMaxFileSize ?? 10);
+  const [cfgCloudinaryCloudName, setCfgCloudinaryCloudName] = useState(subConfig.cloudinaryCloudName || 'gtn424dm');
+  const [cfgCloudinaryUploadPreset, setCfgCloudinaryUploadPreset] = useState(subConfig.cloudinaryUploadPreset || 'sunshine_classes');
+  const [cfgCloudinaryMaxFileSize, setCfgCloudinaryMaxFileSize] = useState(subConfig.cloudinaryMaxFileSize || 10);
+  const [serverApiKeyInput, setServerApiKeyInput] = useState('');
+  const [serverApiSecretInput, setServerApiSecretInput] = useState('');
+  const [isUpdatingServerCreds, setIsUpdatingServerCreds] = useState(false);
 
   // Gateway Testing States
   const [testPhoneNo, setTestPhoneNo] = useState('');
@@ -5119,11 +5120,9 @@ export default function AdminDashboard({
       enableNetBankingMethod: cfgEnableNetBankingMethod,
       enableBankTransferMethod: cfgEnableBankTransferMethod,
       enableAutomatedFeeAlerts: cfgEnableAutomatedFeeAlerts,
-      cloudinaryCloudName: cfgCloudinaryCloudName,
-      cloudinaryUploadPreset: cfgCloudinaryUploadPreset,
-      cloudinaryApiKey: cfgCloudinaryApiKey,
-      cloudinaryApiSecret: cfgCloudinaryApiSecret,
-      cloudinaryMaxFileSize: Number(cfgCloudinaryMaxFileSize)
+      cloudinaryCloudName: cfgCloudinaryCloudName || 'gtn424dm',
+      cloudinaryUploadPreset: cfgCloudinaryUploadPreset || 'sunshine_classes',
+      cloudinaryMaxFileSize: Number(cfgCloudinaryMaxFileSize) || 10
     });
     alert("Sunshine Classes ERP configurations updated successfully! Secure online payment routing handles, late fees, and SMS/WhatsApp gateway settings are synchronized.");
   };
@@ -7092,7 +7091,6 @@ ${data.log}`
                           cloudName={subConfig.cloudinaryCloudName}
                           uploadPreset={subConfig.cloudinaryUploadPreset}
                           apiKey={subConfig.cloudinaryApiKey}
-                          apiSecret={subConfig.cloudinaryApiSecret}
                           maxSizeMB={subConfig.cloudinaryMaxFileSize}
                           initialUrl={stdPhotoUrl}
                           onUploadSuccess={(url) => setStdPhotoUrl(url)}
@@ -11237,7 +11235,6 @@ ${data.log}`
                           cloudName={subConfig.cloudinaryCloudName}
                           uploadPreset={subConfig.cloudinaryUploadPreset}
                           apiKey={subConfig.cloudinaryApiKey}
-                          apiSecret={subConfig.cloudinaryApiSecret}
                           maxSizeMB={subConfig.cloudinaryMaxFileSize}
                           initialUrl={editingTopper.img}
                           onUploadSuccess={(url) => setEditingTopper({ ...editingTopper, img: url })}
@@ -11426,7 +11423,6 @@ ${data.log}`
                         cloudName={subConfig.cloudinaryCloudName}
                         uploadPreset={subConfig.cloudinaryUploadPreset}
                         apiKey={subConfig.cloudinaryApiKey}
-                        apiSecret={subConfig.cloudinaryApiSecret}
                         maxSizeMB={subConfig.cloudinaryMaxFileSize}
                         initialUrl={newMaterial.fileData}
                         onUploadSuccess={(url, publicId, fileName) => {
@@ -13132,17 +13128,17 @@ ${data.log}`
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> 6. Cloudinary Media Storage Integration
                       </h4>
                       <p className="text-[11px] text-slate-400">
-                        Configure your Cloudinary credentials to replace standard database binary storage with optimized, secure cloud file and document delivery.
+                        Frontend uploads use unsigned presets directly. Cloudinary API Secret is strictly isolated on the backend server for secure asset destruction.
                       </p>
                     </div>
 
-                    <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 grid gap-4 sm:grid-cols-2">
+                    <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 grid gap-4 sm:grid-cols-3">
                       <div>
-                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Cloudinary Cloud Name</label>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Cloud Name</label>
                         <input
                           id="input-cfg-cloudinary-cloud-name"
                           type="text"
-                          placeholder="e.g. sunshine-classes"
+                          placeholder="e.g. gtn424dm"
                           value={cfgCloudinaryCloudName}
                           onChange={(e) => setCfgCloudinaryCloudName(e.target.value)}
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
@@ -13150,11 +13146,11 @@ ${data.log}`
                       </div>
 
                       <div>
-                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Cloudinary Unsigned Upload Preset</label>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Unsigned Upload Preset</label>
                         <input
                           id="input-cfg-cloudinary-preset"
                           type="text"
-                          placeholder="e.g. sunshine_preset"
+                          placeholder="e.g. sunshine_classes"
                           value={cfgCloudinaryUploadPreset}
                           onChange={(e) => setCfgCloudinaryUploadPreset(e.target.value)}
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
@@ -13162,31 +13158,7 @@ ${data.log}`
                       </div>
 
                       <div>
-                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Cloudinary API Key</label>
-                        <input
-                          id="input-cfg-cloudinary-api-key"
-                          type="text"
-                          placeholder="Enter Cloudinary API Key"
-                          value={cfgCloudinaryApiKey}
-                          onChange={(e) => setCfgCloudinaryApiKey(e.target.value)}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Cloudinary API Secret</label>
-                        <input
-                          id="input-cfg-cloudinary-api-secret"
-                          type="password"
-                          placeholder="Enter Cloudinary API Secret"
-                          value={cfgCloudinaryApiSecret}
-                          onChange={(e) => setCfgCloudinaryApiSecret(e.target.value)}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Max Configured File Size Limit (MB)</label>
+                        <label className="mb-1.5 block text-xs font-semibold text-slate-700">Max File Size Limit (MB)</label>
                         <input
                           id="input-cfg-cloudinary-max-size"
                           type="number"
@@ -13197,6 +13169,72 @@ ${data.log}`
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-900"
                         />
                       </div>
+                    </div>
+
+                    {/* Backend API Credentials Update (Optional, sent directly to backend) */}
+                    <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-xs font-bold text-slate-700 block">Server-Side Cloudinary Credentials</span>
+                          <span className="text-[11px] text-slate-500">API Key and Secret are sent directly to the server environment and are never stored or displayed on the client.</span>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <input
+                          id="input-server-api-key"
+                          type="text"
+                          placeholder="Server API Key"
+                          value={serverApiKeyInput}
+                          onChange={(e) => setServerApiKeyInput(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 outline-none focus:border-indigo-900"
+                        />
+                        <input
+                          id="input-server-api-secret"
+                          type="password"
+                          placeholder="Server API Secret"
+                          value={serverApiSecretInput}
+                          onChange={(e) => setServerApiSecretInput(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 outline-none focus:border-indigo-900"
+                        />
+                      </div>
+                      {serverApiKeyInput || serverApiSecretInput ? (
+                        <div className="flex justify-end">
+                          <button
+                            id="btn-update-server-cloudinary-creds"
+                            type="button"
+                            disabled={isUpdatingServerCreds}
+                            onClick={async () => {
+                              setIsUpdatingServerCreds(true);
+                              try {
+                                const res = await fetch("/api/admin/cloudinary-credentials", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    cloudName: cfgCloudinaryCloudName,
+                                    apiKey: serverApiKeyInput,
+                                    apiSecret: serverApiSecretInput
+                                  })
+                                });
+                                const data = await res.json();
+                                if (res.ok && data.success) {
+                                  alert("Server-side Cloudinary credentials updated securely! API Secret is stored safely on backend.");
+                                  setServerApiKeyInput('');
+                                  setServerApiSecretInput('');
+                                } else {
+                                  alert(data.error || "Failed to update server Cloudinary credentials.");
+                                }
+                              } catch (err: any) {
+                                alert("Error updating server credentials: " + err.message);
+                              } finally {
+                                setIsUpdatingServerCreds(false);
+                              }
+                            }}
+                            className="rounded-lg bg-emerald-600 hover:bg-emerald-700 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors cursor-pointer"
+                          >
+                            {isUpdatingServerCreds ? "Syncing to Server..." : "Sync Credentials to Server"}
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 

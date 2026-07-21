@@ -998,7 +998,6 @@ export default function LandingPage({
                           cloudName={subConfig.cloudinaryCloudName}
                           uploadPreset={subConfig.cloudinaryUploadPreset}
                           apiKey={subConfig.cloudinaryApiKey}
-                          apiSecret={subConfig.cloudinaryApiSecret}
                           maxSizeMB={subConfig.cloudinaryMaxFileSize}
                           initialUrl={admPhotoUrl}
                           onUploadSuccess={(url) => setAdmPhotoUrl(url)}

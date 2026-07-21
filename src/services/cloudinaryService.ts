@@ -1,5 +1,8 @@
 // Cloudinary Service
 
+export const CLOUDINARY_CLOUD_NAME = "gtn424dm";
+export const CLOUDINARY_UPLOAD_PRESET = "sunshine_classes";
+
 function getCurrentUserId(): string {
   try {
     const userStr = localStorage.getItem("sunshine_user");
@@ -14,8 +17,8 @@ function getCurrentUserId(): string {
 }
 
 /**
- * Cloudinary Secure Upload and Resource Management Service
- * Supports signed uploads, delivery optimization, and secure server-side deletion.
+ * Cloudinary Unsigned Upload and Resource Management Service
+ * Uses Cloud Name 'gtn424dm' and Unsigned Upload Preset 'sunshine_classes'.
  */
 
 export interface CloudinaryUploadOptions {
@@ -87,7 +90,7 @@ export function getOptimizedImageUrl(url: string, type?: "profile" | "thumbnail"
 
 class CloudinaryService {
   /**
-   * Validates file format and size
+   * Validates file format and size before upload
    */
   validateFile(file: File, options: CloudinaryUploadOptions = {}): { isValid: boolean; error?: string } {
     if (!file) {
@@ -104,32 +107,42 @@ class CloudinaryService {
       };
     }
 
-    const allowedExtensions = options.allowedTypes || ["jpg", "jpeg", "png", "webp", "pdf", "docx", "xlsx"];
-    const maxBytes = options.maxSize || 10 * 1024 * 1024; // Default 10MB limit
+    const allowedExtensions = options.allowedTypes || ["jpg", "jpeg", "png", "webp", "pdf"];
+    const maxBytes = options.maxSize || 10 * 1024 * 1024; // Strict 10MB limit
 
     // Validate size
     if (file.size > maxBytes) {
       return {
         isValid: false,
-        error: `File size exceeds the limit of ${Math.round(maxBytes / (1024 * 1024))}MB.`,
+        error: `File size exceeds the maximum permitted limit of 10 MB (File size: ${(file.size / (1024 * 1024)).toFixed(2)} MB).`,
       };
     }
 
-    // Validate extension
     const extension = file.name.split(".").pop()?.toLowerCase();
+
+    // Explicit malware/harmful extension block
+    const blockedExtensions = ["exe", "zip", "apk", "js", "html", "php", "bat", "sh", "vbs", "cmd", "scr", "msi"];
+    if (extension && blockedExtensions.includes(extension)) {
+      return {
+        isValid: false,
+        error: `Security violation: .${extension} files are strictly prohibited from being uploaded.`,
+      };
+    }
+
+    // Validate extension against allowed list
     if (!extension || !allowedExtensions.includes(extension)) {
       return {
         isValid: false,
-        error: `Invalid file type. Allowed formats: ${allowedExtensions.join(", ")}`,
+        error: `Invalid file type .${extension || "unknown"}. Allowed formats: ${allowedExtensions.map(e => e.toUpperCase()).join(", ")}.`,
       };
     }
 
-    // Malware/Harmful block
+    // Check MIME type for dangerous script types
     const fileType = file.type || "";
     if (fileType && (fileType.includes("javascript") || fileType.includes("html") || fileType.includes("executable") || fileType.includes("x-msdownload"))) {
       return {
         isValid: false,
-        error: "Executable or potentially harmful scripts are strictly blocked.",
+        error: "Executable scripts or HTML/JS files are strictly blocked.",
       };
     }
 
@@ -137,25 +150,28 @@ class CloudinaryService {
   }
 
   /**
-   * Standardizes Firestore/Cloudinary storage folder based on context
+   * Standardizes Cloudinary storage subfolders based on entity context
    */
-  getFolderByContext(context: "students" | "teachers" | "documents" | "study-material" | "assignments" | "results" | "notices" | "gallery" | "settings"): string {
+  getFolderByContext(context: "students" | "teachers" | "staff" | "documents" | "receipts" | "assignments" | "study-material" | "results" | "notices" | "gallery" | "settings" | "homework"): string {
     const folderMapping: Record<string, string> = {
-      students: "students",
-      teachers: "teachers",
-      documents: "documents",
-      "study-material": "study-material",
-      assignments: "homework",
-      results: "results",
-      notices: "notices",
-      gallery: "gallery",
-      settings: "admins",
+      students: "sunshine-classes/students",
+      teachers: "sunshine-classes/teachers",
+      staff: "sunshine-classes/staff",
+      documents: "sunshine-classes/documents",
+      receipts: "sunshine-classes/receipts",
+      assignments: "sunshine-classes/assignments",
+      homework: "sunshine-classes/assignments",
+      "study-material": "sunshine-classes/documents",
+      results: "sunshine-classes/documents",
+      notices: "sunshine-classes/documents",
+      gallery: "sunshine-classes/documents",
+      settings: "sunshine-classes/staff",
     };
-    return folderMapping[context] || "documents";
+    return folderMapping[context] || "sunshine-classes/documents";
   }
 
   /**
-   * Asynchronously uploads file using secure signed uploads
+   * Directly uploads file to Cloudinary via Unsigned Preset 'sunshine_classes' and Cloud Name 'gtn424dm'
    */
   async uploadFile(
     file: File,
@@ -166,86 +182,35 @@ class CloudinaryService {
       throw new Error(validation.error);
     }
 
-    const requestedFolder = options.folder || "documents";
-    
-    // 1. Fetch upload signature from backend
-    const signatureResponse = await fetch("/api/cloudinary-signature", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        folder: requestedFolder,
-        fileType: file.type || "application/octet-stream",
-        fileSize: file.size,
-        userId: getCurrentUserId(),
-        role: localStorage.getItem("sunshine_remember_role") || "STUDENT"
-      })
-    });
+    const cloudName = CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = CLOUDINARY_UPLOAD_PRESET;
+    const targetFolder = options.folder 
+      ? (options.folder.startsWith("sunshine-classes/") ? options.folder : `sunshine-classes/${options.folder}`)
+      : "sunshine-classes/documents";
 
-    if (!signatureResponse.ok) {
-      const errRes = await signatureResponse.json();
-      throw new Error(errRes.error || `Failed to fetch upload signature. Status: ${signatureResponse.status}`);
-    }
-
-    const { signature, timestamp, apiKey, cloudName, folder, isMock } = await signatureResponse.json();
-
-    // 2. If backend signals sandbox mock/fallback mode, simulate upload and return formatted metadata
-    if (isMock) {
-      console.warn("Cloudinary not configured on server. Simulating signed upload...");
-      
-      for (let i = 1; i <= 10; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        if (options.onProgress) options.onProgress(i * 10);
-      }
-
-      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
-      const isImg = ["jpg", "jpeg", "png", "webp"].includes(ext);
-      const isPdf = ext === "pdf";
-
-      let secureUrl = `https://res.cloudinary.com/sunshine-classes/image/upload/v1720612345/${folder}/${Date.now()}_${file.name}`;
-      if (isPdf) {
-        secureUrl = `https://res.cloudinary.com/sunshine-classes/image/upload/v1720612345/${folder}/${Date.now()}_document.pdf`;
-      } else if (!isImg) {
-        secureUrl = `https://res.cloudinary.com/sunshine-classes/raw/upload/v1720612345/${folder}/${Date.now()}_data.${ext}`;
-      }
-
-      return {
-        secure_url: secureUrl,
-        public_id: `${folder}/${Date.now()}`,
-        asset_id: `mock-asset-${Date.now()}`,
-        resource_type: isImg ? "image" : "raw",
-        format: ext,
-        bytes: file.size,
-        created_at: new Date().toISOString(),
-        folder: folder
-      };
-    }
-
-    // 3. For live production signed upload, construct FormData & POST to Cloudinary API
     const fileTypeStr = file?.type || "";
-    const resourceType = fileTypeStr.startsWith("image/") ? "image" : "raw";
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    const isImage = fileTypeStr.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(ext);
+    const resourceType = isImage ? "image" : "auto";
     const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("api_key", apiKey);
-    formData.append("timestamp", String(timestamp));
-    formData.append("signature", signature);
-    formData.append("folder", folder);
+    formData.append("upload_preset", uploadPreset);
+    formData.append("folder", targetFolder);
 
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", uploadUrl, true);
 
-      if (options.onCancel) {
-        options.onCancel();
+      if (options.onProgress) {
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && options.onProgress) {
+            const progress = Math.round((event.loaded / event.total) * 100);
+            options.onProgress(progress);
+          }
+        };
       }
-
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable && options.onProgress) {
-          const progress = Math.round((event.loaded / event.total) * 100);
-          options.onProgress(progress);
-        }
-      };
 
       xhr.onload = () => {
         if (xhr.status === 200 || xhr.status === 201) {
@@ -255,29 +220,29 @@ class CloudinaryService {
               secure_url: response.secure_url,
               public_id: response.public_id,
               asset_id: response.asset_id || `asset-${Date.now()}`,
-              resource_type: response.resource_type,
-              format: response.format || file.name.split(".").pop()?.toLowerCase() || "",
-              bytes: response.bytes,
+              resource_type: response.resource_type || (isImage ? "image" : "raw"),
+              format: response.format || ext,
+              bytes: response.bytes || file.size,
               width: response.width,
               height: response.height,
               created_at: response.created_at || new Date().toISOString(),
-              folder: response.folder || folder
+              folder: response.folder || targetFolder
             });
           } catch (e) {
-            reject(new Error("Failed to parse Cloudinary response."));
+            reject(new Error("Failed to parse Cloudinary upload response."));
           }
         } else {
           try {
             const errRes = JSON.parse(xhr.responseText);
-            reject(new Error(errRes.error?.message || "Cloudinary secure signed upload failed."));
+            reject(new Error(errRes.error?.message || `Cloudinary upload failed with status ${xhr.status}.`));
           } catch {
-            reject(new Error(`Upload failed with status code ${xhr.status}`));
+            reject(new Error(`Cloudinary upload failed with HTTP ${xhr.status}`));
           }
         }
       };
 
       xhr.onerror = () => {
-        reject(new Error("Network communication error occurred during upload."));
+        reject(new Error("Network connection error occurred during file upload."));
       };
 
       xhr.send(formData);
@@ -285,7 +250,7 @@ class CloudinaryService {
   }
 
   /**
-   * Securely destroys an asset on Cloudinary via the Express backend
+   * Securely destroys an asset on Cloudinary via the Express backend using API Secret
    */
   async deleteFile(publicId: string): Promise<boolean> {
     try {
@@ -300,17 +265,18 @@ class CloudinaryService {
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Failed to delete from Cloudinary");
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to delete asset from Cloudinary.");
       }
 
       const resData = await response.json();
       return resData.success;
     } catch (err) {
-      console.error("Cloudinary secure deletion failed:", err);
+      console.error("Cloudinary secure asset deletion error:", err);
       return false;
     }
   }
 }
 
 export const cloudinaryService = new CloudinaryService();
+
