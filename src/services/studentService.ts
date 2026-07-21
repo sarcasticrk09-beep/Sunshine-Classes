@@ -1,52 +1,38 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, deleteDoc, collection } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Student } from '../types';
 
 export const studentService = {
   /**
-   * Fetches the array of students from the synchronized Firestore document.
+   * Fetches all students as individual documents from the 'students' collection.
    */
   async fetchStudents(): Promise<Student[]> {
-    const docRef = doc(db, 'sunshine_erp_state', 'students');
-    const snap = await getDoc(docRef);
-    return snap.exists() ? snap.data().data || [] : [];
+    const colRef = collection(db, 'students');
+    const snap = await getDocs(colRef);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
   },
 
   /**
-   * Overwrites or updates the list of students in Firestore.
-   */
-  async saveStudents(students: Student[]): Promise<void> {
-    const docRef = doc(db, 'sunshine_erp_state', 'students');
-    await setDoc(docRef, { data: students }, { merge: false });
-  },
-
-  /**
-   * Adds a new student to the array.
+   * Adds or updates a single student document in the 'students' collection.
    */
   async addStudent(student: Student): Promise<void> {
-    const students = await this.fetchStudents();
-    students.push(student);
-    await this.saveStudents(students);
+    const docRef = doc(db, 'students', student.id);
+    await setDoc(docRef, student, { merge: true });
   },
 
   /**
-   * Updates an existing student's properties in the array.
+   * Updates an existing student's document properties.
    */
   async updateStudent(studentId: string, updates: Partial<Student>): Promise<void> {
-    const students = await this.fetchStudents();
-    const index = students.findIndex(s => s.id === studentId);
-    if (index !== -1) {
-      students[index] = { ...students[index], ...updates };
-      await this.saveStudents(students);
-    }
+    const docRef = doc(db, 'students', studentId);
+    await setDoc(docRef, updates, { merge: true });
   },
 
   /**
-   * Deletes a student from the array.
+   * Deletes a single student document from the 'students' collection.
    */
   async deleteStudent(studentId: string): Promise<void> {
-    const students = await this.fetchStudents();
-    const updated = students.filter(s => s.id !== studentId);
-    await this.saveStudents(updated);
+    const docRef = doc(db, 'students', studentId);
+    await deleteDoc(docRef);
   }
 };

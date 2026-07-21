@@ -348,13 +348,11 @@ export default function AdminDashboard({
   const fetchLocalUsers = async () => {
     setFetchingLocalUsers(true);
     try {
-      const { doc, getDoc } = await import('firebase/firestore');
+      const { collection, getDocs } = await import('firebase/firestore');
       const { db } = await import('../lib/firebase');
-      const docRef = doc(db, 'sunshine_erp_state', 'users');
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        setLocalUsers(snap.data()?.data || []);
-      }
+      const colRef = collection(db, 'users');
+      const snap = await getDocs(colRef);
+      setLocalUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
       console.error(err);
     } finally {
@@ -376,7 +374,7 @@ export default function AdminDashboard({
     try {
       const { doc, setDoc } = await import('firebase/firestore');
       const { db } = await import('../lib/firebase');
-      await setDoc(doc(db, 'sunshine_erp_state', 'users'), { data: updated });
+      await setDoc(doc(db, 'users', userId), { active: !currentStatus, updatedAt: new Date().toISOString() }, { merge: true });
       if (onUpdateUsers) {
         onUpdateUsers(updated);
       }
@@ -393,7 +391,7 @@ export default function AdminDashboard({
     try {
       const { doc, setDoc } = await import('firebase/firestore');
       const { db } = await import('../lib/firebase');
-      await setDoc(doc(db, 'sunshine_erp_state', 'users'), { data: updated });
+      await setDoc(doc(db, 'users', userId), { emailVerified: !currentVerified, updatedAt: new Date().toISOString() }, { merge: true });
       if (onUpdateUsers) {
         onUpdateUsers(updated);
       }
@@ -5190,9 +5188,15 @@ ${data.log}`
       (student.motherName && student.motherName.toLowerCase().includes(studentSearchQuery.toLowerCase()));
 
     const matchesBatch = studentFilterBatch === 'all' ||
-      student.preferredBatch === studentFilterBatch;
+      !studentFilterBatch ||
+      student.preferredBatch === studentFilterBatch ||
+      (student.preferredBatch && studentFilterBatch && (
+        student.preferredBatch.toLowerCase().includes(studentFilterBatch.toLowerCase()) ||
+        studentFilterBatch.toLowerCase().includes(student.preferredBatch.toLowerCase())
+      ));
 
     const matchesClass = studentFilterClass === 'all' ||
+      !studentFilterClass ||
       student.class === studentFilterClass;
 
     const matchesStatus = studentFilterStatus === 'all' ? true : (

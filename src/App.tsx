@@ -99,6 +99,14 @@ import { SEOHead, trackAdmissionSubmit } from './components/SEOHead';
 import { db } from './lib/firebase';
 import { doc, getDoc, setDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { interpolateWhatsAppTemplate, sendWhatsAppMessage } from './lib/whatsappService';
+import {
+  useStudentsListener,
+  useTeachersListener,
+  useAdmissionsListener,
+  useFeeStatusesListener,
+  useUsersListener,
+  useFirestoreConnectionWatchdog,
+} from './hooks/useCollectionListener';
 
 import { LogIn, Shield, Users, BookOpen, UserCheck, Key, LogOut, X, Sun, Moon, Eye, EyeOff, Cloud, CloudOff, RefreshCw, Bell, BellRing, Check, CheckCheck, AlertCircle, Mail, MessageSquare, Crown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -257,7 +265,18 @@ export default function App() {
   // Cloud Database Loader States - starts false for instant render with local state fallback
   const [cloudLoading, setCloudLoading] = useState(false);
   const [cloudError, setCloudError] = useState<string | null>(null);
-  const [cloudOnline, setCloudOnline] = useState(true);
+  const [cloudOnline, setCloudOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setCloudOnline(true);
+    const handleOffline = () => setCloudOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
@@ -573,11 +592,22 @@ export default function App() {
 
         while (attempt <= maxRetries && !success) {
           try {
-            const docRef = doc(db, 'sunshine_erp_state', k);
-            await Promise.race([
-              setDoc(docRef, { data: d }, { merge: false }),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud sync timeout')), 15000))
-            ]);
+            if (Array.isArray(d)) {
+              const writePromises = d.map((item: any) => {
+                const docId = String(item.id || item.userId || item.studentId || item.teacherId || item.rollNo || item.admissionNo || Date.now());
+                return setDoc(doc(db, k, docId), item, { merge: true });
+              });
+              await Promise.race([
+                Promise.all(writePromises),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud sync timeout')), 15000))
+              ]);
+            } else {
+              const docRef = doc(db, k, 'main');
+              await Promise.race([
+                setDoc(docRef, d, { merge: true }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud sync timeout')), 15000))
+              ]);
+            }
             setCloudOnline(true);
             success = true;
           } catch (e: any) {
@@ -587,7 +617,9 @@ export default function App() {
               await new Promise(r => setTimeout(r, delay));
             } else {
               console.warn(`[Cloud Firestore] Debounced write failed for key "${k}":`, e);
-              setCloudOnline(false);
+              if (!navigator.onLine) {
+                setCloudOnline(false);
+              }
               break;
             }
           }
@@ -716,27 +748,49 @@ export default function App() {
       try {
         const loadOrSeedCloud = async <T,>(key: string, seed: T): Promise<T> => {
           try {
-            const docRef = doc(db, 'sunshine_erp_state', key);
-            
-            // Query with 15000ms timeout
-            const snap = await Promise.race([
-              getDoc(docRef),
-              new Promise<never>((_, reject) => 
-                setTimeout(() => reject(new Error('Firestore getDoc timeout')), 15000)
-              )
-            ]);
+            if (Array.isArray(seed)) {
+              const snap = await Promise.race([
+                getDocs(collection(db, key)),
+                new Promise<never>((_, reject) => 
+                  setTimeout(() => reject(new Error('Firestore getDocs timeout')), 15000)
+                )
+              ]);
 
-            if (snap.exists() && snap.data()?.data !== undefined) {
-              const data = snap.data().data as T;
-              localStorage.setItem(`sunshine_${key}`, JSON.stringify(data));
-              return data;
+              if (!snap.empty) {
+                const data = snap.docs.map(d => ({ id: d.id, ...d.data() })) as unknown as T;
+                localStorage.setItem(`sunshine_${key}`, JSON.stringify(data));
+                return data;
+              } else {
+                const seedArray = seed as unknown as any[];
+                Promise.all(seedArray.map(item => {
+                  const docId = String(item.id || item.userId || item.studentId || item.teacherId || item.rollNo || item.admissionNo || Date.now());
+                  return setDoc(doc(db, key, docId), item, { merge: true });
+                })).catch(err => {
+                  console.warn(`[Cloud Firestore] Background seed failed for collection "${key}":`, err);
+                });
+                localStorage.setItem(`sunshine_${key}`, JSON.stringify(seed));
+                return seed;
+              }
             } else {
-              // Non-blocking background seeding
-              setDoc(docRef, { data: seed }, { merge: false }).catch(err => {
-                console.warn(`[Cloud Firestore] Background seed failed for "${key}":`, err);
-              });
-              localStorage.setItem(`sunshine_${key}`, JSON.stringify(seed));
-              return seed;
+              const docRef = doc(db, key, 'main');
+              const snap = await Promise.race([
+                getDoc(docRef),
+                new Promise<never>((_, reject) => 
+                  setTimeout(() => reject(new Error('Firestore getDoc timeout')), 15000)
+                )
+              ]);
+
+              if (snap.exists()) {
+                const data = snap.data() as T;
+                localStorage.setItem(`sunshine_${key}`, JSON.stringify(data));
+                return data;
+              } else {
+                setDoc(docRef, seed as any, { merge: true }).catch(err => {
+                  console.warn(`[Cloud Firestore] Background seed failed for doc "${key}":`, err);
+                });
+                localStorage.setItem(`sunshine_${key}`, JSON.stringify(seed));
+                return seed;
+              }
             }
           } catch (error) {
             console.warn(`[Cloud Firestore] Offline or failed to load key "${key}", using LocalStorage:`, error);
@@ -1324,24 +1378,15 @@ export default function App() {
     loadStateAndData();
   }, []);
 
-  // Real-time listener for admissions submissions from landing page
-  useEffect(() => {
-    try {
-      const docRef = doc(db, 'sunshine_erp_state', 'admissions');
-      const unsub = onSnapshot(docRef, (docSnap) => {
-        if (docSnap.exists() && docSnap.data()?.data !== undefined) {
-          const cloudData = docSnap.data().data as Admission[];
-          setAdmissions(cloudData);
-          localStorage.setItem('sunshine_admissions', JSON.stringify(cloudData));
-        }
-      }, (error) => {
-        console.warn("[Cloud Firestore] Real-time admissions snapshot sync failed:", error);
-      });
-      return () => unsub();
-    } catch (e) {
-      console.error("[Cloud Firestore] Failed to initialize admissions listener:", e);
-    }
-  }, []);
+  // Firestore Connection Watchdog to monitor listener health and auto-recover on stalls
+  const { reconnectSignal } = useFirestoreConnectionWatchdog(30000);
+
+  // Real-time collection listeners with automatic connection recovery and proper cleanup
+  useStudentsListener(setStudents, reconnectSignal);
+  useTeachersListener(setTeachers, reconnectSignal);
+  useAdmissionsListener(setAdmissions, reconnectSignal);
+  useFeeStatusesListener(setFeeStatuses, reconnectSignal);
+  useUsersListener(setUsers, reconnectSignal);
 
   // Update browser tab title and favicon dynamically on mount
   useEffect(() => {
@@ -1398,36 +1443,11 @@ export default function App() {
         console.log("[App] Online enrollment processed successfully. Server returned ID:", res.admissionId);
 
         // Instant client-side state propagation for real-time responsiveness
-        if (res.student) {
-          setStudents(prev => {
-            const filtered = prev.filter((s: any) => s.id !== res.student.id);
-            const updated = [res.student, ...filtered];
-            localStorage.setItem('sunshine_students', JSON.stringify(updated));
-            return updated;
-          });
-        }
         if (res.admission) {
           setAdmissions(prev => {
             const filtered = prev.filter((a: any) => a.id !== res.admission.id);
             const updated = [res.admission, ...filtered];
             localStorage.setItem('sunshine_admissions', JSON.stringify(updated));
-            return updated;
-          });
-        }
-        if (res.user) {
-          setUsers(prev => {
-            const filtered = prev.filter((u: any) => u.id !== res.user.id);
-            const updated = [res.user, ...filtered];
-            localStorage.setItem('sunshine_users', JSON.stringify(updated));
-            return updated;
-          });
-        }
-        if (res.feeRecords && res.feeRecords.length > 0) {
-          setFeeStatuses(prev => {
-            const matchedIds = new Set(res.feeRecords.map((f: any) => f.id));
-            const filtered = prev.filter((f: any) => !matchedIds.has(f.id));
-            const updated = [...filtered, ...res.feeRecords];
-            localStorage.setItem('sunshine_fee_statuses', JSON.stringify(updated));
             return updated;
           });
         }
@@ -1440,8 +1460,8 @@ export default function App() {
           });
         }
 
-        // Show credentials popup for approved enrollment
-        alert(`🎉 Enrollment Processed & Approved Successfully!\n\nStudent Login Credentials Created:\n---------------------------------\nUsername: ${res.user?.username || 'N/A'}\nPassword: Sunshine123\n\nPlease keep these credentials safe for logging in.`);
+        // Show submission confirmation popup
+        alert(`🎉 Online Admission Application Submitted Successfully!\n\nApplication ID: ${res.admissionId}\n\nYour application has been received and is pending review by the Sunshine Classes administration.`);
 
         return res.admissionId;
       } catch (err: any) {
@@ -1632,99 +1652,44 @@ export default function App() {
     syncState('audit_logs', updatedAudits);
   };
 
-  const handleApproveAdmission = (admissionId: string) => {
-    const adm = admissions.find((a) => a.id === admissionId);
-    if (!adm) return;
+  const handleApproveAdmission = async (admissionId: string) => {
+    try {
+      console.log(`[App] Approving admission ${admissionId} via atomic backend transaction...`);
+      const response = await fetch("/api/admin/approve-enrollment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ admissionId })
+      });
+      const res = await response.json();
+      if (!response.ok || res.status === "error") {
+        throw new Error(res.message || "Failed to approve admission");
+      }
 
-    // 1. Update Admission status
-    const updatedAdmissions = admissions.map((a) =>
-      a.id === admissionId ? { ...a, status: 'APPROVED' as const } : a
-    );
-    setAdmissions(updatedAdmissions);
-    syncState('admissions', updatedAdmissions);
+      // Update client state immediately
+      if (res.admission) {
+        setAdmissions(prev => prev.map(a => (a.id === admissionId || a.enrollmentId === admissionId) ? res.admission : a));
+      }
+      if (res.student) {
+        setStudents(prev => [res.student, ...prev.filter((s: any) => s.id !== res.student.id)]);
+      }
+      if (res.user) {
+        setUsers(prev => [res.user, ...prev.filter((u: any) => u.id !== res.user.id)]);
+      }
+      if (res.feeRecords && res.feeRecords.length > 0) {
+        setFeeStatuses(prev => [...prev.filter((f: any) => !res.feeRecords.some((rf: any) => rf.id === f.id)), ...res.feeRecords]);
+      }
+      if (res.subscription) {
+        setSubscriptions(prev => [res.subscription, ...prev.filter((s: any) => s.id !== res.subscription.id)]);
+      }
+      if (res.auditLog) {
+        setAuditLogs(prev => [res.auditLog, ...prev.filter((a: any) => a.id !== res.auditLog.id)]);
+      }
 
-    // 2. Register into student database
-    const nextRollNum = 1000 + students.length + 1;
-    const currentBillingMonth = getCurrentAndNextMonths().currentMonth;
-    const classTuitionFee = getFeeForClass(adm.className);
-    const newStudent: Student = {
-      id: `s-new-${Date.now()}`,
-      userId: `u-new-std-${Date.now()}`,
-      rollNo: `SC-${nextRollNum}`,
-      name: adm.studentName,
-      class: adm.className,
-      fatherName: adm.fatherName,
-      motherName: adm.motherName,
-      dob: adm.dob,
-      gender: adm.gender,
-      address: adm.address,
-      mobile: adm.mobile,
-      whatsapp: adm.whatsapp,
-      parentMobile: adm.parentMobile,
-      email: adm.email,
-      preferredBatch: adm.preferredBatch || adm.className,
-      preferredTiming: adm.preferredTiming || '04:00 PM - 06:30 PM',
-      admissionDate: new Date().toISOString().split('T')[0],
-      attendancePercentage: 100,
-      photoUrl: adm.photoUrl,
-      documentUrl: adm.documentUrl,
-      feeStartMonth: currentBillingMonth,
-      monthlyFee: classTuitionFee,
-      dueDay: 10,
-      admissionFee: 0,
-      registrationFee: 0,
-      discount: 0,
-      scholarship: 0,
-      currentBalance: 0
-    };
-
-    const updatedStudents = [...students, newStudent];
-    setStudents(updatedStudents);
-    syncState('students', updatedStudents);
-
-    // 3. Register user profile for login
-    const baseUsername = adm.studentName.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-    let generatedUsername = baseUsername;
-    let counter = 1;
-    while (users.some((u) => u.username === generatedUsername)) {
-      generatedUsername = `${baseUsername}${counter}`;
-      counter++;
+      alert(`🎉 Admission Approved Successfully!\n\nStudent Login Credentials:\n---------------------------------\nUsername: ${res.username || 'N/A'}\nPassword: ${res.defaultPass || 'Sunshine123'}\n\nPlease share these credentials with the student or parents.`);
+    } catch (err: any) {
+      console.error("[App] Approval transaction failed:", err);
+      alert(`Approval Failed: ${err.message || "Server Error"}`);
     }
-    const defaultPass = "Sunshine123";
-
-    const newUser: User = {
-      id: newStudent.userId,
-      username: generatedUsername,
-      name: adm.studentName,
-      email: adm.email,
-      role: 'STUDENT',
-      phone: adm.mobile,
-      password: simpleSecureHash(defaultPass)
-    };
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
-    syncState('users', updatedUsers);
-
-    // 4. Generate Initial Fee Records starting from Fee Starts From
-    const newFeeRecords = generateFeeRecords(newStudent, 12);
-    const updatedFees = [...feeStatuses, ...newFeeRecords];
-    setFeeStatuses(updatedFees);
-    syncState('fee_statuses', updatedFees);
-
-    // 5. Audit Log
-    const updatedLogs = [{
-      id: `L-${Date.now()}`,
-      userId: currentUser?.id || 'u3',
-      username: currentUser?.username || 'reception',
-      action: 'APPROVE_ADMISSION',
-      details: `Approved admission ${admissionId} and generated student ID: SC-${nextRollNum}`,
-      timestamp: new Date().toISOString()
-    }, ...auditLogs];
-    setAuditLogs(updatedLogs);
-    syncState('audit_logs', updatedLogs);
-
-    // Show credentials popup
-    alert(`🎉 Admission Approved Successfully!\n\nStudent Login Credentials:\n---------------------------------\nUsername: ${generatedUsername}\nPassword: ${defaultPass}\n\nPlease share these credentials with the student or parents.`);
   };
 
   const handleRejectAdmission = (admissionId: string) => {

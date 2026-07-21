@@ -1,0 +1,20 @@
+{
+  "short_name": "Sunshine ERP",
+  "name": "Sunshine Classes - Coaching ERP Portal",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0F172A",
+  "theme_color": "#2563EB",
+  "display": "standalone",
+  "orientation": "any",
+  "scope": "/",
+  "description": "Sunshine Classes Coaching ERP Portal for online admissions, homework, fees, attendance, and study materials.",
+  "categories": ["education", "productivity"]
+}

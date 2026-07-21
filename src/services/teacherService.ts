@@ -1,52 +1,38 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDocs, setDoc, deleteDoc, collection } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Teacher } from '../types';
 
 export const teacherService = {
   /**
-   * Fetches the array of teachers from the synchronized Firestore document.
+   * Fetches all teachers as individual documents from the 'teachers' collection.
    */
   async fetchTeachers(): Promise<Teacher[]> {
-    const docRef = doc(db, 'sunshine_erp_state', 'teachers');
-    const snap = await getDoc(docRef);
-    return snap.exists() ? snap.data().data || [] : [];
+    const colRef = collection(db, 'teachers');
+    const snap = await getDocs(colRef);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Teacher));
   },
 
   /**
-   * Overwrites or updates the list of teachers in Firestore.
-   */
-  async saveTeachers(teachers: Teacher[]): Promise<void> {
-    const docRef = doc(db, 'sunshine_erp_state', 'teachers');
-    await setDoc(docRef, { data: teachers }, { merge: false });
-  },
-
-  /**
-   * Adds a new teacher to the array.
+   * Adds or updates a single teacher document in the 'teachers' collection.
    */
   async addTeacher(teacher: Teacher): Promise<void> {
-    const teachers = await this.fetchTeachers();
-    teachers.push(teacher);
-    await this.saveTeachers(teachers);
+    const docRef = doc(db, 'teachers', teacher.id);
+    await setDoc(docRef, teacher, { merge: true });
   },
 
   /**
-   * Updates an existing teacher profile in the array.
+   * Updates an existing teacher profile document.
    */
   async updateTeacher(teacherId: string, updates: Partial<Teacher>): Promise<void> {
-    const teachers = await this.fetchTeachers();
-    const index = teachers.findIndex(t => t.id === teacherId);
-    if (index !== -1) {
-      teachers[index] = { ...teachers[index], ...updates };
-      await this.saveTeachers(teachers);
-    }
+    const docRef = doc(db, 'teachers', teacherId);
+    await setDoc(docRef, updates, { merge: true });
   },
 
   /**
-   * Deletes a teacher from the array.
+   * Deletes a single teacher document from the 'teachers' collection.
    */
   async deleteTeacher(teacherId: string): Promise<void> {
-    const teachers = await this.fetchTeachers();
-    const updated = teachers.filter(t => t.id !== teacherId);
-    await this.saveTeachers(updated);
+    const docRef = doc(db, 'teachers', teacherId);
+    await deleteDoc(docRef);
   }
 };

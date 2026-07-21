@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, collection } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { AuthContext } from './AuthContext';
 import { User, UserRole, AuditLog } from '../types';
@@ -199,22 +199,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     loadSession();
   }, []);
 
-  // Safe fetch helper for ERP data from Firestore or local cache
+  // Safe fetch helper for ERP data from Firestore top-level collections or local cache
   const getERPData = async <T,>(key: string, seed: T[]): Promise<T[]> => {
     try {
-      const docRef = doc(db, 'sunshine_erp_state', key);
+      const colRef = collection(db, key);
       const snap = await Promise.race([
-        getDoc(docRef),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
+        getDocs(colRef),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
       ]);
-      if (snap.exists()) {
-        const list = snap.data()?.data;
-        if (Array.isArray(list)) {
-          return list as T[];
-        }
+      if (!snap.empty) {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as T));
+        localStorage.setItem(`sunshine_${key}`, JSON.stringify(list));
+        return list;
       }
     } catch (err) {
-      console.warn(`Firestore lookup for ${key} failed, falling back to local storage or seeds:`, err);
+      console.warn(`Firestore lookup for collection ${key} failed, falling back to local storage or seeds:`, err);
     }
 
     // Local Storage fallback
@@ -230,29 +229,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return seed;
   };
 
-  // Sync state back to Firestore and Local Storage helper
-  const syncERPData = async <T,>(key: string, data: T[]): Promise<void> => {
+  // Sync single entity back to Firestore top-level collection and Local Storage
+  const syncERPData = async <T extends { id?: string }>(key: string, data: T[]): Promise<void> => {
     try {
-      // Update local storage cache immediately
       localStorage.setItem(`sunshine_${key}`, JSON.stringify(data));
-
-      // Attempt to save to cloud firestore
-      const docRef = doc(db, 'sunshine_erp_state', key);
-      await setDoc(docRef, { data, updatedAt: new Date().toISOString() });
     } catch (err) {
-      console.warn(`Failed to sync ERP state for ${key} to cloud database:`, err);
+      console.warn(`Failed to sync ERP state for ${key} to local storage:`, err);
     }
   };
 
   // Log user activity with enhanced security metadata
   const writeAuditLog = async (userId: string, username: string, action: string, details: string, performedBy?: string) => {
     try {
-      const logs = await getERPData<AuditLog>('audit_logs', []);
       const info = getClientInfo();
+      const logId = `log-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
       const newLog: AuditLog = {
-        id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-        userId,
-        username,
+        id: logId,
+        userId: userId || 'SYSTEM',
+        username: username || 'system',
         action,
         details,
         timestamp: new Date().toISOString(),
@@ -260,8 +254,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         ipAddress: info.ipAddress,
         deviceInfo: info.deviceInfo
       };
-      const updated = [newLog, ...logs].slice(0, 500); // Caps logs at 500
-      await syncERPData('audit_logs', updated);
+      await setDoc(doc(db, 'audit_logs', logId), newLog, { merge: true });
     } catch (err) {
       console.error("Failed to write audit log:", err);
     }

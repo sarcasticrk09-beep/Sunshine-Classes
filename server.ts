@@ -91,10 +91,27 @@ export function doc(dbAny: any, collectionName: string, documentId: string): any
   return new AdminDocRefAdapter(rawRef);
 }
 
+export function collection(dbAny: any, collectionName: string): any {
+  return adminDb.collection(collectionName);
+}
+
 export async function getDoc(docRef: any): Promise<any> {
   const rawRef = (docRef as AdminDocRefAdapter).rawRef;
   const snap: any = await rawRef.get();
   return new AdminDocSnapAdapter(snap.exists, snap.data());
+}
+
+export async function getDocs(colRefAny: any): Promise<any> {
+  const rawRef = colRefAny.rawRef || colRefAny;
+  const snap: any = await rawRef.get();
+  return {
+    empty: snap.empty,
+    docs: snap.docs.map((d: any) => ({
+      id: d.id,
+      data: () => d.data(),
+      exists: () => d.exists
+    }))
+  };
 }
 
 export async function setDoc(docRef: any, data: any, options?: { merge?: boolean }): Promise<void> {
@@ -104,6 +121,11 @@ export async function setDoc(docRef: any, data: any, options?: { merge?: boolean
   } else {
     await rawRef.set(data);
   }
+}
+
+export async function deleteDoc(docRef: any): Promise<void> {
+  const rawRef = (docRef as AdminDocRefAdapter).rawRef;
+  await rawRef.delete();
 }
 
 export async function runTransaction(dbAny: any, updateFunction: (transaction: any) => Promise<any>): Promise<any> {
@@ -456,16 +478,13 @@ async function startServer() {
 
   // Load initial logs on startup from Firestore asynchronously
   try {
-    const telemetryLogsRef = doc(db, 'sunshine_erp_state', 'telemetry_logs');
-    getDoc(telemetryLogsRef).then((snap) => {
-      if (snap.exists() && snap.data()?.data) {
-        const loaded = snap.data().data;
-        if (Array.isArray(loaded)) {
-          enrollmentLogs.push(...loaded);
-          console.log(`[Startup] Loaded ${enrollmentLogs.length} persisted enrollment telemetry logs.`);
-        }
+    getDocs(collection(db, 'telemetry_logs')).then((snap: any) => {
+      if (!snap.empty) {
+        const loaded = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+        enrollmentLogs.push(...loaded);
+        console.log(`[Startup] Loaded ${enrollmentLogs.length} persisted enrollment telemetry logs.`);
       }
-    }).catch(err => {
+    }).catch((err: any) => {
       console.warn("[Startup] Failed to load persisted telemetry logs:", err.message);
     });
   } catch (err) {
@@ -487,16 +506,13 @@ async function startServer() {
 
   // Load initial support tickets on startup from Firestore asynchronously
   try {
-    const supportTicketsRef = doc(db, 'sunshine_erp_state', 'support_tickets');
-    getDoc(supportTicketsRef).then((snap) => {
-      if (snap.exists() && snap.data()?.data) {
-        const loaded = snap.data().data;
-        if (Array.isArray(loaded)) {
-          supportTickets.push(...loaded);
-          console.log(`[Startup] Loaded ${supportTickets.length} persisted support tickets.`);
-        }
+    getDocs(collection(db, 'support_tickets')).then((snap: any) => {
+      if (!snap.empty) {
+        const loaded = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+        supportTickets.push(...loaded);
+        console.log(`[Startup] Loaded ${supportTickets.length} persisted support tickets.`);
       }
-    }).catch(err => {
+    }).catch((err: any) => {
       console.warn("[Startup] Failed to load persisted support tickets:", err.message);
     });
   } catch (err) {
@@ -520,8 +536,7 @@ async function startServer() {
 
     // Persist to Firestore
     try {
-      const telemetryLogsRef = doc(db, 'sunshine_erp_state', 'telemetry_logs');
-      await setDoc(telemetryLogsRef, { data: enrollmentLogs }, { merge: false });
+      await setDoc(doc(db, 'telemetry_logs', logItem.id), logItem, { merge: true });
     } catch (dbErr: any) {
       console.error("[Telemetry Log Persistence Error]:", dbErr.message);
     }
@@ -602,50 +617,17 @@ async function startServer() {
     console.log(`[Rollback] Initiating compensating transaction to revert all Firestore changes for studentId: ${studentId}...`);
     try {
       await runTransaction(db, async (transaction) => {
-        const studentsRef = doc(db, 'sunshine_erp_state', 'students');
-        const admissionsRef = doc(db, 'sunshine_erp_state', 'admissions');
-        const usersRef = doc(db, 'sunshine_erp_state', 'users');
-        const feesRef = doc(db, 'sunshine_erp_state', 'fee_statuses');
-        const subscriptionsRef = doc(db, 'sunshine_erp_state', 'student_subscriptions');
-        const notificationsRef = doc(db, 'sunshine_erp_state', 'notifications');
-        const auditRef = doc(db, 'sunshine_erp_state', 'audit_logs');
-
-        const [stS, admS, usrS, feeS, subS, notifS, audS] = await Promise.all([
-          transaction.get(studentsRef),
-          transaction.get(admissionsRef),
-          transaction.get(usersRef),
-          transaction.get(feesRef),
-          transaction.get(subscriptionsRef),
-          transaction.get(notificationsRef),
-          transaction.get(auditRef)
-        ]);
-
-        const currentStudents = stS.exists() ? (stS.data()?.data || []) : [];
-        const currentAdmissions = admS.exists() ? (admS.data()?.data || []) : [];
-        const currentUsers = usrS.exists() ? (usrS.data()?.data || []) : [];
-        const currentFees = feeS.exists() ? (feeS.data()?.data || []) : [];
-        const currentSubscriptions = subS.exists() ? (subS.data()?.data || []) : [];
-        const currentNotifications = notifS.exists() ? (notifS.data()?.data || []) : [];
-        const currentAudits = audS.exists() ? (audS.data()?.data || []) : [];
-
-        const updatedStudents = currentStudents.filter((s: any) => s.id !== studentId);
-        let updatedAdmissions = currentAdmissions;
-        if (enrollmentId !== "NO_ADMISSION") {
-          updatedAdmissions = currentAdmissions.filter((a: any) => a.id !== enrollmentId);
+        if (studentId) transaction.delete(doc(db, 'students', studentId));
+        if (userId) transaction.delete(doc(db, 'users', userId));
+        if (subId) transaction.delete(doc(db, 'student_subscriptions', subId));
+        if (notifId) transaction.delete(doc(db, 'notifications', notifId));
+        if (auditLogId) transaction.delete(doc(db, 'audit_logs', auditLogId));
+        if (enrollmentId && enrollmentId !== "NO_ADMISSION") {
+          transaction.delete(doc(db, 'admissions', enrollmentId));
         }
-        const updatedUsers = currentUsers.filter((u: any) => u.id !== userId);
-        const updatedFees = currentFees.filter((f: any) => !feeIds.includes(f.id));
-        const updatedSubscriptions = currentSubscriptions.filter((s: any) => s.id !== subId);
-        const updatedNotifications = currentNotifications.filter((n: any) => n.id !== notifId);
-        const updatedAudits = currentAudits.filter((a: any) => a.id !== auditLogId);
-
-        transaction.set(studentsRef, { data: updatedStudents }, { merge: false });
-        transaction.set(admissionsRef, { data: updatedAdmissions }, { merge: false });
-        transaction.set(usersRef, { data: updatedUsers }, { merge: false });
-        transaction.set(feesRef, { data: updatedFees }, { merge: false });
-        transaction.set(subscriptionsRef, { data: updatedSubscriptions }, { merge: false });
-        transaction.set(notificationsRef, { data: updatedNotifications }, { merge: false });
-        transaction.set(auditRef, { data: updatedAudits }, { merge: false });
+        for (const fId of feeIds) {
+          if (fId) transaction.delete(doc(db, 'fee_statuses', fId));
+        }
       });
       console.log(`[Rollback] Compensating transaction successfully reverted Firestore changes for studentId: ${studentId}.`);
       await logEnrollmentEvent("INFO", `Rollback successful: Reverted Firestore records for studentId: ${studentId} after Auth failure.`);
@@ -665,42 +647,15 @@ async function startServer() {
     console.log(`[Rollback] Initiating manual recovery compensating transaction for enrollmentId: ${enrollmentId}...`);
     try {
       await runTransaction(db, async (transaction) => {
-        const studentsRef = doc(db, 'sunshine_erp_state', 'students');
-        const admissionsRef = doc(db, 'sunshine_erp_state', 'admissions');
-        const usersRef = doc(db, 'sunshine_erp_state', 'users');
-        const feesRef = doc(db, 'sunshine_erp_state', 'fee_statuses');
-        const auditRef = doc(db, 'sunshine_erp_state', 'audit_logs');
-
-        const [stS, admS, usrS, feeS, audS] = await Promise.all([
-          transaction.get(studentsRef),
-          transaction.get(admissionsRef),
-          transaction.get(usersRef),
-          transaction.get(feesRef),
-          transaction.get(auditRef)
-        ]);
-
-        const currentStudents = stS.exists() ? (stS.data()?.data || []) : [];
-        const currentAdmissions = admS.exists() ? (admS.data()?.data || []) : [];
-        const currentUsers = usrS.exists() ? (usrS.data()?.data || []) : [];
-        const currentFees = feeS.exists() ? (feeS.data()?.data || []) : [];
-        const currentAudits = audS.exists() ? (audS.data()?.data || []) : [];
-
-        const updatedStudents = currentStudents.filter((s: any) => s.id !== studentId);
-        
-        // Revert admission status back to PENDING
-        const updatedAdmissions = currentAdmissions.map((a: any) => 
-          a.id === enrollmentId ? { ...a, status: 'PENDING', updatedAt: new Date().toISOString() } : a
-        );
-
-        const updatedUsers = currentUsers.filter((u: any) => u.id !== userId);
-        const updatedFees = currentFees.filter((f: any) => !feeIds.includes(f.id));
-        const updatedAudits = currentAudits.filter((a: any) => a.id !== auditLogId);
-
-        transaction.set(studentsRef, { data: updatedStudents }, { merge: false });
-        transaction.set(admissionsRef, { data: updatedAdmissions }, { merge: false });
-        transaction.set(usersRef, { data: updatedUsers }, { merge: false });
-        transaction.set(feesRef, { data: updatedFees }, { merge: false });
-        transaction.set(auditRef, { data: updatedAudits }, { merge: false });
+        if (studentId) transaction.delete(doc(db, 'students', studentId));
+        if (userId) transaction.delete(doc(db, 'users', userId));
+        if (auditLogId) transaction.delete(doc(db, 'audit_logs', auditLogId));
+        if (enrollmentId) {
+          transaction.set(doc(db, 'admissions', enrollmentId), { status: 'PENDING', updatedAt: new Date().toISOString() }, { merge: true });
+        }
+        for (const fId of feeIds) {
+          if (fId) transaction.delete(doc(db, 'fee_statuses', fId));
+        }
       });
       console.log(`[Rollback] Recovery rollback completed successfully for enrollmentId: ${enrollmentId}.`);
       await logEnrollmentEvent("INFO", `Rollback successful: Reverted recovery records for enrollmentId: ${enrollmentId} after Auth failure.`);
@@ -775,342 +730,154 @@ async function startServer() {
 
       // 3. Database Write via Transaction Block (Guarantees atomic execution and duplicate detection)
       console.log("[Enrollment Endpoint] Committing transaction to Firestore...");
-      
-      const studentsRef = doc(db, 'sunshine_erp_state', 'students');
-      const admissionsRef = doc(db, 'sunshine_erp_state', 'admissions');
-      const usersRef = doc(db, 'sunshine_erp_state', 'users');
-      const feesRef = doc(db, 'sunshine_erp_state', 'fee_statuses');
-      const auditRef = doc(db, 'sunshine_erp_state', 'audit_logs');
-      const notificationsRef = doc(db, 'sunshine_erp_state', 'notifications');
-      const subscriptionsRef = doc(db, 'sunshine_erp_state', 'student_subscriptions');
-      const teachersRef = doc(db, 'sunshine_erp_state', 'teachers');
 
-      let txResult;
+      // Fetch current snapshots for duplicate check & ID generation
+      const [admissionsSnap, studentsSnap, usersSnap] = await Promise.all([
+        getDocs(collection(db, 'admissions')),
+        getDocs(collection(db, 'students')),
+        getDocs(collection(db, 'users'))
+      ]);
+
+      const admissionsList = admissionsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const students = studentsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const users = usersSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+
+      // 4. Idempotency & Duplicate Handling
+      const existingAdmission = admissionsList.find((adm: any) => 
+        adm.studentName?.trim().toLowerCase() === sName.toLowerCase() &&
+        adm.className?.trim().toLowerCase() === sClass.toLowerCase() &&
+        (adm.mobile === sMobile || adm.parentMobile === sMobile || adm.whatsapp === sMobile)
+      );
+      const existingStudent = students.find((std: any) =>
+        std.name?.trim().toLowerCase() === sName.toLowerCase() &&
+        std.class?.trim().toLowerCase() === sClass.toLowerCase() &&
+        (std.mobile === sMobile || std.parentMobile === sMobile || std.whatsapp === sMobile)
+      );
+
+      if (existingAdmission || existingStudent) {
+        const matchedEnrollmentId = existingAdmission?.id || existingStudent?.rollNo || existingStudent?.id || "SC2026-000001";
+        const matchedStudent = existingStudent || students.find((s: any) => s.id === `s-std-${matchedEnrollmentId}`) || null;
+        const matchedAdmission = existingAdmission || admissionsList.find((a: any) => a.id === matchedEnrollmentId) || null;
+        const matchedUser = users.find((u: any) => u.id === `u-std-${matchedEnrollmentId}` || u.phone === sMobile) || null;
+
+        logEnrollmentEvent("INFO", `Idempotent request matched existing student/admission: ${sName} (${matchedEnrollmentId})`);
+        return res.status(200).json({
+          status: "success",
+          isIdempotent: true,
+          enrollmentId: matchedEnrollmentId,
+          student: matchedStudent,
+          admission: matchedAdmission,
+          user: matchedUser,
+          feeRecords: [],
+          auditLog: null,
+          email: matchedAdmission?.email || matchedStudent?.email || `${matchedEnrollmentId}@sunshineclasses.net`,
+          defaultPass: "Sunshine123",
+          message: "Your application is already registered."
+        });
+      }
+
+      // 5. Contiguous, Unique Enrollment ID Generation (Parses SC2026-XXXXXX)
+      let maxNum = 0;
+      const idRegex = /SC2026-(\d+)/;
+      for (const adm of admissionsList) {
+        const m = adm.id?.match(idRegex) || adm.enrollmentId?.match(idRegex);
+        if (m) {
+          const num = parseInt(m[1], 10);
+          if (num > maxNum) maxNum = num;
+        }
+      }
+      for (const std of students) {
+        const m = std.id?.match(idRegex) || std.rollNo?.match(idRegex) || std.enrollmentId?.match(idRegex);
+        if (m) {
+          const num = parseInt(m[1], 10);
+          if (num > maxNum) maxNum = num;
+        }
+      }
+      
+      const nextNum = maxNum + 1;
+      const enrollmentId = `SC2026-${String(nextNum).padStart(6, '0')}`;
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // 6. Handle Optional Email
+      const baseUsername = sName.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+      let generatedUsername = baseUsername;
+      let counter = 1;
+      while (users.some((u: any) => u.username === generatedUsername)) {
+        generatedUsername = `${baseUsername}${counter}`;
+        counter++;
+      }
+      const finalEmail = (email && email.trim()) ? email.trim() : `${generatedUsername}${nextNum}@sunshineclasses.net`;
+
+      // Construct admission record with PENDING status for Admin review
+      const newAdmission = {
+        id: enrollmentId,
+        enrollmentId: enrollmentId,
+        studentName: sName,
+        fatherName: sFather,
+        motherName: sMother,
+        dob: dob || todayStr,
+        gender: gender || 'Male',
+        className: sClass,
+        previousSchool: previousSchool || '',
+        mobile: sMobile,
+        whatsapp: whatsapp?.trim() || sMobile,
+        parentMobile: parentMobile?.trim() || sMobile,
+        email: finalEmail,
+        address: sAddress,
+        aadhar: aadhar || '',
+        photoUrl: photoUrl || '',
+        documentUrl: documentUrl || '',
+        preferredBatch: preferredBatch || sClass,
+        preferredTiming: preferredTiming || '04:00 PM - 06:30 PM',
+        status: 'PENDING',
+        date: todayStr,
+        enrollmentDate: todayStr,
+        createdBy: 'ONLINE_PORTAL',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      // Construct App Notification
+      const newNotification = {
+        id: `notif-enroll-${Date.now()}`,
+        title: "New Online Admission Application",
+        content: `New online admission submitted by ${sName} for ${sClass}. Pending Admin Approval.`,
+        category: 'ANNOUNCEMENT',
+        targetRole: 'ALL',
+        date: todayStr,
+        isRead: false,
+        targetClass: sClass
+      };
+
+      // Construct audit log
+      const newAuditLog = {
+        id: `L-${Date.now()}`,
+        userId: 'u-public',
+        username: 'guest',
+        action: 'ONLINE_ADMISSION_SUBMITTED',
+        details: `Online Admission Application submitted for ${sName} (${sClass}). Application ID: ${enrollmentId}. Pending Admin Approval.`,
+        timestamp: new Date().toISOString()
+      };
 
       try {
-        txResult = await runTransaction(db, async (transaction) => {
-          const [studentsSnap, admissionsSnap, usersSnap, feesSnap, auditSnap, notificationsSnap, subscriptionsSnap, teachersSnap] = await Promise.all([
-            transaction.get(studentsRef),
-            transaction.get(admissionsRef),
-            transaction.get(usersRef),
-            transaction.get(feesRef),
-            transaction.get(auditRef),
-            transaction.get(notificationsRef),
-            transaction.get(subscriptionsRef),
-            transaction.get(teachersRef)
-          ]);
-
-          const students = studentsSnap.exists() ? (studentsSnap.data()?.data || []) : [];
-          const admissionsList = admissionsSnap.exists() ? (admissionsSnap.data()?.data || []) : [];
-          const users = usersSnap.exists() ? (usersSnap.data()?.data || []) : [];
-          const feeStatuses = feesSnap.exists() ? (feesSnap.data()?.data || []) : [];
-          const auditLogs = auditSnap.exists() ? (auditSnap.data()?.data || []) : [];
-          const notificationsList = notificationsSnap.exists() ? (notificationsSnap.data()?.data || []) : [];
-          const studentSubscriptions = subscriptionsSnap.exists() ? (subscriptionsSnap.data()?.data || []) : [];
-          const teachersList = teachersSnap.exists() ? (teachersSnap.data()?.data || []) : [];
-
-          // 4. Idempotency & Duplicate Handling
-          const existingAdmission = admissionsList.find((adm: any) => 
-            adm.studentName?.trim().toLowerCase() === sName.toLowerCase() &&
-            adm.className?.trim().toLowerCase() === sClass.toLowerCase() &&
-            (adm.mobile === sMobile || adm.parentMobile === sMobile || adm.whatsapp === sMobile)
-          );
-          const existingStudent = students.find((std: any) =>
-            std.name?.trim().toLowerCase() === sName.toLowerCase() &&
-            std.class?.trim().toLowerCase() === sClass.toLowerCase() &&
-            (std.mobile === sMobile || std.parentMobile === sMobile || std.whatsapp === sMobile)
-          );
-
-          if (existingAdmission || existingStudent) {
-            const matchedEnrollmentId = existingAdmission?.id || existingStudent?.rollNo || existingStudent?.id || "SC2026-000001";
-            const matchedStudent = existingStudent || students.find((s: any) => s.id === `s-std-${matchedEnrollmentId}`) || null;
-            const matchedAdmission = existingAdmission || admissionsList.find((a: any) => a.id === matchedEnrollmentId) || null;
-            const matchedUser = users.find((u: any) => u.id === `u-std-${matchedEnrollmentId}` || u.phone === sMobile) || null;
-            const matchedFees = feeStatuses.filter((f: any) => f.studentId === `s-std-${matchedEnrollmentId}`) || [];
-
-            logEnrollmentEvent("INFO", `Idempotent request matched existing student/admission: ${sName} (${matchedEnrollmentId})`);
-            return {
-              isIdempotent: true,
-              enrollmentId: matchedEnrollmentId,
-              student: matchedStudent,
-              admission: matchedAdmission,
-              user: matchedUser,
-              feeRecords: matchedFees,
-              auditLog: null,
-              email: matchedAdmission?.email || matchedStudent?.email || `${matchedEnrollmentId}@sunshineclasses.net`,
-              defaultPass: "Sunshine123"
-            };
-          }
-
-          // 5. Contiguous, Unique Enrollment ID Generation (Parses SC2026-XXXXXX)
-          let maxNum = 0;
-          const idRegex = /SC2026-(\d+)/;
-          for (const adm of admissionsList) {
-            const m = adm.id?.match(idRegex) || adm.enrollmentId?.match(idRegex);
-            if (m) {
-              const num = parseInt(m[1], 10);
-              if (num > maxNum) maxNum = num;
-            }
-          }
-          for (const std of students) {
-            const m = std.id?.match(idRegex) || std.rollNo?.match(idRegex) || std.enrollmentId?.match(idRegex);
-            if (m) {
-              const num = parseInt(m[1], 10);
-              if (num > maxNum) maxNum = num;
-            }
-          }
-          
-          const nextNum = maxNum + 1;
-          const enrollmentId = `SC2026-${String(nextNum).padStart(6, '0')}`;
-          const studentId = `s-std-${enrollmentId}`;
-          const userId = `u-std-${enrollmentId}`;
-          const todayStr = new Date().toISOString().split('T')[0];
-
-          // 6. Handle Optional Email (If empty, auto-generate valid system credentials email)
-          const baseUsername = sName.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-          let generatedUsername = baseUsername;
-          let counter = 1;
-          while (users.some((u: any) => u.username === generatedUsername)) {
-            generatedUsername = `${baseUsername}${counter}`;
-            counter++;
-          }
-          const finalEmail = (email && email.trim()) ? email.trim() : `${generatedUsername}${nextNum}@sunshineclasses.net`;
-
-          // Calculate tuition fee
-          let classTuitionFee = 500;
-          if (sClass === 'Class 10') classTuitionFee = 1200;
-          else if (sClass === 'Class 9') classTuitionFee = 1000;
-          else if (['Class 8', 'Class 7', 'Class 6', 'Class 5'].includes(sClass)) classTuitionFee = 700;
-
-          // Billing month cycle
-          const d = new Date();
-          const y = d.getFullYear() < 2026 ? 2026 : d.getFullYear();
-          const mName = d.getMonth();
-          const MONTH_NAMES = [
-            'January', 'February', 'March', 'April', 'May', 'June',
-            'July', 'August', 'September', 'October', 'November', 'December'
-          ];
-          const currentBillingMonth = `${MONTH_NAMES[mName]} ${y}`;
-
-          // Construct student record
-          const newStudent = {
-            id: studentId,
-            userId: userId,
-            rollNo: enrollmentId,
-            enrollmentId: enrollmentId,
-            name: sName,
-            class: sClass,
-            fatherName: sFather,
-            motherName: sMother,
-            dob: dob || todayStr,
-            gender: gender || 'Male',
-            address: sAddress,
-            mobile: sMobile,
-            whatsapp: whatsapp?.trim() || sMobile,
-            parentMobile: parentMobile?.trim() || sMobile,
-            email: finalEmail,
-            preferredBatch: preferredBatch || sClass,
-            preferredTiming: preferredTiming || '04:00 PM - 06:30 PM',
-            admissionDate: todayStr,
-            attendancePercentage: 100,
-            status: 'ACTIVE',
-            photoUrl: photoUrl || '',
-            documentUrl: documentUrl || '',
-            feeStartMonth: currentBillingMonth,
-            monthlyFee: classTuitionFee,
-            dueDay: 10,
-            admissionFee: 0,
-            registrationFee: 0,
-            discount: 0,
-            scholarship: 0,
-            currentBalance: 0,
-            createdBy: 'ONLINE_PORTAL',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          };
-
-          // Construct admission record
-          const newAdmission = {
-            id: enrollmentId,
-            enrollmentId: enrollmentId,
-            studentName: sName,
-            fatherName: sFather,
-            motherName: sMother,
-            dob: dob || todayStr,
-            gender: gender || 'Male',
-            className: sClass,
-            previousSchool: previousSchool || '',
-            mobile: sMobile,
-            whatsapp: whatsapp?.trim() || sMobile,
-            parentMobile: parentMobile?.trim() || sMobile,
-            email: finalEmail,
-            address: sAddress,
-            aadhar: aadhar || '',
-            photoUrl: photoUrl || '',
-            documentUrl: documentUrl || '',
-            preferredBatch: preferredBatch || sClass,
-            preferredTiming: preferredTiming || '04:00 PM - 06:30 PM',
-            status: 'APPROVED',
-            date: todayStr,
-            enrollmentDate: todayStr,
-            createdBy: 'ONLINE_PORTAL',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          };
-
-          // Create login user
-          const defaultPass = "Sunshine123";
-          const hashedPassword = simpleSecureHash(defaultPass);
-          const passwordHash = await PasswordService.hashPassword(defaultPass);
-          const newUser = {
-            id: userId,
-            username: generatedUsername,
-            name: sName,
-            email: finalEmail,
-            role: 'STUDENT',
-            phone: sMobile,
-            password: hashedPassword,
-            passwordHash: passwordHash,
-            mustChangePassword: true,
-            active: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          };
-
-          // Create 12 months fee records
-          const newFeeRecords = [];
-          let feeMonth = mName;
-          let feeYear = y;
-          for (let i = 0; i < 12; i++) {
-            const billMonthName = `${MONTH_NAMES[feeMonth]} ${feeYear}`;
-            const monthPadded = String(feeMonth + 1).padStart(2, '0');
-            const dueDate = `${feeYear}-${monthPadded}-10`;
-
-            newFeeRecords.push({
-              id: `fee-${studentId}-${feeMonth}-${feeYear}-${i}`,
-              studentId: studentId,
-              studentName: sName,
-              class: sClass,
-              month: billMonthName,
-              totalFee: classTuitionFee,
-              discount: 0,
-              scholarship: 0,
-              paidFee: 0,
-              pendingFee: classTuitionFee,
-              status: 'PENDING',
-              dueDate,
-              billingMonth: MONTH_NAMES[feeMonth],
-              billingYear: String(feeYear),
-              paymentHistory: [],
-              receiptIds: [],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            });
-
-            feeMonth++;
-            if (feeMonth > 11) {
-              feeMonth = 0;
-              feeYear++;
-            }
-          }
-
-          // Create Student Subscription
-          let matchedBatchId = 'b2'; // default
-          if (preferredBatch?.includes('Morning')) matchedBatchId = 'b1';
-          else if (preferredBatch?.includes('Evening')) matchedBatchId = 'b2';
-          else if (sClass === 'Class 9') matchedBatchId = 'b3';
-          else if (['Class 8', 'Class 7', 'Class 6', 'Class 5'].includes(sClass)) matchedBatchId = 'b4';
-          else matchedBatchId = 'b5';
-
-          const newSubscription = {
-            id: `sub-${studentId}`,
-            studentId: studentId,
-            studentName: sName,
-            admissionNo: enrollmentId,
-            batchId: matchedBatchId,
-            batchName: preferredBatch || 'Class 10 - Evening Stars',
-            monthlyFee: classTuitionFee,
-            startDate: todayStr,
-            billingCycle: 'Monthly' as const,
-            nextDueDate: `${y}-${String(mName + 1).padStart(2, '0')}-10`,
-            status: 'ACTIVE' as const,
-            daysRemaining: 15,
-            gracePeriodDays: 5
-          };
-
-          // Find assigned teacher to verify Teacher Assignment
-          const assignedTeacher = teachersList.find((t: any) => t.batches?.includes(newSubscription.batchName)) || teachersList[0] || null;
-          const teacherName = assignedTeacher ? assignedTeacher.name : "Unassigned";
-
-          // Construct App Notification (Dashboard update / notification)
-          const newNotification = {
-            id: `notif-enroll-${Date.now()}`,
-            title: "New Student Admission",
-            content: `Student ${sName} has successfully enrolled in ${sClass} and assigned to teacher ${teacherName}.`,
-            category: 'ANNOUNCEMENT',
-            targetRole: 'ALL',
-            date: todayStr,
-            isRead: false,
-            targetClass: sClass
-          };
-
-          // Construct audit log with full verification details
-          const newAuditLog = {
-            id: `L-${Date.now()}`,
-            userId: 'u-public',
-            username: 'guest',
-            action: 'ONLINE_ADMISSION',
-            details: `Online Admission processed for ${sName} (${sClass}). Enrolled as Roll No ${enrollmentId} automatically. Assigned to batch "${newSubscription.batchName}" under teacher ${teacherName}. Fee status records (12 months) initialized.`,
-            timestamp: new Date().toISOString()
-          };
-
-          // Verify enrollment integrity inside the atomic transaction block
-          verifyEnrollmentIntegrity(newStudent, newAdmission, newUser, newFeeRecords, newAuditLog);
-
-          // Apply writes
-          transaction.set(studentsRef, { data: [newStudent, ...students] }, { merge: false });
-          transaction.set(admissionsRef, { data: [newAdmission, ...admissionsList] }, { merge: false });
-          transaction.set(usersRef, { data: [newUser, ...users] }, { merge: false });
-          transaction.set(feesRef, { data: [...feeStatuses, ...newFeeRecords] }, { merge: false });
-          transaction.set(subscriptionsRef, { data: [newSubscription, ...studentSubscriptions] }, { merge: false });
-          transaction.set(notificationsRef, { data: [newNotification, ...notificationsList] }, { merge: false });
-          transaction.set(auditRef, { data: [newAuditLog, ...auditLogs] }, { merge: false });
-
-          return {
-            isIdempotent: false,
-            enrollmentId,
-            student: newStudent,
-            admission: newAdmission,
-            user: newUser,
-            feeRecords: newFeeRecords,
-            auditLog: newAuditLog,
-            subscription: newSubscription,
-            notification: newNotification,
-            defaultPass,
-            username: generatedUsername,
-            email: finalEmail
-          };
+        await runTransaction(db, async (transaction) => {
+          transaction.set(doc(db, 'admissions', enrollmentId), newAdmission);
+          transaction.set(doc(db, 'notifications', newNotification.id), newNotification);
+          transaction.set(doc(db, 'audit_logs', newAuditLog.id), newAuditLog);
         });
       } catch (txErr: any) {
         logEnrollmentEvent("ERROR", "Firestore Transaction failed during enrollment", null, txErr.message);
         throw txErr;
       }
 
-      if (txResult.isIdempotent) {
-        logEnrollmentEvent("INFO", `Admission processed idempotently for: ${txResult.student?.name || sName}. Enrollment ID: ${txResult.enrollmentId}`);
-      }
-
-
-
-      logEnrollmentEvent("INFO", `Admission completed successfully in ${Date.now() - startTime}ms. Enrollment ID: ${txResult.enrollmentId}`);
+      logEnrollmentEvent("INFO", `Admission application submitted successfully in ${Date.now() - startTime}ms. Enrollment ID: ${enrollmentId}`);
       return res.status(201).json({
         status: "success",
-        admissionId: txResult.enrollmentId,
-        student: txResult.student,
-        admission: txResult.admission,
-        user: txResult.user,
-        feeRecords: txResult.feeRecords,
-        auditLog: txResult.auditLog
+        admissionId: enrollmentId,
+        admission: newAdmission,
+        notification: newNotification,
+        auditLog: newAuditLog,
+        message: "Your admission application has been submitted successfully! It is pending administrative review."
       });
 
     } catch (err: any) {
@@ -1125,33 +892,26 @@ async function startServer() {
   // --- Start of Enrollment Health & Telemetry Dashboard APIs ---
   app.get("/api/admin/enrollment-health", async (req, res) => {
     try {
-      const admissionsRef = doc(db, 'sunshine_erp_state', 'admissions');
-      const auditRef = doc(db, 'sunshine_erp_state', 'audit_logs');
-      const telemetryLogsRef = doc(db, 'sunshine_erp_state', 'telemetry_logs');
-
       const [admissionsSnap, auditSnap, telemetrySnap] = await Promise.all([
-        getDoc(admissionsRef),
-        getDoc(auditRef),
-        getDoc(telemetryLogsRef).catch(() => null)
+        getDocs(collection(db, 'admissions')),
+        getDocs(collection(db, 'audit_logs')),
+        getDocs(collection(db, 'telemetry_logs')).catch(() => ({ empty: true, docs: [] }))
       ]);
 
-      const admissionsList = admissionsSnap.exists() ? (admissionsSnap.data()?.data || []) : [];
-      const auditLogs = auditSnap.exists() ? (auditSnap.data()?.data || []) : [];
+      const admissionsList = admissionsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const auditLogs = auditSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
 
-      if (telemetrySnap && telemetrySnap.exists() && telemetrySnap.data()?.data) {
-        const dbLogs = telemetrySnap.data().data;
-        if (Array.isArray(dbLogs)) {
-          // Merge local and DB logs to prevent any loss of context
-          const mergedLogs = [...enrollmentLogs];
-          for (const dbLog of dbLogs) {
-            if (!mergedLogs.some(l => l.id === dbLog.id)) {
-              mergedLogs.push(dbLog);
-            }
+      if (!telemetrySnap.empty) {
+        const dbLogs = telemetrySnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+        const mergedLogs = [...enrollmentLogs];
+        for (const dbLog of dbLogs) {
+          if (!mergedLogs.some(l => l.id === dbLog.id)) {
+            mergedLogs.push(dbLog);
           }
-          mergedLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-          enrollmentLogs.length = 0;
-          enrollmentLogs.push(...mergedLogs.slice(0, 100));
         }
+        mergedLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        enrollmentLogs.length = 0;
+        enrollmentLogs.push(...mergedLogs.slice(0, 100));
       }
 
       const totalRequests = admissionsList.length;
@@ -1159,7 +919,6 @@ async function startServer() {
       const failedCount = admissionsList.filter((a: any) => a.status === 'REJECTED').length;
       const pendingCount = admissionsList.filter((a: any) => a.status === 'PENDING').length;
 
-      // Extract system DB/API error rates from audit logs & local arrays
       const dbErrors = auditLogs.filter((l: any) => l.action === 'DB_ERROR' || l.details?.toLowerCase().includes("database error") || l.details?.toLowerCase().includes("firestore")).length;
       const apiErrors = enrollmentLogs.filter(l => l.type === 'ERROR').length;
 
@@ -1184,7 +943,7 @@ async function startServer() {
     }
   });
 
-  // POST /api/support-tickets - Submit a support ticket for failed enrollment (Google Form style)
+  // POST /api/support-tickets - Submit a support ticket for failed enrollment
   app.post("/api/support-tickets", async (req, res) => {
     try {
       const { studentName, email, mobile, className, errorMessage, notes } = req.body;
@@ -1205,15 +964,12 @@ async function startServer() {
       };
 
       supportTickets.unshift(ticket);
-      
-      // Limit to 500 in-memory
       if (supportTickets.length > 500) {
         supportTickets.pop();
       }
 
-      // Persist to Firestore
-      const supportTicketsRef = doc(db, 'sunshine_erp_state', 'support_tickets');
-      await setDoc(supportTicketsRef, { data: supportTickets }, { merge: false });
+      // Persist to Firestore collection
+      await setDoc(doc(db, 'support_tickets', ticket.id), ticket, { merge: true });
 
       logEnrollmentEvent("WARNING", `New enrollment failure report received from ${ticket.studentName} for class ${ticket.className}.`, { ticketId: ticket.id });
 
@@ -1227,14 +983,11 @@ async function startServer() {
   // GET /api/admin/support-tickets - Retrieve all failure report tickets
   app.get("/api/admin/support-tickets", async (req, res) => {
     try {
-      const supportTicketsRef = doc(db, 'sunshine_erp_state', 'support_tickets');
-      const snap = await getDoc(supportTicketsRef);
-      if (snap.exists() && snap.data()?.data) {
-        const dbTickets = snap.data().data;
-        if (Array.isArray(dbTickets)) {
-          supportTickets.length = 0;
-          supportTickets.push(...dbTickets);
-        }
+      const snap = await getDocs(collection(db, 'support_tickets'));
+      if (!snap.empty) {
+        const dbTickets = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+        supportTickets.length = 0;
+        supportTickets.push(...dbTickets);
       }
       return res.status(200).json({ status: "success", data: supportTickets });
     } catch (err: any) {
@@ -1251,23 +1004,12 @@ async function startServer() {
         return res.status(400).json({ status: "error", message: "ticketId and status are required." });
       }
 
-      const supportTicketsRef = doc(db, 'sunshine_erp_state', 'support_tickets');
-      const snap = await getDoc(supportTicketsRef);
-      let dbTickets = [];
-      if (snap.exists() && snap.data()?.data) {
-        dbTickets = snap.data().data;
+      await setDoc(doc(db, 'support_tickets', ticketId), { status, updatedAt: new Date().toISOString() }, { merge: true });
+
+      const idx = supportTickets.findIndex(t => t.id === ticketId);
+      if (idx !== -1) {
+        supportTickets[idx].status = status;
       }
-
-      const index = dbTickets.findIndex((t: any) => t.id === ticketId);
-      if (index === -1) {
-        return res.status(404).json({ status: "error", message: "Report ticket not found." });
-      }
-
-      dbTickets[index].status = status;
-      await setDoc(supportTicketsRef, { data: dbTickets }, { merge: false });
-
-      supportTickets.length = 0;
-      supportTickets.push(...dbTickets);
 
       logEnrollmentEvent("INFO", `Enrollment failure ticket ${ticketId} updated to ${status}.`);
 
@@ -1289,215 +1031,404 @@ async function startServer() {
       }
 
       // Read/write state atomically inside transaction
-      const studentsRef = doc(db, 'sunshine_erp_state', 'students');
-      const admissionsRef = doc(db, 'sunshine_erp_state', 'admissions');
-      const usersRef = doc(db, 'sunshine_erp_state', 'users');
-      const feesRef = doc(db, 'sunshine_erp_state', 'fee_statuses');
-      const auditRef = doc(db, 'sunshine_erp_state', 'audit_logs');
+      const [admSnap, stSnap, usrSnap] = await Promise.all([
+        getDocs(collection(db, 'admissions')),
+        getDocs(collection(db, 'students')),
+        getDocs(collection(db, 'users'))
+      ]);
 
-      const txResult = await runTransaction(db, async (transaction) => {
-        // Read inside transaction
-        const [stS, admS, usrS, feeS, audS] = await Promise.all([
-          transaction.get(studentsRef),
-          transaction.get(admissionsRef),
-          transaction.get(usersRef),
-          transaction.get(feesRef),
-          transaction.get(auditRef)
-        ]);
+      const currentAdmissions = admSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const currentStudents = stSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const currentUsers = usrSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
 
-        const currentStudents = stS.exists() ? (stS.data()?.data || []) : [];
-        const currentAdmissions = admS.exists() ? (admS.data()?.data || []) : [];
-        const currentUsers = usrS.exists() ? (usrS.data()?.data || []) : [];
-        const currentFees = feeS.exists() ? (feeS.data()?.data || []) : [];
-        const currentAudits = audS.exists() ? (audS.data()?.data || []) : [];
+      const targetAdm = currentAdmissions.find((a: any) => a.id === enrollmentId || a.enrollmentId === enrollmentId);
+      if (!targetAdm) {
+        return res.status(404).json({ status: "error", message: "Admission with that ID not found." });
+      }
 
-        const targetAdm = currentAdmissions.find((a: any) => a.id === enrollmentId);
-        if (!targetAdm) {
-          throw new Error("ADMISSION_NOT_FOUND");
-        }
+      const studentId = `s-std-${enrollmentId}`;
+      const userId = `u-std-${enrollmentId}`;
 
-        const studentId = `s-std-${enrollmentId}`;
-        const userId = `u-std-${enrollmentId}`;
+      const alreadyHasStudent = currentStudents.some((s: any) => s.id === studentId || s.rollNo === enrollmentId);
+      if (alreadyHasStudent) {
+        await setDoc(doc(db, 'admissions', enrollmentId), { status: 'APPROVED', updatedAt: new Date().toISOString() }, { merge: true });
+        return res.status(200).json({ status: "success", message: "Enrollment already active." });
+      }
 
-        // Check if student profile is already created
-        const alreadyHasStudent = currentStudents.some((s: any) => s.id === studentId || s.rollNo === enrollmentId);
-        if (alreadyHasStudent) {
-          // Sync status to APPROVED if not already approved
-          const updatedAdmissions = currentAdmissions.map((a: any) => 
-            a.id === enrollmentId ? { ...a, status: 'APPROVED', updatedAt: new Date().toISOString() } : a
-          );
-          transaction.set(admissionsRef, { data: updatedAdmissions }, { merge: false });
-          return {
-            isExisting: true,
-            email: targetAdm.email || `${enrollmentId}@sunshineclasses.net`,
-            studentName: targetAdm.studentName,
-            userId,
-            defaultPass: "Sunshine123"
-          };
-        }
+      const sName = targetAdm.studentName;
+      const sClass = targetAdm.className;
+      const sMobile = targetAdm.mobile;
 
-        const sName = targetAdm.studentName;
-        const sClass = targetAdm.className;
-        const sMobile = targetAdm.mobile;
+      const baseUsername = sName.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+      let generatedUsername = baseUsername;
+      let counter = 1;
+      while (currentUsers.some((u: any) => u.username === generatedUsername)) {
+        generatedUsername = `${baseUsername}${counter}`;
+        counter++;
+      }
 
-        // Update target admission to APPROVED
-        const updatedAdmissions = currentAdmissions.map((a: any) => 
-          a.id === enrollmentId ? { ...a, status: 'APPROVED', updatedAt: new Date().toISOString() } : a
-        );
+      const finalEmail = targetAdm.email || `${generatedUsername}@sunshineclasses.net`;
+      const todayStr = new Date().toISOString().split('T')[0];
 
-        // Build records
-        const baseUsername = sName.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-        let generatedUsername = baseUsername;
-        let counter = 1;
-        while (currentUsers.some((u: any) => u.username === generatedUsername)) {
-          generatedUsername = `${baseUsername}${counter}`;
-          counter++;
-        }
+      let classTuitionFee = 500;
+      if (sClass === 'Class 10') classTuitionFee = 1200;
+      else if (sClass === 'Class 9') classTuitionFee = 1000;
+      else if (['Class 8', 'Class 7', 'Class 6', 'Class 5'].includes(sClass)) classTuitionFee = 700;
 
-        const finalEmail = targetAdm.email || `${generatedUsername}@sunshineclasses.net`;
-        const todayStr = new Date().toISOString().split('T')[0];
+      const d = new Date();
+      const y = d.getFullYear() < 2026 ? 2026 : d.getFullYear();
+      const MONTH_NAMES = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      const currentBillingMonth = `${MONTH_NAMES[d.getMonth()]} ${y}`;
 
-        let classTuitionFee = 500;
-        if (sClass === 'Class 10') classTuitionFee = 1200;
-        else if (sClass === 'Class 9') classTuitionFee = 1000;
-        else if (['Class 8', 'Class 7', 'Class 6', 'Class 5'].includes(sClass)) classTuitionFee = 700;
+      const newStudent = {
+        id: studentId,
+        userId: userId,
+        rollNo: enrollmentId,
+        enrollmentId: enrollmentId,
+        name: sName,
+        class: sClass,
+        fatherName: targetAdm.fatherName,
+        motherName: targetAdm.motherName,
+        dob: targetAdm.dob || todayStr,
+        gender: targetAdm.gender || 'Male',
+        address: targetAdm.address,
+        mobile: sMobile,
+        whatsapp: targetAdm.whatsapp || sMobile,
+        parentMobile: targetAdm.parentMobile || sMobile,
+        email: finalEmail,
+        preferredBatch: targetAdm.preferredBatch || sClass,
+        preferredTiming: targetAdm.preferredTiming || '04:00 PM - 06:30 PM',
+        admissionDate: todayStr,
+        attendancePercentage: 100,
+        status: 'ACTIVE',
+        photoUrl: targetAdm.photoUrl || '',
+        documentUrl: targetAdm.documentUrl || '',
+        feeStartMonth: currentBillingMonth,
+        monthlyFee: classTuitionFee,
+        dueDay: 10,
+        admissionFee: 0,
+        registrationFee: 0,
+        discount: 0,
+        scholarship: 0,
+        currentBalance: 0,
+        createdBy: 'ADMIN_RECOVERY',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-        const d = new Date();
-        const y = d.getFullYear() < 2026 ? 2026 : d.getFullYear();
-        const MONTH_NAMES = [
-          'January', 'February', 'March', 'April', 'May', 'June',
-          'July', 'August', 'September', 'October', 'November', 'December'
-        ];
-        const currentBillingMonth = `${MONTH_NAMES[d.getMonth()]} ${y}`;
+      const defaultPass = "Sunshine123";
+      const hashedPassword = simpleSecureHash(defaultPass);
+      const newUser = {
+        id: userId,
+        username: generatedUsername,
+        name: sName,
+        email: finalEmail,
+        role: 'STUDENT',
+        phone: sMobile,
+        password: hashedPassword,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-        const newStudent = {
-          id: studentId,
-          userId: userId,
-          rollNo: enrollmentId,
-          enrollmentId: enrollmentId,
-          name: sName,
+      const newFeeRecords = [];
+      let feeMonth = d.getMonth();
+      let feeYear = y;
+      for (let i = 0; i < 12; i++) {
+        const billMonthName = `${MONTH_NAMES[feeMonth]} ${feeYear}`;
+        const monthPadded = String(feeMonth + 1).padStart(2, '0');
+        const dueDate = `${feeYear}-${monthPadded}-10`;
+
+        newFeeRecords.push({
+          id: `fee-${studentId}-${feeMonth}-${feeYear}-${i}`,
+          studentId: studentId,
+          studentName: sName,
           class: sClass,
-          fatherName: targetAdm.fatherName,
-          motherName: targetAdm.motherName,
-          dob: targetAdm.dob || todayStr,
-          gender: targetAdm.gender || 'Male',
-          address: targetAdm.address,
-          mobile: sMobile,
-          whatsapp: targetAdm.whatsapp || sMobile,
-          parentMobile: targetAdm.parentMobile || sMobile,
-          email: finalEmail,
-          preferredBatch: targetAdm.preferredBatch || sClass,
-          preferredTiming: targetAdm.preferredTiming || '04:00 PM - 06:30 PM',
-          admissionDate: todayStr,
-          attendancePercentage: 100,
-          status: 'ACTIVE',
-          photoUrl: targetAdm.photoUrl || '',
-          documentUrl: targetAdm.documentUrl || '',
-          feeStartMonth: currentBillingMonth,
-          monthlyFee: classTuitionFee,
-          dueDay: 10,
-          admissionFee: 0,
-          registrationFee: 0,
+          month: billMonthName,
+          totalFee: classTuitionFee,
           discount: 0,
           scholarship: 0,
-          currentBalance: 0,
-          createdBy: 'ADMIN_RECOVERY',
+          paidFee: 0,
+          pendingFee: classTuitionFee,
+          status: 'PENDING',
+          dueDate,
+          billingMonth: MONTH_NAMES[feeMonth],
+          billingYear: String(feeYear),
+          paymentHistory: [],
+          receiptIds: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
-        };
+        });
 
-        const defaultPass = "Sunshine123";
-        const hashedPassword = simpleSecureHash(defaultPass);
-        const newUser = {
-          id: userId,
-          username: generatedUsername,
-          name: sName,
-          email: finalEmail,
-          role: 'STUDENT',
-          phone: sMobile,
-          password: hashedPassword,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-
-        const newFeeRecords = [];
-        let feeMonth = d.getMonth();
-        let feeYear = y;
-        for (let i = 0; i < 12; i++) {
-          const billMonthName = `${MONTH_NAMES[feeMonth]} ${feeYear}`;
-          const monthPadded = String(feeMonth + 1).padStart(2, '0');
-          const dueDate = `${feeYear}-${monthPadded}-10`;
-
-          newFeeRecords.push({
-            id: `fee-${studentId}-${feeMonth}-${feeYear}-${i}`,
-            studentId: studentId,
-            studentName: sName,
-            class: sClass,
-            month: billMonthName,
-            totalFee: classTuitionFee,
-            discount: 0,
-            scholarship: 0,
-            paidFee: 0,
-            pendingFee: classTuitionFee,
-            status: 'PENDING',
-            dueDate,
-            billingMonth: MONTH_NAMES[feeMonth],
-            billingYear: String(feeYear),
-            paymentHistory: [],
-            receiptIds: [],
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          });
-
-          feeMonth++;
-          if (feeMonth > 11) {
-            feeMonth = 0;
-            feeYear++;
-          }
+        feeMonth++;
+        if (feeMonth > 11) {
+          feeMonth = 0;
+          feeYear++;
         }
+      }
 
-        const newAuditLog = {
-          id: `L-${Date.now()}`,
-          userId: 'admin',
-          username: 'admin',
-          action: 'RETRY_ADMISSION_SUCCESS',
-          details: `Manual recovery approval processed for ${sName} (${sClass}). Enrolled as Roll No ${enrollmentId}.`,
-          timestamp: new Date().toISOString()
-        };
+      const newAuditLog = {
+        id: `L-${Date.now()}`,
+        userId: 'admin',
+        username: 'admin',
+        action: 'RETRY_ADMISSION_SUCCESS',
+        details: `Manual recovery approval processed for ${sName} (${sClass}). Enrolled as Roll No ${enrollmentId}.`,
+        timestamp: new Date().toISOString()
+      };
 
-        // Verify enrollment integrity inside the atomic transaction block before writing
-        verifyEnrollmentIntegrity(newStudent, targetAdm, newUser, newFeeRecords, newAuditLog);
+      verifyEnrollmentIntegrity(newStudent, targetAdm, newUser, newFeeRecords, newAuditLog);
 
-        transaction.set(studentsRef, { data: [newStudent, ...currentStudents] }, { merge: false });
-        transaction.set(admissionsRef, { data: updatedAdmissions }, { merge: false });
-        transaction.set(usersRef, { data: [newUser, ...currentUsers] }, { merge: false });
-        transaction.set(feesRef, { data: [...currentFees, ...newFeeRecords] }, { merge: false });
-        transaction.set(auditRef, { data: [newAuditLog, ...currentAudits] }, { merge: false });
-
-        return {
-          isExisting: false,
-          enrollmentId,
-          studentId,
-          userId,
-          email: finalEmail,
-          studentName: sName,
-          defaultPass,
-          feeRecords: newFeeRecords,
-          auditLog: newAuditLog
-        };
+      await runTransaction(db, async (transaction) => {
+        transaction.set(doc(db, 'students', studentId), newStudent);
+        transaction.set(doc(db, 'users', userId), newUser);
+        transaction.set(doc(db, 'admissions', enrollmentId), { status: 'APPROVED', updatedAt: new Date().toISOString() }, { merge: true });
+        for (const fee of newFeeRecords) {
+          transaction.set(doc(db, 'fee_statuses', fee.id), fee);
+        }
+        transaction.set(doc(db, 'audit_logs', newAuditLog.id), newAuditLog);
       });
-
-
 
       logEnrollmentEvent("INFO", `Recovery successful for ID: ${enrollmentId} in ${Date.now() - startTime}ms`);
       return res.status(200).json({ status: "success", message: "Enrollment recovered and created successfully." });
 
     } catch (err: any) {
-      if (err.message === "ADMISSION_NOT_FOUND") {
-        return res.status(404).json({ status: "error", message: "Admission with that ID not found." });
-      }
       logEnrollmentEvent("ERROR", "Failed manual recovery retry", null, err.message);
       return res.status(500).json({ status: "error", message: err.message || "Manual recovery failed." });
+    }
+  });
+
+  // POST /api/admin/approve-enrollment - Single Atomic Transaction for Admin Enrollment Approval
+  app.post("/api/admin/approve-enrollment", async (req, res) => {
+    const startTime = Date.now();
+    try {
+      const { admissionId } = req.body;
+      if (!admissionId) {
+        return res.status(400).json({ status: "error", message: "admissionId is required." });
+      }
+
+      const [admSnap, stSnap, usrSnap, teaSnap] = await Promise.all([
+        getDocs(collection(db, 'admissions')),
+        getDocs(collection(db, 'students')),
+        getDocs(collection(db, 'users')),
+        getDocs(collection(db, 'teachers'))
+      ]);
+
+      const currentAdmissions = admSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const currentStudents = stSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const currentUsers = usrSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const teachersList = teaSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+
+      const targetAdm = currentAdmissions.find((a: any) => a.id === admissionId || a.enrollmentId === admissionId);
+      if (!targetAdm) {
+        return res.status(404).json({ status: "error", message: "Admission application not found." });
+      }
+
+      const sName = targetAdm.studentName;
+      const sClass = targetAdm.className;
+      const sMobile = targetAdm.mobile;
+
+      const existingStudent = currentStudents.find((s: any) => s.id === `s-std-${admissionId}` || s.rollNo === admissionId || s.enrollmentId === admissionId);
+      const existingUser = currentUsers.find((u: any) => u.id === `u-std-${admissionId}` || u.phone === sMobile);
+
+      let nextRollNum = 1000 + currentStudents.length + 1;
+      let rollNo = `SC-${nextRollNum}`;
+      if (admissionId.startsWith('SC2026-') || admissionId.startsWith('SC-')) {
+        rollNo = admissionId;
+      }
+
+      const studentId = existingStudent ? existingStudent.id : `s-std-${rollNo}`;
+      const userId = existingUser ? existingUser.id : `u-std-${rollNo}`;
+
+      const baseUsername = sName.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+      let generatedUsername = baseUsername;
+      let counter = 1;
+      while (currentUsers.some((u: any) => u.username === generatedUsername && u.id !== userId)) {
+        generatedUsername = `${baseUsername}${counter}`;
+        counter++;
+      }
+
+      const defaultPass = "Sunshine123";
+      const hashedPassword = simpleSecureHash(defaultPass);
+      const passwordHash = await PasswordService.hashPassword(defaultPass);
+      const finalEmail = targetAdm.email || `${generatedUsername}@sunshineclasses.net`;
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      let classTuitionFee = 500;
+      if (sClass === 'Class 10') classTuitionFee = 1200;
+      else if (sClass === 'Class 9') classTuitionFee = 1000;
+      else if (['Class 8', 'Class 7', 'Class 6', 'Class 5'].includes(sClass)) classTuitionFee = 700;
+
+      const d = new Date();
+      const y = d.getFullYear() < 2026 ? 2026 : d.getFullYear();
+      const MONTH_NAMES = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      const currentBillingMonth = `${MONTH_NAMES[d.getMonth()]} ${y}`;
+
+      const newStudent = existingStudent || {
+        id: studentId,
+        userId: userId,
+        rollNo: rollNo,
+        enrollmentId: rollNo,
+        name: sName,
+        class: sClass,
+        fatherName: targetAdm.fatherName || '',
+        motherName: targetAdm.motherName || '',
+        dob: targetAdm.dob || todayStr,
+        gender: targetAdm.gender || 'Male',
+        address: targetAdm.address || '',
+        mobile: sMobile,
+        whatsapp: targetAdm.whatsapp || sMobile,
+        parentMobile: targetAdm.parentMobile || sMobile,
+        email: finalEmail,
+        preferredBatch: targetAdm.preferredBatch || sClass,
+        preferredTiming: targetAdm.preferredTiming || '04:00 PM - 06:30 PM',
+        admissionDate: todayStr,
+        attendancePercentage: 100,
+        status: 'ACTIVE',
+        photoUrl: targetAdm.photoUrl || '',
+        documentUrl: targetAdm.documentUrl || '',
+        feeStartMonth: currentBillingMonth,
+        monthlyFee: classTuitionFee,
+        dueDay: 10,
+        admissionFee: 0,
+        registrationFee: 0,
+        discount: 0,
+        scholarship: 0,
+        currentBalance: 0,
+        createdBy: 'ADMIN_APPROVAL',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const newUser = existingUser || {
+        id: userId,
+        username: generatedUsername,
+        name: sName,
+        email: finalEmail,
+        role: 'STUDENT',
+        phone: sMobile,
+        password: hashedPassword,
+        passwordHash: passwordHash,
+        mustChangePassword: true,
+        active: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const newFeeRecords = [];
+      let feeMonth = d.getMonth();
+      let feeYear = y;
+      for (let i = 0; i < 12; i++) {
+        const billMonthName = `${MONTH_NAMES[feeMonth]} ${feeYear}`;
+        const monthPadded = String(feeMonth + 1).padStart(2, '0');
+        const dueDate = `${feeYear}-${monthPadded}-10`;
+
+        newFeeRecords.push({
+          id: `fee-${studentId}-${feeMonth}-${feeYear}-${i}`,
+          studentId: studentId,
+          studentName: sName,
+          class: sClass,
+          month: billMonthName,
+          totalFee: classTuitionFee,
+          discount: 0,
+          scholarship: 0,
+          paidFee: 0,
+          pendingFee: classTuitionFee,
+          status: 'PENDING',
+          dueDate,
+          billingMonth: MONTH_NAMES[feeMonth],
+          billingYear: String(feeYear),
+          paymentHistory: [],
+          receiptIds: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+
+        feeMonth++;
+        if (feeMonth > 11) {
+          feeMonth = 0;
+          feeYear++;
+        }
+      }
+
+      let matchedBatchId = 'b2';
+      if (targetAdm.preferredBatch?.includes('Morning')) matchedBatchId = 'b1';
+      else if (targetAdm.preferredBatch?.includes('Evening')) matchedBatchId = 'b2';
+      else if (sClass === 'Class 9') matchedBatchId = 'b3';
+      else if (['Class 8', 'Class 7', 'Class 6', 'Class 5'].includes(sClass)) matchedBatchId = 'b4';
+      else matchedBatchId = 'b5';
+
+      const newSubscription = {
+        id: `sub-${studentId}`,
+        studentId: studentId,
+        studentName: sName,
+        admissionNo: rollNo,
+        batchId: matchedBatchId,
+        batchName: targetAdm.preferredBatch || 'Class 10 - Evening Stars',
+        monthlyFee: classTuitionFee,
+        startDate: todayStr,
+        billingCycle: 'Monthly' as const,
+        nextDueDate: `${y}-${String(d.getMonth() + 1).padStart(2, '0')}-10`,
+        status: 'ACTIVE' as const,
+        daysRemaining: 15,
+        gracePeriodDays: 5
+      };
+
+      const assignedTeacher = teachersList.find((t: any) => t.specialty?.includes(sClass) || t.batches?.includes(newSubscription.batchName)) || teachersList[0] || null;
+      const teacherName = assignedTeacher ? assignedTeacher.name : "Unassigned";
+
+      const newNotification = {
+        id: `notif-approve-${Date.now()}`,
+        title: "Admission Approved",
+        content: `Admission application for ${sName} (${sClass}) was approved. Enrolled as Roll No ${rollNo} under ${teacherName}.`,
+        category: 'ANNOUNCEMENT',
+        targetRole: 'ALL',
+        date: todayStr,
+        isRead: false,
+        targetClass: sClass
+      };
+
+      const newAuditLog = {
+        id: `L-${Date.now()}`,
+        userId: 'admin',
+        username: 'admin',
+        action: 'APPROVE_ADMISSION',
+        details: `Approved online admission for ${sName} (${sClass}). Generated Roll No: ${rollNo}, Username: ${generatedUsername}. Assigned teacher: ${teacherName}.`,
+        timestamp: new Date().toISOString()
+      };
+
+      await runTransaction(db, async (transaction) => {
+        transaction.set(doc(db, 'admissions', admissionId), { status: 'APPROVED', updatedAt: new Date().toISOString() }, { merge: true });
+        transaction.set(doc(db, 'students', studentId), newStudent);
+        transaction.set(doc(db, 'users', userId), newUser);
+        for (const fee of newFeeRecords) {
+          transaction.set(doc(db, 'fee_statuses', fee.id), fee);
+        }
+        transaction.set(doc(db, 'student_subscriptions', newSubscription.id), newSubscription);
+        transaction.set(doc(db, 'notifications', newNotification.id), newNotification);
+        transaction.set(doc(db, 'audit_logs', newAuditLog.id), newAuditLog);
+      });
+
+      logEnrollmentEvent("INFO", `Admission approval transaction completed for ${admissionId} in ${Date.now() - startTime}ms.`);
+      return res.status(200).json({
+        status: "success",
+        message: "Admission approved and student created atomically.",
+        admission: { ...targetAdm, status: 'APPROVED' },
+        student: newStudent,
+        user: newUser,
+        feeRecords: newFeeRecords,
+        subscription: newSubscription,
+        auditLog: newAuditLog,
+        username: generatedUsername,
+        defaultPass
+      });
+    } catch (err: any) {
+      logEnrollmentEvent("ERROR", "Approval transaction failed", null, err.message);
+      return res.status(500).json({ status: "error", message: err.message || "Failed to approve admission." });
     }
   });
 
@@ -1539,231 +1470,202 @@ async function startServer() {
         return res.status(400).json({ status: "error", message: "Name, class, and mobile are required." });
       }
 
-      const studentsRef = doc(db, 'sunshine_erp_state', 'students');
-      const usersRef = doc(db, 'sunshine_erp_state', 'users');
-      const feesRef = doc(db, 'sunshine_erp_state', 'fee_statuses');
-      const auditRef = doc(db, 'sunshine_erp_state', 'audit_logs');
-      const notificationsRef = doc(db, 'sunshine_erp_state', 'notifications');
-      const subscriptionsRef = doc(db, 'sunshine_erp_state', 'student_subscriptions');
-      const teachersRef = doc(db, 'sunshine_erp_state', 'teachers');
+      const [stSnap, usrSnap, teaSnap] = await Promise.all([
+        getDocs(collection(db, 'students')),
+        getDocs(collection(db, 'users')),
+        getDocs(collection(db, 'teachers'))
+      ]);
 
-      const txResult = await runTransaction(db, async (transaction) => {
-        const [stS, usrS, feeS, audS, notifS, subS, teaS] = await Promise.all([
-          transaction.get(studentsRef),
-          transaction.get(usersRef),
-          transaction.get(feesRef),
-          transaction.get(auditRef),
-          transaction.get(notificationsRef),
-          transaction.get(subscriptionsRef),
-          transaction.get(teachersRef)
-        ]);
+      const students = stSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const users = usrSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const teachersList = teaSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
 
-        const students = stS.exists() ? (stS.data()?.data || []) : [];
-        const users = usrS.exists() ? (usrS.data()?.data || []) : [];
-        const feeStatuses = feeS.exists() ? (feeS.data()?.data || []) : [];
-        const auditLogs = audS.exists() ? (audS.data()?.data || []) : [];
-        const notificationsList = notifS.exists() ? (notifS.data()?.data || []) : [];
-        const studentSubscriptions = subS.exists() ? (subS.data()?.data || []) : [];
-        const teachersList = teaS.exists() ? (teaS.data()?.data || []) : [];
+      const nextRollNum = 1000 + students.length + 1;
+      const rollNo = `SC-${nextRollNum}`;
+      const studentId = `s-admin-${Date.now()}`;
+      const userId = `u-std-${nextRollNum}`;
+      const todayStr = admissionDate || new Date().toISOString().split('T')[0];
 
-        // Generate Roll Number (contiguous format: SC-XXXX)
-        const nextRollNum = 1000 + students.length + 1;
-        const rollNo = `SC-${nextRollNum}`;
-        const studentId = `s-admin-${Date.now()}`;
-        const userId = `u-std-${nextRollNum}`;
-        const todayStr = admissionDate || new Date().toISOString().split('T')[0];
+      const baseUsername = sName.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+      let generatedUsername = baseUsername;
+      let counter = 1;
+      while (users.some((u: any) => u.username === generatedUsername)) {
+        generatedUsername = `${baseUsername}${counter}`;
+        counter++;
+      }
+      const finalEmail = (email && email.trim()) ? email.trim() : `${generatedUsername}@sunshineclasses.net`;
 
-        // Generate unique username
-        const baseUsername = sName.split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-        let generatedUsername = baseUsername;
-        let counter = 1;
-        while (users.some((u: any) => u.username === generatedUsername)) {
-          generatedUsername = `${baseUsername}${counter}`;
-          counter++;
-        }
-        const finalEmail = (email && email.trim()) ? email.trim() : `${generatedUsername}@sunshineclasses.net`;
+      const classTuitionFee = typeof monthlyFee === 'number' ? monthlyFee : 500;
 
-        const classTuitionFee = typeof monthlyFee === 'number' ? monthlyFee : 500;
+      const newStudent = {
+        id: studentId,
+        userId: userId,
+        rollNo: rollNo,
+        enrollmentId: rollNo,
+        name: sName,
+        class: sClass,
+        fatherName: fatherName || '',
+        motherName: motherName || '',
+        dob: dob || todayStr,
+        gender: gender || 'Male',
+        address: address || '',
+        mobile: sMobile,
+        whatsapp: whatsapp || sMobile,
+        parentMobile: parentMobile || sMobile,
+        email: finalEmail,
+        preferredBatch: preferredBatch || sClass,
+        preferredTiming: preferredTiming || '04:00 PM - 06:30 PM',
+        admissionDate: todayStr,
+        attendancePercentage: 100,
+        status: 'ACTIVE',
+        photoUrl: photoUrl || '',
+        feeStartMonth: feeStartMonth || 'July 2026',
+        monthlyFee: classTuitionFee,
+        dueDay: typeof dueDay === 'number' ? dueDay : 10,
+        admissionFee: typeof admissionFee === 'number' ? admissionFee : 0,
+        registrationFee: typeof registrationFee === 'number' ? registrationFee : 0,
+        discount: typeof discount === 'number' ? discount : 0,
+        scholarship: typeof scholarship === 'number' ? scholarship : 0,
+        currentBalance: 0,
+        createdBy: 'ADMIN_PORTAL',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-        const newStudent = {
-          id: studentId,
-          userId: userId,
-          rollNo: rollNo,
-          enrollmentId: rollNo,
-          name: sName,
-          class: sClass,
-          fatherName: fatherName || '',
-          motherName: motherName || '',
-          dob: dob || todayStr,
-          gender: gender || 'Male',
-          address: address || '',
-          mobile: sMobile,
-          whatsapp: whatsapp || sMobile,
-          parentMobile: parentMobile || sMobile,
-          email: finalEmail,
-          preferredBatch: preferredBatch || sClass,
-          preferredTiming: preferredTiming || '04:00 PM - 06:30 PM',
-          admissionDate: todayStr,
-          attendancePercentage: 100,
-          status: 'ACTIVE',
-          photoUrl: photoUrl || '',
-          feeStartMonth: feeStartMonth || 'July 2026',
-          monthlyFee: classTuitionFee,
-          dueDay: typeof dueDay === 'number' ? dueDay : 10,
-          admissionFee: typeof admissionFee === 'number' ? admissionFee : 0,
-          registrationFee: typeof registrationFee === 'number' ? registrationFee : 0,
-          discount: typeof discount === 'number' ? discount : 0,
-          scholarship: typeof scholarship === 'number' ? scholarship : 0,
-          currentBalance: 0,
-          createdBy: 'ADMIN_PORTAL',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
+      const defaultPass = "Sunshine123";
+      const hashedPassword = simpleSecureHash(defaultPass);
+      const passwordHash = await PasswordService.hashPassword(defaultPass);
+      const newUser = {
+        id: userId,
+        username: generatedUsername,
+        name: sName,
+        email: finalEmail,
+        role: 'STUDENT',
+        phone: sMobile,
+        password: hashedPassword,
+        passwordHash: passwordHash,
+        mustChangePassword: true,
+        active: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-        const defaultPass = "Sunshine123";
-        const hashedPassword = simpleSecureHash(defaultPass);
-        const newUser = {
-          id: userId,
-          username: generatedUsername,
-          name: sName,
-          email: finalEmail,
-          role: 'STUDENT',
-          phone: sMobile,
-          password: hashedPassword,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
+      const newFeeRecords = [];
+      const MONTH_NAMES = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      let startMonthIdx = 6;
+      let startYear = 2026;
+      if (feeStartMonth) {
+        const parts = feeStartMonth.split(' ');
+        const mIdx = MONTH_NAMES.indexOf(parts[0]);
+        if (mIdx !== -1) startMonthIdx = mIdx;
+        if (parts[1]) startYear = parseInt(parts[1], 10);
+      }
 
-        // Create 12 months fee records
-        const newFeeRecords = [];
-        const MONTH_NAMES = [
-          'January', 'February', 'March', 'April', 'May', 'June',
-          'July', 'August', 'September', 'October', 'November', 'December'
-        ];
-        let startMonthIdx = 6; // default July
-        let startYear = 2026;
-        if (feeStartMonth) {
-          const parts = feeStartMonth.split(' ');
-          const mIdx = MONTH_NAMES.indexOf(parts[0]);
-          if (mIdx !== -1) startMonthIdx = mIdx;
-          if (parts[1]) startYear = parseInt(parts[1], 10);
-        }
+      let feeMonth = startMonthIdx;
+      let feeYear = startYear;
+      for (let i = 0; i < 12; i++) {
+        const billMonthName = `${MONTH_NAMES[feeMonth]} ${feeYear}`;
+        const monthPadded = String(feeMonth + 1).padStart(2, '0');
+        const dueDate = `${feeYear}-${monthPadded}-${String(newStudent.dueDay).padStart(2, '0')}`;
 
-        let feeMonth = startMonthIdx;
-        let feeYear = startYear;
-        for (let i = 0; i < 12; i++) {
-          const billMonthName = `${MONTH_NAMES[feeMonth]} ${feeYear}`;
-          const monthPadded = String(feeMonth + 1).padStart(2, '0');
-          const dueDate = `${feeYear}-${monthPadded}-${String(newStudent.dueDay).padStart(2, '0')}`;
-
-          newFeeRecords.push({
-            id: `fee-${studentId}-${feeMonth}-${feeYear}-${i}`,
-            studentId: studentId,
-            studentName: sName,
-            class: sClass,
-            month: billMonthName,
-            totalFee: classTuitionFee,
-            discount: newStudent.discount,
-            scholarship: newStudent.scholarship,
-            paidFee: 0,
-            pendingFee: classTuitionFee,
-            status: 'PENDING',
-            dueDate,
-            billingMonth: MONTH_NAMES[feeMonth],
-            billingYear: String(feeYear),
-            paymentHistory: [],
-            receiptIds: [],
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          });
-
-          feeMonth++;
-          if (feeMonth > 11) {
-            feeMonth = 0;
-            feeYear++;
-          }
-        }
-
-        let matchedBatchId = 'b2';
-        if (preferredBatch?.includes('Morning')) matchedBatchId = 'b1';
-        else if (preferredBatch?.includes('Evening')) matchedBatchId = 'b2';
-        else if (sClass === 'Class 9') matchedBatchId = 'b3';
-        else if (['Class 8', 'Class 7', 'Class 6', 'Class 5'].includes(sClass)) matchedBatchId = 'b4';
-        else matchedBatchId = 'b5';
-
-        const newSubscription = {
-          id: `sub-${studentId}`,
+        newFeeRecords.push({
+          id: `fee-${studentId}-${feeMonth}-${feeYear}-${i}`,
           studentId: studentId,
           studentName: sName,
-          admissionNo: rollNo,
-          batchId: matchedBatchId,
-          batchName: preferredBatch || 'Class 10 - Evening Stars',
-          monthlyFee: classTuitionFee,
-          startDate: todayStr,
-          billingCycle: 'Monthly' as const,
-          nextDueDate: `${startYear}-${String(startMonthIdx + 1).padStart(2, '0')}-10`,
-          status: 'ACTIVE' as const,
-          daysRemaining: 15,
-          gracePeriodDays: 5
-        };
+          class: sClass,
+          month: billMonthName,
+          totalFee: classTuitionFee,
+          discount: newStudent.discount,
+          scholarship: newStudent.scholarship,
+          paidFee: 0,
+          pendingFee: classTuitionFee,
+          status: 'PENDING',
+          dueDate,
+          billingMonth: MONTH_NAMES[feeMonth],
+          billingYear: String(feeYear),
+          paymentHistory: [],
+          receiptIds: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
 
-        const assignedTeacher = teachersList.find((t: any) => t.specialty?.includes(sClass) || t.batches?.includes(newSubscription.batchName)) || teachersList[0] || null;
-        const teacherName = assignedTeacher ? assignedTeacher.name : "Unassigned";
+        feeMonth++;
+        if (feeMonth > 11) {
+          feeMonth = 0;
+          feeYear++;
+        }
+      }
 
-        const newNotification = {
-          id: `notif-admin-enroll-${Date.now()}`,
-          title: "Admin Student Registration",
-          content: `Student ${sName} has been manually registered in ${sClass} by Admin.`,
-          category: 'ANNOUNCEMENT',
-          targetRole: 'ALL',
-          date: todayStr,
-          isRead: false,
-          targetClass: sClass
-        };
+      let matchedBatchId = 'b2';
+      if (preferredBatch?.includes('Morning')) matchedBatchId = 'b1';
+      else if (preferredBatch?.includes('Evening')) matchedBatchId = 'b2';
+      else if (sClass === 'Class 9') matchedBatchId = 'b3';
+      else if (['Class 8', 'Class 7', 'Class 6', 'Class 5'].includes(sClass)) matchedBatchId = 'b4';
+      else matchedBatchId = 'b5';
 
-        const newAuditLog = {
-          id: `L-${Date.now()}`,
-          userId: 'admin',
-          username: 'admin',
-          action: 'ADMIN_STUDENT_REGISTRATION',
-          details: `Manual Admin Student Registration processed for ${sName} (${sClass}). Enrolled as Roll No ${rollNo}. Assigned to batch "${newSubscription.batchName}" under teacher ${teacherName}.`,
-          timestamp: new Date().toISOString()
-        };
+      const newSubscription = {
+        id: `sub-${studentId}`,
+        studentId: studentId,
+        studentName: sName,
+        admissionNo: rollNo,
+        batchId: matchedBatchId,
+        batchName: preferredBatch || 'Class 10 - Evening Stars',
+        monthlyFee: classTuitionFee,
+        startDate: todayStr,
+        billingCycle: 'Monthly' as const,
+        nextDueDate: `${startYear}-${String(startMonthIdx + 1).padStart(2, '0')}-10`,
+        status: 'ACTIVE' as const,
+        daysRemaining: 15,
+        gracePeriodDays: 5
+      };
 
-        // Validate integrity with a dummy admission ID that is handled gracefully by bypass logic
-        verifyEnrollmentIntegrity(newStudent, { id: "NO_ADMISSION" }, newUser, newFeeRecords, newAuditLog);
+      const assignedTeacher = teachersList.find((t: any) => t.specialty?.includes(sClass) || t.batches?.includes(newSubscription.batchName)) || teachersList[0] || null;
+      const teacherName = assignedTeacher ? assignedTeacher.name : "Unassigned";
 
-        transaction.set(studentsRef, { data: [newStudent, ...students] }, { merge: false });
-        transaction.set(usersRef, { data: [newUser, ...users] }, { merge: false });
-        transaction.set(feesRef, { data: [...feeStatuses, ...newFeeRecords] }, { merge: false });
-        transaction.set(subscriptionsRef, { data: [newSubscription, ...studentSubscriptions] }, { merge: false });
-        transaction.set(notificationsRef, { data: [newNotification, ...notificationsList] }, { merge: false });
-        transaction.set(auditRef, { data: [newAuditLog, ...auditLogs] }, { merge: false });
+      const newNotification = {
+        id: `notif-admin-enroll-${Date.now()}`,
+        title: "Admin Student Registration",
+        content: `Student ${sName} has been manually registered in ${sClass} by Admin.`,
+        category: 'ANNOUNCEMENT',
+        targetRole: 'ALL',
+        date: todayStr,
+        isRead: false,
+        targetClass: sClass
+      };
 
-        return {
-          rollNo,
-          student: newStudent,
-          user: newUser,
-          feeRecords: newFeeRecords,
-          subscription: newSubscription,
-          notification: newNotification,
-          auditLog: newAuditLog,
-          defaultPass,
-          username: generatedUsername,
-          email: finalEmail
-        };
+      const newAuditLog = {
+        id: `L-${Date.now()}`,
+        userId: 'admin',
+        username: 'admin',
+        action: 'ADMIN_STUDENT_REGISTRATION',
+        details: `Manual Admin Student Registration processed for ${sName} (${sClass}). Enrolled as Roll No ${rollNo}. Assigned to batch "${newSubscription.batchName}" under teacher ${teacherName}.`,
+        timestamp: new Date().toISOString()
+      };
+
+      verifyEnrollmentIntegrity(newStudent, { id: "NO_ADMISSION" }, newUser, newFeeRecords, newAuditLog);
+
+      await runTransaction(db, async (transaction) => {
+        transaction.set(doc(db, 'students', studentId), newStudent);
+        transaction.set(doc(db, 'users', userId), newUser);
+        for (const fee of newFeeRecords) {
+          transaction.set(doc(db, 'fee_statuses', fee.id), fee);
+        }
+        transaction.set(doc(db, 'student_subscriptions', newSubscription.id), newSubscription);
+        transaction.set(doc(db, 'notifications', newNotification.id), newNotification);
+        transaction.set(doc(db, 'audit_logs', newAuditLog.id), newAuditLog);
       });
 
-      logEnrollmentEvent("INFO", `Student account registered successfully: ${txResult.student.name}`);
-
-      logEnrollmentEvent("INFO", `Admin manual registration completed successfully in ${Date.now() - startTime}ms. Roll No: ${txResult.rollNo}`);
+      logEnrollmentEvent("INFO", `Admin manual registration completed successfully in ${Date.now() - startTime}ms. Roll No: ${rollNo}`);
       return res.status(201).json({
         status: "success",
-        rollNo: txResult.rollNo,
-        student: txResult.student,
-        user: txResult.user,
-        feeRecords: txResult.feeRecords,
-        auditLog: txResult.auditLog
+        rollNo,
+        student: newStudent,
+        user: newUser,
+        feeRecords: newFeeRecords,
+        auditLog: newAuditLog
       });
 
     } catch (err: any) {
@@ -1773,20 +1675,16 @@ async function startServer() {
   });
 
   app.post("/api/admissions", async (req, res) => {
-    // Forward directly to /api/enroll logic
     req.url = "/api/enroll";
     return app._router.handle(req, res);
   });
 
-  // --- Start of Secure Pure Express + JWT Authentication Routes ---
-  
   // Helper to get users array from Firestore
   const getERPUsersList = async () => {
     try {
-      const db = getAdminFirestore();
-      const docSnap = await db.doc("sunshine_erp_state/users").get();
-      if (docSnap.exists) {
-        return docSnap.data()?.data || [];
+      const snap = await getDocs(collection(db, 'users'));
+      if (!snap.empty) {
+        return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
       }
     } catch (e) {
       console.error("[getERPUsersList] Firestore read error:", e);
@@ -1796,11 +1694,11 @@ async function startServer() {
 
   // Helper to save users array to Firestore
   const saveERPUsersList = async (usersList: any[]) => {
-    const db = getAdminFirestore();
-    await db.doc("sunshine_erp_state/users").set({
-      data: usersList,
-      updatedAt: new Date().toISOString()
-    });
+    for (const u of usersList) {
+      if (u && u.id) {
+        await setDoc(doc(db, 'users', u.id), u, { merge: true });
+      }
+    }
   };
 
   // 1. Login endpoint (username + password)
@@ -2483,8 +2381,8 @@ How can I help you towards your academic success today? Feel free to ask!`;
     try {
       if (!activeProvider || activeProvider === "NONE") {
         // Fetch config from Firestore if not provided or set to NONE in payload
-        const configDoc = await getDoc(doc(db, "sunshine_erp_state", "subscription_config"));
-        const config = configDoc.exists() ? configDoc.data()?.data || {} : {};
+        const configSnap = await getDocs(collection(db, "subscription_config"));
+        const config = !configSnap.empty ? configSnap.docs[0].data() : {};
         if (!activeProvider || activeProvider === "NONE") {
           activeProvider = config.whatsappProvider || "NONE";
         }
@@ -2582,10 +2480,6 @@ How can I help you towards your academic success today? Feel free to ask!`;
 
       // Log into audit_logs in Firestore
       try {
-        const auditRef = doc(db, 'sunshine_erp_state', 'audit_logs');
-        const auditSnap = await getDoc(auditRef);
-        const existingLogs = auditSnap.exists() ? auditSnap.data()?.data || [] : [];
-        
         const newLog = {
           id: `log-wa-out-${Date.now()}`,
           userId: 'admin-dispatch',
@@ -2594,8 +2488,7 @@ How can I help you towards your academic success today? Feel free to ask!`;
           details: `Outbound WhatsApp to ${to}: "${message.substring(0, 40)}..." -> Dispatch ${wasDispatched ? 'SUCCESS' : 'FAILED'}. Mode: ${activeProvider}`,
           timestamp: new Date().toISOString()
         };
-        
-        await setDoc(auditRef, { data: [newLog, ...existingLogs].slice(0, 100) }, { merge: false });
+        await setDoc(doc(db, 'audit_logs', newLog.id), newLog);
       } catch (auditErr) {
         console.error("Failed to append outbound WhatsApp interaction log:", auditErr);
       }
@@ -2673,14 +2566,14 @@ How can I help you towards your academic success today? Feel free to ask!`;
       console.log(`[Inbound Message] From: ${senderNumber}, Body: "${messageText}"`);
 
       // 3. Fetch list of registered students and their fee records from Firestore
-      const studentsDoc = await getDoc(doc(db, "sunshine_erp_state", "students"));
-      const studentsList: any[] = studentsDoc.exists() ? studentsDoc.data()?.data || [] : [];
-
-      const feeDoc = await getDoc(doc(db, "sunshine_erp_state", "fee_statuses"));
-      const feeStatuses: any[] = feeDoc.exists() ? feeDoc.data()?.data || [] : [];
-
-      const subDoc = await getDoc(doc(db, "sunshine_erp_state", "student_subscriptions"));
-      const studentSubs: any[] = subDoc.exists() ? subDoc.data()?.data || [] : [];
+      const [stSnap, feeSnap, subSnap] = await Promise.all([
+        getDocs(collection(db, "students")),
+        getDocs(collection(db, "fee_statuses")),
+        getDocs(collection(db, "student_subscriptions"))
+      ]);
+      const studentsList: any[] = stSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const feeStatuses: any[] = feeSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const studentSubs: any[] = subSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
 
       // Normalize sender number to the last 10 digits for matching
       const cleanSender = senderNumber.replace(/\D/g, "");
@@ -2796,8 +2689,8 @@ Sunshine Classes — *Excellence in Education* ☀️`;
       }
 
       // 4. Fetch the Active WhatsApp Provider configuration credentials from Firestore
-      const configDoc = await getDoc(doc(db, "sunshine_erp_state", "subscription_config"));
-      const config = configDoc.exists() ? configDoc.data()?.data || {} : {};
+      const configSnap = await getDocs(collection(db, "subscription_config"));
+      const config = !configSnap.empty ? configSnap.docs[0].data() : {};
 
       const provider = config.whatsappProvider || "NONE";
       const senderNo = config.whatsappSenderNumber || "";
@@ -2879,10 +2772,6 @@ Sunshine Classes — *Excellence in Education* ☀️`;
 
       // 5. Append message interaction to centralized ERP Audit Logs
       try {
-        const auditRef = doc(db, 'sunshine_erp_state', 'audit_logs');
-        const auditSnap = await getDoc(auditRef);
-        const existingLogs = auditSnap.exists() ? auditSnap.data()?.data || [] : [];
-        
         const newLog = {
           id: `log-wa-${Date.now()}`,
           userId: 'whatsapp-bot',
@@ -2891,8 +2780,7 @@ Sunshine Classes — *Excellence in Education* ☀️`;
           details: `Inbound WhatsApp from +${senderNumber}: "${messageText.substring(0, 40)}" -> Auto-Replied successfully. Mode: ${provider}`,
           timestamp: new Date().toISOString()
         };
-        
-        await setDoc(auditRef, { data: [newLog, ...existingLogs].slice(0, 100) }, { merge: false });
+        await setDoc(doc(db, 'audit_logs', newLog.id), newLog);
       } catch (auditErr) {
         console.error("Failed to append WhatsApp interaction log:", auditErr);
       }

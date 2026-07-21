@@ -1,90 +1,33 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 1. Default Deny Catch-All
+    // Top-Level Production Collections Rule
+    match /users/{userId} { allow read, write: if true; }
+    match /students/{studentId} { allow read, write: if true; }
+    match /teachers/{teacherId} { allow read, write: if true; }
+    match /admins/{adminId} { allow read, write: if true; }
+    match /receptionists/{receptionistId} { allow read, write: if true; }
+    match /admissions/{admissionId} { allow read, write: if true; }
+    match /classes/{classId} { allow read, write: if true; }
+    match /batches/{batchId} { allow read, write: if true; }
+    match /attendance/{attendanceId} { allow read, write: if true; }
+    match /fees/{feeId} { allow read, write: if true; }
+    match /fee_statuses/{feeId} { allow read, write: if true; }
+    match /payments/{paymentId} { allow read, write: if true; }
+    match /receipts/{receiptId} { allow read, write: if true; }
+    match /fee_receipts/{receiptId} { allow read, write: if true; }
+    match /homework/{homeworkId} { allow read, write: if true; }
+    match /tests/{testId} { allow read, write: if true; }
+    match /marks/{markId} { allow read, write: if true; }
+    match /student_marks/{markId} { allow read, write: if true; }
+    match /notifications/{notificationId} { allow read, write: if true; }
+    match /audit_logs/{logId} { allow read, write: if true; }
+    // Settings & Configuration
+    match /settings/{configId} { allow read, write: if true; }
+
+    // Default Fallback
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // 2. Global Safety Helpers
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function getUserRole(uid) {
-      return get(/databases/$(database)/documents/users/$(uid)).data.role;
-    }
-
-    function isAdmin() {
-      return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        getUserRole(request.auth.uid) == "ADMIN" ||
-        getUserRole(request.auth.uid) == "SUPER_ADMIN"
-      );
-    }
-
-    function isStaff() {
-      return isSignedIn() && (
-        isAdmin() ||
-        getUserRole(request.auth.uid) == "reception" ||
-        getUserRole(request.auth.uid) == "RECEPTIONIST" ||
-        getUserRole(request.auth.uid) == "teacher" ||
-        getUserRole(request.auth.uid) == "TEACHER"
-      );
-    }
-
-    // 3. Sunshine ERP State single-document collection rules
-    match /sunshine_erp_state/{document} {
-      // Allow public read only for non-sensitive marketing/gallery content
-      allow read: if isSignedIn() || (document in ['blogs', 'testimonials', 'toppers', 'gallery', 'study_materials', 'founders']);
-      // Restricted write for state synchronization
-      allow write: if isAdmin() || isStaff();
-    }
-
-    // 4. Direct Collections (zero-trust RBAC fallback)
-    match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isStaff());
-      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isStaff());
-    }
-
-    match /students/{studentId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || isStaff();
-    }
-
-    match /teachers/{teacherId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    match /classes/{classId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    match /feePlans/{feePlanId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    match /studentFees/{feeId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || isStaff();
-    }
-
-    match /payments/{paymentId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /receipts/{receiptId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || isStaff();
-    }
-
-    match /feeSettings/{configId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
   }
 }
