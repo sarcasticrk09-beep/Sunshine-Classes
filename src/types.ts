@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'TEACHER' | 'RECEPTIONIST' | 'STUDENT';
+export type UserRole = 'FOUNDER' | 'CO_FOUNDER' | 'SUPER_ADMIN' | 'ADMIN' | 'RECEPTIONIST' | 'TEACHER' | 'STUDENT';
 
 export interface PasswordHistoryEntry {
   changedBy: string; // e.g. "Self", or Admin username
@@ -19,6 +19,8 @@ export interface User {
   email: string;
   role: UserRole;
   password?: string;
+  passwordHash?: string;
+  mustChangePassword?: boolean;
   avatarUrl?: string;
   phone?: string;
   active?: boolean;

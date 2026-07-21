@@ -1,4 +1,17 @@
-import { auth } from "../lib/firebase";
+// Cloudinary Service
+
+function getCurrentUserId(): string {
+  try {
+    const userStr = localStorage.getItem("sunshine_user");
+    if (userStr) {
+      const u = JSON.parse(userStr);
+      if (u && u.id) return u.id;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return "anonymous_user";
+}
 
 /**
  * Cloudinary Secure Upload and Resource Management Service
@@ -163,7 +176,7 @@ class CloudinaryService {
         folder: requestedFolder,
         fileType: file.type || "application/octet-stream",
         fileSize: file.size,
-        userId: auth.currentUser?.uid || "anonymous_user",
+        userId: getCurrentUserId(),
         role: localStorage.getItem("sunshine_remember_role") || "STUDENT"
       })
     });
@@ -281,7 +294,7 @@ class CloudinaryService {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           publicId,
-          userId: auth.currentUser?.uid || "anonymous_user",
+          userId: getCurrentUserId(),
           role: localStorage.getItem("sunshine_remember_role") || "STUDENT"
         })
       });

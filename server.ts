@@ -9,12 +9,19 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import nodemailer from "nodemailer";
 import { initializeApp as initializeAdminApp, cert } from "firebase-admin/app";
-import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import helmet from "helmet";
 import compression from "compression";
 import cors from "cors";
 import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
+
+import { PasswordService } from "./src/server/auth/PasswordService";
+import { JWTService } from "./src/server/auth/JWTService";
+import { AuthService } from "./src/server/auth/AuthService";
+import { AuthController } from "./src/server/auth/AuthController";
+import { authMiddleware, AuthenticatedRequest } from "./src/server/auth/AuthMiddleware";
+import { roleMiddleware } from "./src/server/auth/RoleMiddleware";
+import { AuditLogger } from "./src/server/auth/AuditLogger";
 
 // Ensure process env variables are available (for local testing fallback)
 import "dotenv/config";
@@ -954,6 +961,7 @@ async function startServer() {
           // Create login user
           const defaultPass = "Sunshine123";
           const hashedPassword = simpleSecureHash(defaultPass);
+          const passwordHash = await PasswordService.hashPassword(defaultPass);
           const newUser = {
             id: userId,
             username: generatedUsername,
@@ -962,6 +970,9 @@ async function startServer() {
             role: 'STUDENT',
             phone: sMobile,
             password: hashedPassword,
+            passwordHash: passwordHash,
+            mustChangePassword: true,
+            active: true,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           };
@@ -1089,40 +1100,7 @@ async function startServer() {
         logEnrollmentEvent("INFO", `Admission processed idempotently for: ${txResult.student?.name || sName}. Enrollment ID: ${txResult.enrollmentId}`);
       }
 
-      // 7. Create Firebase Auth user safely with rollback on failure
-      try {
-        console.log(`[Enrollment Endpoint] Creating Auth account for: ${txResult.email}`);
-        await getAdminAuth().createUser({
-          uid: txResult.user.id,
-          email: txResult.email,
-          password: txResult.defaultPass,
-          displayName: txResult.student.name
-        });
-        logEnrollmentEvent("INFO", `Firebase Auth user created successfully for student: ${txResult.student.name}`);
-      } catch (authErr: any) {
-        if (authErr.code === 'auth/email-already-in-use') {
-          logEnrollmentEvent("WARNING", `Firebase Auth account already exists for ${txResult.email}. Skipping Auth creation.`);
-        } else {
-          logEnrollmentEvent("ERROR", `Firebase Auth creation failed for email: ${txResult.email}. Initiating compensation rollback.`, null, authErr.message);
-          
-          // Revert Firestore changes
-          const feeIds = txResult.feeRecords.map((f: any) => f.id);
-          await rollbackEnrollment(
-            txResult.enrollmentId,
-            txResult.student.id,
-            txResult.user.id,
-            feeIds,
-            txResult.subscription.id,
-            txResult.notification.id,
-            txResult.auditLog.id
-          );
 
-          return res.status(500).json({
-            status: "error",
-            message: `Enrollment aborted: Firebase Auth User creation failed (${authErr.message}). All database changes have been rolled back.`
-          });
-        }
-      }
 
       logEnrollmentEvent("INFO", `Admission completed successfully in ${Date.now() - startTime}ms. Enrollment ID: ${txResult.enrollmentId}`);
       return res.status(201).json({
@@ -1509,39 +1487,7 @@ async function startServer() {
         };
       });
 
-      // Firebase Auth safely with rollback on failure
-      try {
-        await getAdminAuth().createUser({
-          uid: txResult.userId,
-          email: txResult.email,
-          password: txResult.defaultPass,
-          displayName: txResult.studentName
-        });
-        logEnrollmentEvent("INFO", `Firebase Auth user generated on recovery for: ${txResult.studentName}`);
-      } catch (ae: any) {
-        if (ae.code === 'auth/email-already-in-use') {
-          logEnrollmentEvent("WARNING", `Auth skipped on recovery: account already exists for ${txResult.email}`);
-        } else {
-          logEnrollmentEvent("ERROR", `Auth failed on recovery: ${ae.message}. Initiating recovery compensation rollback.`);
-          
-          if (!txResult.isExisting) {
-            // Revert Firestore changes
-            const feeIds = txResult.feeRecords.map((f: any) => f.id);
-            await rollbackRecoveryEnrollment(
-              txResult.enrollmentId,
-              txResult.studentId,
-              txResult.userId,
-              feeIds,
-              txResult.auditLog.id
-            );
-          }
 
-          return res.status(500).json({
-            status: "error",
-            message: `Recovery aborted: Firebase Auth User creation failed (${ae.message}). All recovery database changes have been rolled back.`
-          });
-        }
-      }
 
       logEnrollmentEvent("INFO", `Recovery successful for ID: ${enrollmentId} in ${Date.now() - startTime}ms`);
       return res.status(200).json({ status: "success", message: "Enrollment recovered and created successfully." });
@@ -1808,39 +1754,7 @@ async function startServer() {
         };
       });
 
-      // Firebase Auth User Creation
-      try {
-        await getAdminAuth().createUser({
-          uid: txResult.user.id,
-          email: txResult.email,
-          password: txResult.defaultPass,
-          displayName: txResult.student.name
-        });
-        logEnrollmentEvent("INFO", `Firebase Auth user created successfully for admin-registered student: ${txResult.student.name}`);
-      } catch (authErr: any) {
-        if (authErr.code === 'auth/email-already-in-use') {
-          logEnrollmentEvent("WARNING", `Firebase Auth account already exists for ${txResult.email}. Skipping Auth creation.`);
-        } else {
-          logEnrollmentEvent("ERROR", `Firebase Auth creation failed for admin-registered student: ${txResult.email}. Initiating rollback.`, null, authErr.message);
-
-          // Compensating Rollback
-          const feeIds = txResult.feeRecords.map((f: any) => f.id);
-          await rollbackEnrollment(
-            "NO_ADMISSION",
-            txResult.student.id,
-            txResult.user.id,
-            feeIds,
-            txResult.subscription.id,
-            txResult.notification.id,
-            txResult.auditLog.id
-          );
-
-          return res.status(500).json({
-            status: "error",
-            message: `Student registration aborted: Firebase Auth User creation failed (${authErr.message}). All database changes have been rolled back.`
-          });
-        }
-      }
+      logEnrollmentEvent("INFO", `Student account registered successfully: ${txResult.student.name}`);
 
       logEnrollmentEvent("INFO", `Admin manual registration completed successfully in ${Date.now() - startTime}ms. Roll No: ${txResult.rollNo}`);
       return res.status(201).json({
@@ -1864,7 +1778,42 @@ async function startServer() {
     return app._router.handle(req, res);
   });
 
-  // --- Start of Secure Firebase Admin Auth Routes ---
+  // --- Start of Secure Pure Express + JWT Authentication Routes ---
+  
+  // Helper to get users array from Firestore
+  const getERPUsersList = async () => {
+    try {
+      const db = getAdminFirestore();
+      const docSnap = await db.doc("sunshine_erp_state/users").get();
+      if (docSnap.exists) {
+        return docSnap.data()?.data || [];
+      }
+    } catch (e) {
+      console.error("[getERPUsersList] Firestore read error:", e);
+    }
+    return [];
+  };
+
+  // Helper to save users array to Firestore
+  const saveERPUsersList = async (usersList: any[]) => {
+    const db = getAdminFirestore();
+    await db.doc("sunshine_erp_state/users").set({
+      data: usersList,
+      updatedAt: new Date().toISOString()
+    });
+  };
+
+  // 1. Login endpoint (username + password)
+  app.post("/api/auth/login", async (req, res) => {
+    return AuthController.login(req, res, getERPUsersList);
+  });
+
+  // 2. Change password endpoint (JWT required)
+  app.post("/api/auth/change-password", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return AuthController.changePassword(req, res, getERPUsersList, saveERPUsersList);
+  });
+
+  // 3. Admin create user endpoint
   app.post("/api/admin/create-user", async (req, res) => {
     try {
       const { username, name, email, password, role } = req.body;
@@ -1872,93 +1821,150 @@ async function startServer() {
         return res.status(400).json({ error: "Username and password are required." });
       }
 
-      // Generate a unique email if not provided
-      const targetEmail = email?.trim() || `${username.trim().toLowerCase()}@sunshineerp.com`;
-
-      console.log(`[Firebase Admin] Attempting to create Auth account for email: ${targetEmail}`);
-
-      // Check if user already exists
-      let existingUser = null;
-      try {
-        existingUser = await getAdminAuth().getUserByEmail(targetEmail);
-      } catch (e) {
-        // User does not exist, safe to proceed
+      const users = await getERPUsersList();
+      const cleanUsername = username.trim().toLowerCase();
+      
+      const existing = users.find((u: any) => u.username?.toLowerCase() === cleanUsername);
+      if (existing) {
+        return res.status(400).json({ error: `Username "${username}" is already registered.` });
       }
 
-      if (existingUser) {
-        return res.status(400).json({ error: `An authentication account with email "${targetEmail}" already exists.` });
-      }
+      const passwordHash = await PasswordService.hashPassword(password);
+      const newUserId = `u-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const newUser = {
+        id: newUserId,
+        username: username.trim(),
+        name: name || username,
+        email: email?.trim() || `${cleanUsername}@sunshineerp.com`,
+        role: role || 'STUDENT',
+        passwordHash,
+        password: passwordHash,
+        active: true,
+        mustChangePassword: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-      const userRecord = await getAdminAuth().createUser({
-        email: targetEmail,
-        password: password,
-        displayName: name || username,
-      });
+      users.push(newUser);
+      await saveERPUsersList(users);
 
-      console.log(`[Firebase Admin] Auth account created successfully with UID: ${userRecord.uid}`);
+      AuditLogger.log("CREATE_USER", "Admin", `Created account for user ${username} (${role})`);
+
       return res.status(200).json({
         success: true,
-        uid: userRecord.uid,
-        email: targetEmail,
-        username,
-        name,
-        role
+        uid: newUserId,
+        id: newUserId,
+        username: newUser.username,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        mustChangePassword: true
       });
     } catch (err: any) {
-      console.error("[Firebase Admin] User creation error:", err);
+      console.error("[Admin Create User Error]:", err);
       return res.status(500).json({ error: err.message || "Failed to create user." });
     }
   });
 
+  // 4. Admin update user endpoint (password reset / enable / disable / lock)
+  app.post("/api/admin/update-user", async (req, res) => {
+    try {
+      const { uid, password, email, displayName, disabled, active, isLocked } = req.body;
+      if (!uid) {
+        return res.status(400).json({ error: "User ID is required." });
+      }
+
+      const users = await getERPUsersList();
+      const userIndex = users.findIndex((u: any) => u.id === uid || u.username?.toLowerCase() === String(uid).toLowerCase() || u.email?.toLowerCase() === String(email || '').toLowerCase());
+
+      if (userIndex === -1) {
+        return res.status(404).json({ error: "User account not found." });
+      }
+
+      const user = users[userIndex];
+      let newHash = user.passwordHash || user.password;
+      let forcePasswordChange = user.mustChangePassword ?? false;
+
+      if (password) {
+        newHash = await PasswordService.hashPassword(password);
+        forcePasswordChange = true;
+      }
+
+      let accountActive = user.active ?? true;
+      if (typeof disabled === "boolean") {
+        accountActive = !disabled;
+      } else if (typeof active === "boolean") {
+        accountActive = active;
+      }
+
+      const updatedUser = {
+        ...user,
+        name: displayName || user.name,
+        email: email || user.email,
+        passwordHash: newHash,
+        password: newHash,
+        active: accountActive,
+        isLocked: typeof isLocked === "boolean" ? isLocked : (user.isLocked ?? false),
+        mustChangePassword: forcePasswordChange,
+        updatedAt: new Date().toISOString()
+      };
+
+      users[userIndex] = updatedUser;
+      await saveERPUsersList(users);
+
+      AuditLogger.log("UPDATE_USER", "Admin", `Updated user ${user.username}. Active: ${accountActive}, Password Reset: ${!!password}`);
+
+      return res.status(200).json({ success: true, uid: user.id });
+    } catch (err: any) {
+      console.error("[Admin Update User Error]:", err);
+      return res.status(500).json({ error: err.message || "Failed to update user." });
+    }
+  });
+
+  // 5. Admin delete user endpoint
   app.post("/api/admin/delete-user", async (req, res) => {
     try {
       const { uid } = req.body;
       if (!uid) {
-        return res.status(400).json({ error: "User UID is required." });
+        return res.status(400).json({ error: "User ID is required." });
       }
-      console.log(`[Firebase Admin] Attempting to delete Auth account: ${uid}`);
-      await getAdminAuth().deleteUser(uid);
-      console.log(`[Firebase Admin] Auth account ${uid} deleted successfully.`);
+
+      let users = await getERPUsersList();
+      users = users.filter((u: any) => u.id !== uid && u.username !== uid);
+      await saveERPUsersList(users);
+
+      AuditLogger.log("DELETE_USER", "Admin", `Deleted user account ID: ${uid}`);
       return res.status(200).json({ success: true });
     } catch (err: any) {
-      console.error("[Firebase Admin] User deletion error:", err);
-      // If user doesn't exist, we can still count it as success
-      if (err.code === 'auth/user-not-found') {
-        return res.status(200).json({ success: true, message: "User not found in Auth but deletion marked complete." });
-      }
+      console.error("[Admin Delete User Error]:", err);
       return res.status(500).json({ error: err.message || "Failed to delete user." });
     }
   });
 
-  const updateUserSchema = z.object({
-    uid: z.string().min(1, "User UID is required."),
-    password: z.string().min(8, "Password must be at least 8 characters long.").optional(),
-    email: z.string().email("Invalid email address.").optional(),
-    displayName: z.string().min(1, "Display name must not be empty.").optional()
-  });
-
-  app.post("/api/admin/update-user", async (req, res) => {
+  // 6. User audit endpoint
+  app.get("/api/admin/audit-users", async (req, res) => {
     try {
-      const result = updateUserSchema.safeParse(req.body);
-      if (!result.success) {
-        return res.status(400).json({ error: result.error.issues[0].message });
-      }
-      const { uid, password, email, displayName } = result.data;
-      console.log(`[Firebase Admin] Attempting to update Auth account: ${uid}`);
-      const updateData: any = {};
-      if (password) updateData.password = password;
-      if (email) updateData.email = email;
-      if (displayName) updateData.displayName = displayName;
+      const users = await getERPUsersList();
+      
+      const results = {
+        totalUsers: users.length,
+        activeUsers: users.filter((u: any) => u.active !== false).length,
+        disabledUsers: users.filter((u: any) => u.active === false).length,
+        missingPasswordHash: users.filter((u: any) => !u.passwordHash && !u.password).length,
+        missingInAuth: [] as any[],
+        orphanedFirestoreUsers: [] as any[],
+        duplicateUIDs: [] as any[],
+        duplicateEmails: [] as any[]
+      };
 
-      const userRecord = await getAdminAuth().updateUser(uid, updateData);
-      console.log(`[Firebase Admin] Auth account ${uid} updated successfully.`);
-      return res.status(200).json({ success: true, uid: userRecord.uid });
+      return res.status(200).json(results);
     } catch (err: any) {
-      console.error("[Firebase Admin] User update error:", err);
-      return res.status(500).json({ error: err.message || "Failed to update user." });
+      console.error("[User Audit Error]:", err);
+      return res.status(500).json({ error: err.message });
     }
   });
-  // --- End of Secure Firebase Admin Auth Routes ---
+
+  // --- End of Secure Pure Express + JWT Authentication Routes ---
 
   // Serve static assets from public folder
   app.use(express.static(path.join(process.cwd(), "public")));

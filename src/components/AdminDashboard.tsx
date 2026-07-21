@@ -2228,7 +2228,7 @@ export default function AdminDashboard({
   const [batchFormCapacity, setBatchFormCapacity] = useState(30);
 
   // State for Admin resetting another user's password
-  const [resettingUser, setResettingUser] = useState<{ userId: string; username: string; name: string } | null>(null);
+  const [resettingUser, setResettingUser] = useState<{ userId: string; username: string; name: string; email?: string } | null>(null);
   const [newPasswordForUser, setNewPasswordForUser] = useState('');
   const [editUsername, setEditUsername] = useState('');
   const [userActive, setUserActive] = useState(true);
@@ -7511,7 +7511,8 @@ ${data.log}`
                                   setResettingUser({
                                     userId: student.userId,
                                     username: matchedUser?.username || student.name.toLowerCase().replace(/\s+/g, ''),
-                                    name: student.name
+                                    name: student.name,
+                                    email: matchedUser?.email || student.email
                                   });
                                   setNewPasswordForUser('');
                                 }}
@@ -7954,7 +7955,8 @@ ${data.log}`
                               setResettingUser({
                                 userId: t.userId,
                                 username: matchedUser?.username || t.name.toLowerCase().replace(/\s+/g, ''),
-                                name: t.name
+                                name: t.name,
+                                email: matchedUser?.email || t.email
                               });
                               setNewPasswordForUser('');
                             }}
@@ -15121,7 +15123,8 @@ ${data.log}`
                                     setResettingUser({
                                       userId: user.id,
                                       username: user.username,
-                                      name: user.name
+                                      name: user.name,
+                                      email: user.email
                                     });
                                     setNewPasswordForUser('');
                                     setEditUsername(user.username);
@@ -18139,34 +18142,38 @@ ${data.log}`
                     }
 
                     const newPwd = newPasswordForUser.trim();
-                    if (newPwd) {
-                      if (strictMode) {
-                        if (newPwd.length < 8 || !/[A-Z]/.test(newPwd) || !/[0-9]/.test(newPwd)) {
-                          alert('Security Hardening Policy: Reset passwords must be at least 8 characters long, contain at least one uppercase letter (A-Z) and at least one number (0-9).');
-                          return;
-                        }
-                      }
-
-                      // Call Firebase Admin API via server route to update user password
-                      try {
-                        const res = await fetch("/api/admin/update-user", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            uid: resettingUser.userId,
-                            password: newPwd
-                          })
-                        });
-                        const data = await res.json();
-                        if (!res.ok) {
-                          throw new Error(data.error || "Failed to sync reset password with Firebase Auth.");
-                        }
-                        console.log("[Admin Reset Password] Firebase Auth updated successfully for UID:", resettingUser.userId);
-                      } catch (err: any) {
-                        console.error("[Admin Reset Password Error]:", err);
-                        alert(`❌ Warning: Failed to update user's Firebase Auth account.\n\nError: ${err.message || err}`);
+                    if (newPwd && strictMode) {
+                      if (newPwd.length < 8 || !/[A-Z]/.test(newPwd) || !/[0-9]/.test(newPwd)) {
+                        alert('Security Hardening Policy: Reset passwords must be at least 8 characters long, contain at least one uppercase letter (A-Z) and at least one number (0-9).');
                         return;
                       }
+                    }
+
+                    // Call Firebase Admin API via server route to update user password & active/disabled status
+                    try {
+                      const payload: any = {
+                        uid: resettingUser.userId,
+                        email: resettingUser.email,
+                        disabled: !userActive
+                      };
+                      if (newPwd) {
+                        payload.password = newPwd;
+                      }
+
+                      const res = await fetch("/api/admin/update-user", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                      });
+                      const data = await res.json();
+                      if (!res.ok) {
+                        throw new Error(data.error || "Failed to sync user account properties with Firebase Auth.");
+                      }
+                      console.log("[Admin Manage User] Firebase Auth updated successfully for UID:", resettingUser.userId);
+                    } catch (err: any) {
+                      console.error("[Admin Manage User Error]:", err);
+                      alert(`❌ Warning: Failed to update user's Firebase Auth account.\n\nError: ${err.message || err}`);
+                      return;
                     }
 
                     const updated = users.map(u => {

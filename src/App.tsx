@@ -96,9 +96,8 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-
 import { FeesPage } from './pages/FeesPage';
 import { SEOHead, trackAdmissionSubmit } from './components/SEOHead';
 
-import { db, auth, googleSignIn } from './lib/firebase';
+import { db } from './lib/firebase';
 import { doc, getDoc, setDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { interpolateWhatsAppTemplate, sendWhatsAppMessage } from './lib/whatsappService';
 
 import { LogIn, Shield, Users, BookOpen, UserCheck, Key, LogOut, X, Sun, Moon, Eye, EyeOff, Cloud, CloudOff, RefreshCw, Bell, BellRing, Check, CheckCheck, AlertCircle, Mail, MessageSquare, Crown } from 'lucide-react';
@@ -275,7 +274,7 @@ export default function App() {
   }, [theme]);
 
   // Authentication & View states
-  const { currentUser, logout } = useAuth();
+  const { currentUser, login, logout } = useAuth();
 
   // Redirect if logged in and trying to access auth pages
   useEffect(() => {
@@ -3048,191 +3047,7 @@ Sunshine Classes`;
     };
     const updatedAudits = [newLog, ...auditLogs];
     setAuditLogs(updatedAudits);
-    syncState('audit_logs', updatedAudits);
-
-    alert('Success: Password updated and cryptographically hardened!');
-  };
-
-  const handleFirebaseUserCheck = async (uid: string, email: string | null): Promise<boolean> => {
-    try {
-      const userDocRef = doc(db, 'users', uid);
-      const userDocSnap = await getDoc(userDocRef);
-      
-      if (!userDocSnap.exists()) {
-        // If no document exists, check if we can auto-register the Google or Email user if they match a local user:
-        if (email) {
-          const matchedLocal = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-          if (matchedLocal) {
-            const initialRole = matchedLocal.role.toLowerCase() === 'receptionist' ? 'reception' : matchedLocal.role.toLowerCase();
-            await setDoc(userDocRef, {
-              username: matchedLocal.username,
-              name: matchedLocal.name,
-              email: matchedLocal.email,
-              role: initialRole,
-              active: true
-            });
-            
-            const mappedUser: User = {
-              id: uid,
-              username: matchedLocal.username,
-              name: matchedLocal.name,
-              email: matchedLocal.email,
-              role: matchedLocal.role,
-              avatarUrl: ''
-            };
-            
-            const newLog: AuditLog = {
-              id: `AUD-AUTH-${Date.now()}`,
-              userId: uid,
-              username: matchedLocal.username,
-              action: 'USER_LOGIN',
-              details: `User ${matchedLocal.username} signed in successfully via Firebase Auth (Auto-provisioned Firestore).`,
-              timestamp: new Date().toISOString()
-            };
-            const updatedAudits = [newLog, ...auditLogs];
-            setAuditLogs(updatedAudits);
-            syncState('audit_logs', updatedAudits);
-            
-            if (rememberMe) {
-              localStorage.setItem('sunshine_remember_me', 'true');
-              localStorage.setItem('sunshine_remember_username', matchedLocal.username);
-              localStorage.setItem('sunshine_remember_role', matchedLocal.role);
-            }
-
-            // setCurrentUser(mappedUser);
-            setAuthRole(matchedLocal.role);
-            setShowLoginModal(false);
-            setAuthUsername('');
-            setAuthPassword('');
-            return true;
-          } else {
-            // Check if it is a default admin/tester email
-            const lowerEmail = email.toLowerCase();
-            const isTester = lowerEmail === 'sarcasticrk09@gmail.com' || lowerEmail === 'guptapriyansu@gmail.com' || lowerEmail === 'admin@sunshine.com';
-            if (isTester) {
-              const defaultUsername = email.split('@')[0];
-              await setDoc(userDocRef, {
-                username: defaultUsername,
-                name: 'Priyanshu Gupta (Founder)',
-                email: email,
-                role: 'super_admin',
-                active: true
-              });
-              
-              const mappedUser: User = {
-                id: uid,
-                username: defaultUsername,
-                name: 'Priyanshu Gupta (Founder)',
-                email: email,
-                role: 'SUPER_ADMIN',
-                avatarUrl: ''
-              };
-              
-              if (rememberMe) {
-                localStorage.setItem('sunshine_remember_me', 'true');
-                localStorage.setItem('sunshine_remember_username', defaultUsername);
-                localStorage.setItem('sunshine_remember_role', 'SUPER_ADMIN');
-              }
-
-              // setCurrentUser(mappedUser);
-              setAuthRole('SUPER_ADMIN');
-              setShowLoginModal(false);
-              setAuthUsername('');
-              setAuthPassword('');
-              return true;
-            }
-          }
-        }
-        
-        // Document does not exist and cannot be auto-provisioned
-        await auth.signOut();
-        alert("Your account is not registered. Please contact Sunshine Classes.");
-        return false;
-      }
-      
-      const userData = userDocSnap.data();
-      
-      // If the account exists but active is false, sign the user out and display "Your account has been disabled."
-      if (userData?.active === false) {
-        await auth.signOut();
-        alert("Your account has been disabled.");
-        return false;
-      }
-      
-      // If the account exists, read the user's role and redirect them to the appropriate dashboard
-      // (super_admin, admin, reception, teacher, or student)
-      const roleStr = (userData?.role || '').toLowerCase();
-      let mappedRole: UserRole | null = null;
-      if (roleStr === 'super_admin') {
-        mappedRole = 'SUPER_ADMIN';
-      } else if (roleStr === 'admin') {
-        mappedRole = 'ADMIN';
-      } else if (roleStr === 'reception' || roleStr === 'receptionist') {
-        mappedRole = 'RECEPTIONIST';
-      } else if (roleStr === 'teacher') {
-        mappedRole = 'TEACHER';
-      } else if (roleStr === 'student') {
-        mappedRole = 'STUDENT';
-      }
-      
-      if (!mappedRole) {
-        await auth.signOut();
-        alert("Your account contains an invalid role. Please contact Sunshine Classes.");
-        return false;
-      }
-      
-      const verifiedUser: User = {
-        id: uid,
-        username: userData?.username || email?.split('@')[0] || 'firebase_user',
-        name: userData?.name || 'Firebase User',
-        email: userData?.email || email || '',
-        role: mappedRole,
-        avatarUrl: userData?.avatarUrl || ''
-      };
-      
-      // Track login in audit logs
-      const newLog: AuditLog = {
-        id: `AUD-AUTH-${Date.now()}`,
-        userId: uid,
-        username: verifiedUser.username,
-        action: 'USER_LOGIN',
-        details: `User ${verifiedUser.username} signed in successfully via ${mappedRole} portal.`,
-        timestamp: new Date().toISOString()
-      };
-      const updatedAudits = [newLog, ...auditLogs];
-      setAuditLogs(updatedAudits);
-      syncState('audit_logs', updatedAudits);
-      
-      if (rememberMe) {
-        localStorage.setItem('sunshine_remember_me', 'true');
-        localStorage.setItem('sunshine_remember_username', verifiedUser.username);
-        localStorage.setItem('sunshine_remember_role', mappedRole);
-      }
-
-      // setCurrentUser(verifiedUser);
-      setAuthRole(mappedRole);
-      setShowLoginModal(false);
-      setAuthUsername('');
-      setAuthPassword('');
-      return true;
-    } catch (err: any) {
-      console.error("Verification failed:", err);
-      alert(`Account verification failed: ${err.message || err}`);
-      await auth.signOut();
-      return false;
-    }
-  };
-
-  const handleGoogleLoginClick = async () => {
-    try {
-      const result = await googleSignIn();
-      if (result) {
-        await handleFirebaseUserCheck(result.user.uid, result.user.email);
-      }
-    } catch (err: any) {
-      console.error("Google login failed:", err);
-      alert(`Google Login failed: ${err.message || err}`);
-    }
+    alert('Success: Password updated!');
   };
 
   const handleLoginFormSubmit = async (e: React.FormEvent) => {
@@ -3240,138 +3055,19 @@ Sunshine Classes`;
     const trimmedUsername = authUsername.trim();
     const trimmedPassword = authPassword.trim();
 
-    let email = trimmedUsername;
-    let matchedFirestoreUser: any = null;
-
-    // 1. Check if the user is in the Firestore 'users' collection first (by username or email)
-    try {
-      const usersColRef = collection(db, 'users');
-      const qUsername = query(usersColRef, where('username', '==', trimmedUsername));
-      const qUsernameSnap = await getDocs(qUsername);
-      if (!qUsernameSnap.empty) {
-        matchedFirestoreUser = qUsernameSnap.docs[0].data();
-        matchedFirestoreUser.id = qUsernameSnap.docs[0].id;
-        if (matchedFirestoreUser.email) {
-          email = matchedFirestoreUser.email;
-        }
-      } else {
-        const qEmail = query(usersColRef, where('email', '==', trimmedUsername));
-        const qEmailSnap = await getDocs(qEmail);
-        if (!qEmailSnap.empty) {
-          matchedFirestoreUser = qEmailSnap.docs[0].data();
-          matchedFirestoreUser.id = qEmailSnap.docs[0].id;
-          if (matchedFirestoreUser.email) {
-            email = matchedFirestoreUser.email;
-          }
-        }
-      }
-    } catch (err) {
-      console.warn("Error querying Firestore users collection in App.tsx:", err);
-    }
-
-    let matchedLocal = users.find(
-      (u) =>
-        (u.username.toLowerCase() === trimmedUsername.toLowerCase() || (u.email && u.email.toLowerCase() === trimmedUsername.toLowerCase())) &&
-        (u.role === authRole ||
-          (authRole === 'ADMIN' && u.role === 'SUPER_ADMIN') ||
-          (authRole === 'SUPER_ADMIN' && u.role === 'ADMIN'))
-    );
-
-    if (!matchedLocal) {
-      matchedLocal = users.find(u => u.username.toLowerCase() === trimmedUsername.toLowerCase() || (u.email && u.email.toLowerCase() === trimmedUsername.toLowerCase()));
-    }
-
-    if (!matchedFirestoreUser) {
-      if (matchedLocal && matchedLocal.email) {
-        email = matchedLocal.email;
-      } else if (!email.includes('@')) {
-        email = `${trimmedUsername}@example.com`;
-      }
+    if (!trimmedUsername || !trimmedPassword) {
+      alert("Please enter both username and password.");
+      return;
     }
 
     try {
-      let userCredential = null;
-      try {
-        userCredential = await signInWithEmailAndPassword(auth, email, trimmedPassword);
-      } catch (signInErr: any) {
-        // Handle auto registration/provisioning for local/firestore seed users to allow seamless testing
-        if (
-          signInErr.code === 'auth/user-not-found' ||
-          signInErr.code === 'auth/invalid-login-credentials' ||
-          signInErr.code === 'auth/invalid-credential' ||
-          signInErr.code === 'auth/cannot-find-user'
-        ) {
-          const matched = matchedFirestoreUser || matchedLocal;
-          if (matched) {
-            if (matched.active === false) {
-              alert("Your account has been disabled. Please contact Sunshine Classes.");
-              return;
-            }
-            if (matched.isLocked === true) {
-              alert("Your account is locked due to security reasons. Please contact the administrator.");
-              return;
-            }
-
-            let isPasswordCorrect = false;
-            
-            const userPwd = matched.password || '';
-
-            if (userPwd.startsWith('sha256_mock_')) {
-              isPasswordCorrect = simpleSecureHash(trimmedPassword) === userPwd;
-            } else if (userPwd !== '') {
-              isPasswordCorrect = trimmedPassword === userPwd;
-            } else {
-              // Check fallback passwords based on username
-              const lowerUser = matched.username?.toLowerCase() || '';
-              let fallbackPlain = `${lowerUser}123`;
-              if (lowerUser === 'admin') fallbackPlain = 'admin123';
-              else if (lowerUser === 'teacher') fallbackPlain = 'teacher123';
-              else if (lowerUser === 'reception' || lowerUser === 'receptionist') fallbackPlain = 'reception123';
-              else if (lowerUser === 'student') fallbackPlain = 'student123';
-
-              isPasswordCorrect = trimmedPassword === fallbackPlain || simpleSecureHash(trimmedPassword) === simpleSecureHash(fallbackPlain);
-            }
-
-            if (isPasswordCorrect) {
-              // Create user in Firebase Auth
-              userCredential = await createUserWithEmailAndPassword(auth, email, trimmedPassword);
-              
-              // Seed their document in Firestore users collection
-              const uid = userCredential.user.uid;
-              const userDocRef = doc(db, 'users', uid);
-              const initialRole = (matched.role || authRole).toLowerCase() === 'receptionist' ? 'reception' : (matched.role || authRole).toLowerCase();
-              
-              await setDoc(userDocRef, {
-                username: matched.username,
-                name: matched.name,
-                email: matched.email || email,
-                role: initialRole,
-                active: matched.active ?? true,
-                isLocked: matched.isLocked ?? false,
-                forcePasswordChange: matched.forcePasswordChange ?? false,
-                createdAt: matched.createdAt || new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-              });
-            } else {
-              alert("Incorrect password. Access denied under ERP Strict Security Policy.");
-              return;
-            }
-          } else {
-            alert("No registered account found for this username/email. Please contact Sunshine Classes.");
-            return;
-          }
-        } else {
-          throw signInErr;
-        }
-      }
-
-      if (userCredential) {
-        const uid = userCredential.user.uid;
-        await handleFirebaseUserCheck(uid, userCredential.user.email);
-      }
-    } catch (error: any) {
-      console.error("Firebase Auth Sign-In failed:", error);
-      alert(`Login failed: ${error.message || error}`);
+      await login(trimmedUsername, trimmedPassword, rememberMe);
+      setShowLoginModal(false);
+      setAuthUsername('');
+      setAuthPassword('');
+    } catch (err: any) {
+      console.error("Login submission error:", err);
+      alert(`Login failed: ${err.message || "Invalid credentials."}`);
     }
   };
 
@@ -4232,31 +3928,35 @@ Sunshine Classes`;
                   return;
                 }
 
-                const firebaseUser = auth.currentUser;
-                if (!firebaseUser || !firebaseUser.email) {
-                  alert('Error: You must be logged into a secure session to change your password.');
-                  return;
-                }
-
                 try {
-                  // Reauthenticate current user with existing password
-                  const credential = EmailAuthProvider.credential(firebaseUser.email, trimmedCurrent);
-                  await reauthenticateWithCredential(firebaseUser, credential);
+                  const token = localStorage.getItem('sunshine_token');
+                  const response = await fetch('/api/auth/change-password', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                      currentPassword: trimmedCurrent,
+                      newPassword: trimmedNew
+                    })
+                  });
 
-                  // Update password securely in Firebase Authentication
-                  await updatePassword(firebaseUser, trimmedNew);
+                  const resData = await response.json();
+                  if (!response.ok || !resData.success) {
+                    alert(`❌ Failed to update password: ${resData.message || resData.error || 'Current password incorrect'}`);
+                    return;
+                  }
 
-                  // Update localized state & create security audit log
                   handleUpdateUserPassword(currentUser.id, trimmedNew);
 
-                  alert('🎉 Password changed successfully in Firebase Auth! Your session has been invalidated. Please sign in again with your new credentials.');
+                  alert('🎉 Password changed successfully! Please sign in again with your new credentials.');
                   
-                  // Force fresh login and logout
                   setShowChangePasswordModal(false);
                   handleLogout();
                 } catch (err: any) {
-                  console.error("Reauthentication or password update failed:", err);
-                  alert(`❌ Failed to update password. Please check your current password.\nError: ${err.message || err}`);
+                  console.error("Password update failed:", err);
+                  alert(`❌ Failed to update password.\nError: ${err.message || err}`);
                 }
               }}
               className="space-y-4"

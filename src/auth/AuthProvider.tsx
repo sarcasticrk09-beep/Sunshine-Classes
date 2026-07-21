@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, updatePassword } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { AuthContext } from './AuthContext';
 import { User, UserRole, AuditLog } from '../types';
 import { SEED_USERS, SEED_STUDENTS, SEED_TEACHERS } from '../data';
@@ -519,61 +518,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    * Google Sign-In (Exclusive for Admins, Super Admins, and Receptionists)
    */
   const googleLogin = async (): Promise<boolean> => {
-    setGoogleLoading(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const googleEmail = result.user.email?.trim().toLowerCase();
-
-      if (!googleEmail) {
-        throw new Error("Failed to retrieve email address from Google Account.");
-      }
-
-      // Fetch authorised core users list
-      const usersList = await getERPData<any>('users', SEED_USERS);
-      const matchedAdmin = usersList.find((u: any) => u.email?.trim().toLowerCase() === googleEmail);
-
-      if (!matchedAdmin) {
-        await fbSignOut(auth);
-        throw new Error(`Unauthorized: The Google Account "${googleEmail}" is not registered in the Sunshine Classes Admin database.`);
-      }
-
-      const roleStr = matchedAdmin.role?.toUpperCase();
-      if (roleStr !== 'SUPER_ADMIN' && roleStr !== 'ADMIN' && roleStr !== 'RECEPTIONIST') {
-        await fbSignOut(auth);
-        throw new Error(`Unauthorized: The account "${googleEmail}" is registered as ${roleStr}. Only Admin accounts can access the Admin Portal via Google.`);
-      }
-
-      const verifiedUser: User = {
-        id: matchedAdmin.id || result.user.uid,
-        username: matchedAdmin.username || googleEmail.split('@')[0],
-        name: matchedAdmin.name || result.user.displayName || 'Admin User',
-        email: googleEmail,
-        role: roleStr as UserRole,
-        phone: matchedAdmin.phone || result.user.phoneNumber || ''
-      };
-
-      const sessionObj = {
-        user: verifiedUser,
-        role: verifiedUser.role
-      };
-
-      // Store in session
-      sessionStorage.setItem('sunshine_active_session', JSON.stringify(sessionObj));
-      localStorage.setItem('sunshine_active_session', JSON.stringify(sessionObj));
-
-      setCurrentUser(verifiedUser);
-      setRole(verifiedUser.role);
-
-      await writeAuditLog(verifiedUser.id, verifiedUser.username, 'ADMIN_LOGIN_GOOGLE', `Administrator logged in using Google account verification: ${googleEmail}`);
-
-      return true;
-    } catch (err: any) {
-      console.error("Google Sign-In failed:", err);
-      throw err;
-    } finally {
-      setGoogleLoading(false);
-    }
+    throw new Error("Google Sign-In has been replaced with Username and Password authentication as per ERP security guidelines.");
   };
 
   /**
@@ -584,16 +529,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (currentUser) {
         await writeAuditLog(currentUser.id, currentUser.username, 'USER_LOGOUT', `User ${currentUser.username} logged out.`);
       }
-
-      // Sign out of Firebase Auth just in case
-      await fbSignOut(auth);
     } catch (err) {
-      console.warn("Error signing out of Firebase Auth:", err);
+      console.warn("Error logging out user audit:", err);
     }
 
     // Clear all stored credentials
     sessionStorage.removeItem('sunshine_active_session');
     localStorage.removeItem('sunshine_active_session');
+    localStorage.removeItem('sunshine_token');
+    localStorage.removeItem('sunshine_user');
 
     setCurrentUser(null);
     setRole(null);
@@ -629,15 +573,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Generate a fresh session ID for this user (logs out other tabs/devices)
     const newSessionId = `sess-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-    // If signed into Firebase Auth with email/password, update Firebase auth password
-    if (auth.currentUser) {
-      try {
-        await updatePassword(auth.currentUser, newPassword);
-      } catch (authErr: any) {
-        console.warn("Firebase Auth password update failed (might require recent login):", authErr);
-      }
-    }
 
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];

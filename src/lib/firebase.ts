@@ -108,43 +108,6 @@ export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
 });
 
-import { getAuth, GoogleAuthProvider, signInWithPopup, User } from "firebase/auth";
-export const auth = getAuth(app);
-
-// In-memory token cache as mandated by the security guidelines
-let cachedAccessToken: string | null = null;
-
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
-  try {
-    const provider = new GoogleAuthProvider();
-    provider.addScope('https://www.googleapis.com/auth/drive');
-    provider.addScope('https://www.googleapis.com/auth/drive.file');
-    provider.addScope('https://www.googleapis.com/auth/spreadsheets');
-    provider.addScope('https://www.googleapis.com/auth/gmail.send');
-    provider.addScope('https://www.googleapis.com/auth/gmail.compose');
-    
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Failed to obtain Google OAuth access token from login');
-    }
-    
-    cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: cachedAccessToken };
-  } catch (error: any) {
-    console.error('Google OAuth sign-in failed:', error);
-    throw error;
-  }
-};
-
-export const getCachedAccessToken = (): string | null => {
-  return cachedAccessToken;
-};
-
-export const clearCachedAccessToken = () => {
-  cachedAccessToken = null;
-};
-
 /**
  * Generic helper to fetch all items in a Firestore collection.
  */
@@ -221,4 +184,16 @@ export async function seedFirestoreIfEmpty(
     console.error(`Error seeding collection ${collectionName}:`, error);
     return false;
   }
+}
+
+export async function googleSignIn(): Promise<any> {
+  throw new Error("Google Sign-In is disabled. Please use Username & Password authentication.");
+}
+
+export function getCachedAccessToken(): string | null {
+  return null;
+}
+
+export function clearCachedAccessToken(): void {
+  // no-op
 }
