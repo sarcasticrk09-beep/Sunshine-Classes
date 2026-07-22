@@ -190,8 +190,8 @@ class CloudinaryService {
 
     const fileTypeStr = file?.type || "";
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
-    const isImage = fileTypeStr.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(ext);
-    const resourceType = isImage ? "image" : "auto";
+    const isImage = fileTypeStr.startsWith("image/") || ["jpg", "jpeg", "png", "webp", "gif"].includes(ext);
+    const resourceType = isImage ? "image" : "raw";
     const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
 
     const formData = new FormData();

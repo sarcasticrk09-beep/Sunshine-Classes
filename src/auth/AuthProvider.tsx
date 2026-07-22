@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { doc, getDoc, getDocs, setDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { auditLogsService } from '../services/firestoreDbService';
 import { AuthContext } from './AuthContext';
 import { User, UserRole, AuditLog } from '../types';
 import { SEED_USERS, SEED_STUDENTS, SEED_TEACHERS } from '../data';
@@ -254,7 +255,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         ipAddress: info.ipAddress,
         deviceInfo: info.deviceInfo
       };
-      await setDoc(doc(db, 'audit_logs', logId), newLog, { merge: true });
+      await auditLogsService.create(newLog);
     } catch (err) {
       console.error("Failed to write audit log:", err);
     }

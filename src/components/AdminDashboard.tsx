@@ -63,8 +63,11 @@ import { interpolateTemplate, getFeeForClass } from '../data';
 import { sendWhatsAppMessage, interpolateWhatsAppTemplate } from '../lib/whatsappService';
 import { googleSignIn, getCachedAccessToken, clearCachedAccessToken, db } from '../lib/firebase';
 import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { studentService } from '../services/studentService';
+import { noticesService } from '../services/firestoreDbService';
 import { CloudinaryUpload } from './CloudinaryUpload';
 import { WhatsAppCommunication } from './WhatsAppCommunication';
+import { GmailHub } from './GmailHub';
 import { EnrollmentHealthDashboard } from './EnrollmentHealthDashboard';
 import SunshineLogo from './SunshineLogo';
 import { getFeeStatusForRecord, parseMonthYear, formatMonthYear, generateFeeRecords, compareMonths, getCurrentAndNextMonths } from '../lib/feeUtils';
@@ -372,9 +375,11 @@ export default function AdminDashboard({
     );
     setLocalUsers(updated);
     try {
-      const { doc, setDoc } = await import('firebase/firestore');
-      const { db } = await import('../lib/firebase');
-      await setDoc(doc(db, 'users', userId), { active: !currentStatus, updatedAt: new Date().toISOString() }, { merge: true });
+      await fetch('/api/admin/update-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: userId, active: !currentStatus })
+      });
       if (onUpdateUsers) {
         onUpdateUsers(updated);
       }
@@ -389,9 +394,11 @@ export default function AdminDashboard({
     );
     setLocalUsers(updated);
     try {
-      const { doc, setDoc } = await import('firebase/firestore');
-      const { db } = await import('../lib/firebase');
-      await setDoc(doc(db, 'users', userId), { emailVerified: !currentVerified, updatedAt: new Date().toISOString() }, { merge: true });
+      await fetch('/api/admin/update-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: userId, emailVerified: !currentVerified })
+      });
       if (onUpdateUsers) {
         onUpdateUsers(updated);
       }
@@ -530,46 +537,47 @@ export default function AdminDashboard({
     const passwordToUse = newUserPassword || 'default123';
 
     try {
-      // 1. Call Secure Firebase Admin SDK API to create user in Firebase Auth
-      const response = await fetch('/api/admin/create-user', {
+      // 1. Call Secure backend API to create user
+      let endpoint = '/api/admin/create-user';
+      let payload: any = {
+        username: trimmedUsername,
+        name: newUserName.trim() || 'New User',
+        email: newUserEmail.trim() || undefined,
+        password: passwordToUse,
+        role: newUserRole === 'ADMIN' ? 'SUPER_ADMIN' : newUserRole
+      };
+
+      if (newUserRole === 'TEACHER') {
+        endpoint = '/api/teachers';
+        payload = { name: newUserName.trim() || 'New Teacher', email: newUserEmail.trim(), password: passwordToUse };
+      } else if (newUserRole === 'ADMIN' || newUserRole === 'SUPER_ADMIN') {
+        endpoint = '/api/admins';
+        payload = { name: newUserName.trim() || 'Admin User', email: newUserEmail.trim(), username: trimmedUsername, password: passwordToUse };
+      } else if (newUserRole === 'RECEPTIONIST') {
+        endpoint = '/api/receptionists';
+        payload = { name: newUserName.trim() || 'Desk Receptionist', email: newUserEmail.trim(), password: passwordToUse };
+      }
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: trimmedUsername,
-          name: newUserName.trim() || 'New User',
-          email: newUserEmail.trim() || undefined,
-          password: passwordToUse,
-          role: newUserRole === 'ADMIN' ? 'SUPER_ADMIN' : newUserRole
-        })
+        body: JSON.stringify(payload)
       });
 
       const resData = await response.json();
-      if (!response.ok || !resData.success) {
-        throw new Error(resData.error || 'Failed to create user in Firebase Authentication.');
+      if (!response.ok || (resData.status && resData.status !== 'success' && !resData.success)) {
+        throw new Error(resData.message || resData.error || 'Failed to create user account.');
       }
 
-      const uid = resData.uid;
-      const targetEmail = resData.email;
+      const uid = resData.uid || resData.user?.id;
+      const targetEmail = resData.email || resData.user?.email;
 
-      // 2. Create the corresponding profile in the Firestore 'users' collection
-      const userDocRef = doc(db, 'users', uid);
-      await setDoc(userDocRef, {
-        username: trimmedUsername,
-        name: newUserName.trim() || 'New User',
-        email: targetEmail,
-        role: (newUserRole === 'ADMIN' ? 'SUPER_ADMIN' : newUserRole).toLowerCase() === 'receptionist' ? 'reception' : (newUserRole === 'ADMIN' ? 'SUPER_ADMIN' : newUserRole).toLowerCase(),
-        active: true,
-        firstLogin: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-
-      // 3. Save to local centralized state
+      // 2. Save to local state
       const hashed = passwordToUse.startsWith('sha256_mock_') ? passwordToUse : simpleSecureHash(passwordToUse);
       const newUser: User = {
         id: uid,
         name: newUserName.trim() || 'New User',
-        username: trimmedUsername,
+        username: resData.username || trimmedUsername,
         email: targetEmail,
         role: newUserRole,
         password: hashed,
@@ -586,19 +594,19 @@ export default function AdminDashboard({
           userId: currentUser?.id || 'admin',
           username: currentUser?.username || 'admin',
           action: 'ROLE_MODIFICATION',
-          details: `Provisioned user @${trimmedUsername} with role ${newUserRole}.`,
+          details: `Provisioned user @${resData.username || trimmedUsername} with role ${newUserRole}.`,
           timestamp: new Date().toISOString()
         };
         onHealState('audit_logs', [newLog, ...auditLogs]);
 
-        alert(`Success: User @${trimmedUsername} successfully created in both Firebase Auth & Firestore with role ${newUserRole}!`);
+        alert(`Success: User @${resData.username || trimmedUsername} successfully created with role ${newUserRole}!`);
         setNewUserName('');
         setNewUserUsername('');
         setNewUserEmail('');
         setNewUserRole('STUDENT');
         setNewUserPassword('');
       } else {
-        alert("Warning: User was created in Firebase Auth & Firestore, but user update stream is currently disconnected.");
+        alert("Warning: User was created in backend, but user update stream is currently disconnected.");
       }
     } catch (err: any) {
       console.error("Error during user creation:", err);
@@ -611,12 +619,15 @@ export default function AdminDashboard({
     if (!user) return;
 
     try {
-      // Update individual document in 'users' collection to sync permissions immediately for next login
-      const userDocRef = doc(db, 'users', userId);
-      await updateDoc(userDocRef, {
-        role: targetRole.toLowerCase() === 'receptionist' ? 'reception' : targetRole.toLowerCase(),
-        updatedAt: new Date().toISOString()
-      }).catch(err => console.warn("Optional: Individual user document was not found for update:", err));
+      // Synchronize role via backend endpoint
+      await fetch('/api/admin/update-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: userId,
+          role: targetRole.toLowerCase() === 'receptionist' ? 'reception' : targetRole.toLowerCase()
+        })
+      });
 
       const updatedUsers = users.map(u => u.id === userId ? { ...u, role: targetRole } : u);
       if (onUpdateUsers) {
@@ -652,7 +663,7 @@ export default function AdminDashboard({
 
     if (window.confirm(`Are you absolutely sure you want to permanently delete user @${user.username}? This action is irreversible.`)) {
       try {
-        // 1. Call Secure Firebase Admin SDK API to delete user from Firebase Auth
+        // Call Secure backend API to delete user
         const response = await fetch('/api/admin/delete-user', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -660,14 +671,7 @@ export default function AdminDashboard({
         });
         const resData = await response.json();
         if (!response.ok || !resData.success) {
-          console.warn("Could not delete from Firebase Auth, proceeding with local & Firestore doc cleanup...", resData);
-        }
-
-        // 2. Delete the Firestore 'users' document
-        try {
-          await deleteDoc(doc(db, 'users', userId));
-        } catch (err) {
-          console.warn("Could not delete individual users doc:", err);
+          console.warn("Backend user deletion notice:", resData);
         }
 
         // 3. Update local centralized list
@@ -2637,9 +2641,8 @@ export default function AdminDashboard({
     };
 
     try {
-      // 1. Persist to Firestore immediately
-      const studentDocRef = doc(db, 'students', editingStudent.id);
-      await setDoc(studentDocRef, {
+      // 1. Persist to service layer
+      await studentService.updateStudent(editingStudent.id, {
         name: updatedStudent.name || "",
         class: updatedStudent.class || "",
         fatherName: updatedStudent.fatherName || "",
@@ -2664,7 +2667,7 @@ export default function AdminDashboard({
         dueDay: updatedStudent.dueDay || 1,
         status: updatedStudent.status || "ACTIVE",
         updatedAt: new Date().toISOString()
-      }, { merge: true });
+      });
 
       // 2. Synchronize the local memory state
       const updatedStudents = students.map(s => s.id === editingStudent.id ? updatedStudent : s);
@@ -5865,6 +5868,7 @@ ${data.log}`
           { id: 'auth-logs', label: 'Authentication Logs', icon: <Lock size={16} className="text-amber-600 font-bold" />, category: 'Integrations & Logs' },
           { id: 'sheets', label: 'Google Sheets Sync', icon: <FileSpreadsheet size={16} className="text-emerald-600 animate-pulse" />, category: 'Integrations & Logs' },
           { id: 'whatsapp', label: 'WhatsApp Messaging', icon: <MessageSquare size={16} />, category: 'Integrations & Logs' },
+          { id: 'gmail', label: 'Gmail Communications', icon: <Mail size={16} className="text-blue-500 font-bold" />, category: 'Integrations & Logs' },
           { id: 'audit', label: 'Audit & System Logs', icon: <FileText size={16} />, category: 'Integrations & Logs' },
           { id: 'diagnostics', label: 'System Diagnostics', icon: <Shield size={16} className="text-emerald-500" />, category: 'Integrations & Logs' },
           { id: 'settings', label: 'System Settings & Backup', icon: <Settings size={16} />, category: 'Integrations & Logs' }
@@ -5877,11 +5881,11 @@ ${data.log}`
           }
           // Co-Founder has access to standard admin tabs plus his executive workspace
           if (isAdmin) {
-            const allowedAdminTabs = ['overview', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements', 'cofounder-office', 'auth-logs'];
+            const allowedAdminTabs = ['overview', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements', 'cofounder-office', 'auth-logs', 'gmail'];
             return allowedAdminTabs.includes(tab.id);
           }
           // Default fallback
-          const allowedAdminTabs = ['overview', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements'];
+          const allowedAdminTabs = ['overview', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements', 'gmail'];
           return allowedAdminTabs.includes(tab.id);
         });
 
@@ -12276,8 +12280,6 @@ ${data.log}`
                     type="button"
                     onClick={async () => {
                       if (!founderAnnouncement.trim()) return;
-                      const { doc, setDoc } = await import('firebase/firestore');
-                      const { db } = await import('../lib/firebase');
                       const newNotice = {
                         id: `notice-founder-${Date.now()}`,
                         title: "Founder's Special Notice",
@@ -12287,8 +12289,7 @@ ${data.log}`
                         category: "GENERAL"
                       };
                       try {
-                        const noticeRef = doc(db, 'announcements', newNotice.id);
-                        await setDoc(noticeRef, newNotice);
+                        await noticesService.create(newNotice);
                         alert("Founder notice dispatched successfully!");
                         setFounderAnnouncement('');
                       } catch (err) {
@@ -15210,6 +15211,15 @@ ${data.log}`
               studentsList={students}
               teachersList={teachers}
               initialSelectedPhone={waInitialPhone}
+            />
+          )}
+
+          {activeTab === 'gmail' && (
+            <GmailHub
+              students={students}
+              teachers={teachers}
+              currentUserName={currentUser?.name || 'Administrator'}
+              currentUserEmail={currentUser?.email || ''}
             />
           )}
 

@@ -3520,6 +3520,7 @@ Sunshine Classes`;
       onToggleTheme={toggleTheme}
       founders={founders}
       subConfig={subConfig}
+      onAddStudyMaterial={handleAddStudyMaterial}
     />
   );
 

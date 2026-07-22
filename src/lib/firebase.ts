@@ -1,4 +1,5 @@
 import { initializeApp } from "firebase/app";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged, User } from "firebase/auth";
 import { 
   initializeFirestore, 
   collection, 
@@ -12,12 +13,12 @@ import {
 
 // Config parsed from firebase-applet-config.json
 const firebaseConfig = {
-  projectId: "sunshine-classes-web",
-  appId: "1:308447291099:web:574e371bb15c5e54404efe",
-  apiKey: "AIzaSyCVg06N9JRbjbYyMlvrac-BKAd-d65hm-U",
-  authDomain: "sunshine-classes-web.firebaseapp.com",
-  storageBucket: "sunshine-classes-web.firebasestorage.app",
-  messagingSenderId: "308447291099"
+  projectId: "maximal-music-shh41",
+  appId: "1:996750335749:web:fead7d5fdea73b78cfe16c",
+  apiKey: "AIzaSyCPZA9lz7YSQ4kkqD6JxDyyxAaQrO3kqyo",
+  authDomain: "maximal-music-shh41.firebaseapp.com",
+  storageBucket: "maximal-music-shh41.firebasestorage.app",
+  messagingSenderId: "996750335749"
 };
 
 // Silence Firestore's built-in SDK logging
@@ -25,6 +26,44 @@ try {
   setLogLevel("silent");
 } catch (e) {
   // Silent catch
+}
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+});
+
+export const auth = getAuth(app);
+
+export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope("https://mail.google.com/");
+googleProvider.addScope("https://www.googleapis.com/auth/gmail.send");
+googleProvider.addScope("https://www.googleapis.com/auth/gmail.readonly");
+googleProvider.addScope("https://www.googleapis.com/auth/gmail.compose");
+googleProvider.addScope("https://www.googleapis.com/auth/gmail.modify");
+googleProvider.addScope("https://www.googleapis.com/auth/gmail.labels");
+
+// In-memory token storage (Security requirement: never put access token in localStorage)
+let cachedAccessToken: string | null = null;
+
+export const getCachedAccessToken = (): string | null => cachedAccessToken;
+export const setCachedAccessToken = (token: string | null): void => {
+  cachedAccessToken = token;
+};
+
+export function clearCachedAccessToken(): void {
+  cachedAccessToken = null;
+}
+
+export async function googleSignInForGmail(): Promise<{ user: User; accessToken: string }> {
+  const result = await signInWithPopup(auth, googleProvider);
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  if (!credential?.accessToken) {
+    throw new Error("Failed to acquire access token from Google sign-in.");
+  }
+  cachedAccessToken = credential.accessToken;
+  return { user: result.user, accessToken: credential.accessToken };
 }
 
 // Global console filter to prevent Firestore connectivity warnings and stream cancellations from flooding logs.
@@ -101,12 +140,6 @@ if (typeof window !== "undefined") {
     }
   });
 }
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-});
 
 /**
  * Generic helper to fetch all items in a Firestore collection.
@@ -187,13 +220,5 @@ export async function seedFirestoreIfEmpty(
 }
 
 export async function googleSignIn(): Promise<any> {
-  throw new Error("Google Sign-In is disabled. Please use Username & Password authentication.");
-}
-
-export function getCachedAccessToken(): string | null {
-  return null;
-}
-
-export function clearCachedAccessToken(): void {
-  // no-op
+  return googleSignInForGmail();
 }

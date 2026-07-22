@@ -73,10 +73,24 @@ export async function generateNextSequence(field: "admission" | "receipt"): Prom
 
 export const auditLogsService = {
   async fetchAll(limitCount: number = 100): Promise<any[]> {
-    const colRef = collection(db, "auditLogs");
+    const colRef = collection(db, "audit_logs");
     const q = query(colRef, orderBy("timestamp", "desc"), limit(limitCount));
     const snap = await getDocs(q);
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  },
+
+  async create(logData: any): Promise<string> {
+    try {
+      const logId = logData.id || `log-${Date.now()}`;
+      await setDoc(doc(db, "audit_logs", logId), {
+        ...logData,
+        createdAt: serverTimestamp()
+      }, { merge: true });
+      return logId;
+    } catch (error) {
+      console.error("Failed to create audit log:", error);
+      return "";
+    }
   },
 
   async log(userId: string, username: string, action: string, details: string): Promise<string> {

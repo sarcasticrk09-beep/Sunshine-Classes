@@ -1,38 +1,23 @@
-import { doc, getDocs, setDoc, deleteDoc, collection } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { teachersService } from './firestoreDbService';
 import { Teacher } from '../types';
 
+/**
+ * Unified Teacher Service - Delegates to firestoreDbService as single repository source
+ */
 export const teacherService = {
-  /**
-   * Fetches all teachers as individual documents from the 'teachers' collection.
-   */
   async fetchTeachers(): Promise<Teacher[]> {
-    const colRef = collection(db, 'teachers');
-    const snap = await getDocs(colRef);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Teacher));
+    return (await teachersService.fetchAll()) as Teacher[];
   },
 
-  /**
-   * Adds or updates a single teacher document in the 'teachers' collection.
-   */
   async addTeacher(teacher: Teacher): Promise<void> {
-    const docRef = doc(db, 'teachers', teacher.id);
-    await setDoc(docRef, teacher, { merge: true });
+    await teachersService.update(teacher.id, teacher, 'SYSTEM', 'system');
   },
 
-  /**
-   * Updates an existing teacher profile document.
-   */
   async updateTeacher(teacherId: string, updates: Partial<Teacher>): Promise<void> {
-    const docRef = doc(db, 'teachers', teacherId);
-    await setDoc(docRef, updates, { merge: true });
+    await teachersService.update(teacherId, updates, 'SYSTEM', 'system');
   },
 
-  /**
-   * Deletes a single teacher document from the 'teachers' collection.
-   */
   async deleteTeacher(teacherId: string): Promise<void> {
-    const docRef = doc(db, 'teachers', teacherId);
-    await deleteDoc(docRef);
+    await teachersService.delete(teacherId, 'SYSTEM', 'system');
   }
 };

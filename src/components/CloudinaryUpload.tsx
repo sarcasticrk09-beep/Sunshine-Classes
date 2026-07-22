@@ -16,6 +16,7 @@ import {
   Camera
 } from "lucide-react";
 import { cloudinaryService, getPublicIdFromUrl, getOptimizedImageUrl } from "../services/cloudinaryService";
+import { mediaService } from "../services/mediaService";
 
 interface CloudinaryUploadProps {
   id: string;
@@ -32,7 +33,7 @@ interface CloudinaryUploadProps {
   apiSecret?: string;
   maxSizeMB?: number;
   initialUrl?: string;
-  onUploadSuccess?: (url: string) => void;
+  onUploadSuccess?: (url: string, publicId?: string, fileName?: string) => void;
   onFileDeleted?: () => void;
   allowedTypes?: string[]; // e.g. ["jpg", "jpeg", "png", "webp", "pdf", "docx", "xlsx"]
   label?: string;
@@ -57,9 +58,9 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
   const resolvedFolder = folder || context || "documents";
   const resolvedValue = value !== undefined ? value : (initialUrl !== undefined ? initialUrl : "");
   
-  const resolvedOnChange = (newUrl: string) => {
+  const resolvedOnChange = (newUrl: string, publicId?: string, fileName?: string) => {
     if (onChange) onChange(newUrl);
-    if (onUploadSuccess) onUploadSuccess(newUrl);
+    if (onUploadSuccess) onUploadSuccess(newUrl, publicId, fileName);
     if (newUrl === "" && onFileDeleted) onFileDeleted();
   };
 
@@ -101,14 +102,23 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
     setShowCameraModal(true);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "user",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+      } catch (primaryErr) {
+        console.warn("Primary camera constraints failed, attempting fallback stream:", primaryErr);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+      }
       setCameraStream(stream);
     } catch (err: any) {
       console.error("Failed to access camera:", err);
@@ -296,9 +306,9 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
 
       if (isMultipleMode) {
         const updatedUrls = [...fileUrls, result.secure_url];
-        resolvedOnChange(updatedUrls.join(","));
+        resolvedOnChange(updatedUrls.join(","), result.public_id, file.name);
       } else {
-        resolvedOnChange(result.secure_url);
+        resolvedOnChange(result.secure_url, result.public_id, file.name);
       }
       setUploadProgress(null);
       setCurrentFile(null);
@@ -353,90 +363,39 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
 
     try {
       const img = cropImageRef.current;
+      const nw = img.naturalWidth || img.width || 300;
+      const nh = img.naturalHeight || img.height || 300;
+
       const canvas = document.createElement("canvas");
       canvas.width = 300;
       canvas.height = 300;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      // Calculations based on 200x200px crop circle container
-      const cropBoxSize = 200;
-      const containerSize = 280;
-      
-      // Original image physical vs display scale
-      const displayWidth = img.clientWidth || img.width || containerSize;
-      const displayHeight = img.clientHeight || img.height || containerSize;
-      
-      // Scale factor
-      const scaleX = (img.naturalWidth && displayWidth) ? (img.naturalWidth / displayWidth) : 1;
-      const scaleY = (img.naturalHeight && displayHeight) ? (img.naturalHeight / displayHeight) : 1;
-
-      // Middle coordinate of crop circle relative to display image top-left
-      const centerX = containerSize / 2;
-      const centerY = containerSize / 2;
-
-      // Display coordinates of cropping region center (adjusted for dragging offsets)
-      const cropDisplayX = centerX - offset.x;
-      const cropDisplayY = centerY - offset.y;
-
-      // Crop box width/height in display size
-      const displayCropW = cropBoxSize / zoom;
-      const displayCropH = cropBoxSize / zoom;
-
-      // Map back to natural image coordinates
-      const sourceX = (cropDisplayX - displayCropW / 2) * scaleX;
-      const sourceY = (cropDisplayY - displayCropH / 2) * scaleY;
-      const sourceW = displayCropW * scaleX;
-      const sourceH = displayCropH * scaleY;
-
-      // Render onto canvas
+      // Fill background
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, 300, 300);
 
-      // Apply rotation if any
-      if (rotation !== 0) {
-        ctx.translate(150, 150);
-        ctx.rotate((rotation * Math.PI) / 180);
-        ctx.translate(-150, -150);
-      }
+      // Save context state
+      ctx.save();
 
-      const nw = img.naturalWidth || img.width || 300;
-      const nh = img.naturalHeight || img.height || 300;
+      // UI container is 280x280; crop box is 200x200 centered at (140, 140)
+      // On 300x300 output canvas, crop box maps to 300x300, so scale factor is 300 / 200 = 1.5
+      // Canvas center is (150, 150)
+      ctx.translate(150, 150);
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.scale(zoom * 1.5, zoom * 1.5);
+      ctx.translate(offset.x * 1.5, offset.y * 1.5);
 
-      let dx = isFinite(sourceX) ? Math.max(0, sourceX) : 0;
-      let dy = isFinite(sourceY) ? Math.max(0, sourceY) : 0;
-      let dw = isFinite(sourceW) ? Math.min(nw, sourceW) : nw;
-      let dh = isFinite(sourceH) ? Math.min(nh, sourceH) : nh;
+      // Draw original image scaled to fit 280x280 box before zoom
+      const fitRatio = Math.min(280 / nw, 280 / nh);
+      const destW = nw * fitRatio;
+      const destH = nh * fitRatio;
 
-      // Force clamp to natural bounds to prevent out of bounds IndexSizeError/InvalidStateError in browser
-      if (dx >= nw) dx = 0;
-      if (dy >= nh) dy = 0;
-      if (dx + dw > nw) {
-        dw = nw - dx;
-      }
-      if (dy + dh > nh) {
-        dh = nh - dy;
-      }
+      ctx.drawImage(img, -destW / 2, -destH / 2, destW, destH);
+      ctx.restore();
 
-      // Final sanitization of dimensions
-      if (dw <= 0 || isNaN(dw)) dw = nw;
-      if (dh <= 0 || isNaN(dh)) dh = nh;
-      if (dw <= 0) dw = 1;
-      if (dh <= 0) dh = 1;
-
-      ctx.drawImage(
-        img,
-        dx,
-        dy,
-        dw,
-        dh,
-        0,
-        0,
-        300,
-        300
-      );
-
-      // Attempt high-stability synchronous conversion first to bypass any iframe sandboxing limitations on toBlob
+      // Attempt high-stability synchronous conversion first
       try {
         const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
         if (dataUrl && dataUrl.startsWith("data:image/")) {
@@ -448,7 +407,7 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
             ia[i] = byteString.charCodeAt(i);
           }
           const blob = new Blob([ab], { type: mimeString });
-          const croppedFile = new File([blob], `cropped_${currentFile.name}`, {
+          const croppedFile = new File([blob], `cropped_${currentFile.name.replace(/\.[^/.]+$/, "")}.jpg`, {
             type: "image/jpeg",
           });
           setShowCropModal(false);
@@ -461,21 +420,18 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
 
       canvas.toBlob((blob) => {
         if (blob) {
-          const croppedFile = new File([blob], `cropped_${currentFile.name}`, {
+          const croppedFile = new File([blob], `cropped_${currentFile.name.replace(/\.[^/.]+$/, "")}.jpg`, {
             type: "image/jpeg",
           });
           setShowCropModal(false);
           uploadProcessedFile(croppedFile);
         } else {
-          // Fallback to original
-          console.warn("Canvas toBlob returned null for cropped image, uploading original.");
           setShowCropModal(false);
           uploadProcessedFile(currentFile);
         }
       }, "image/jpeg", 0.95);
     } catch (err: any) {
       console.error("Failed to crop image:", err);
-      // Fallback: upload original file
       setShowCropModal(false);
       uploadProcessedFile(currentFile);
     }

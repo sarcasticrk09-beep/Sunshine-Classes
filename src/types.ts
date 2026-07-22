@@ -62,6 +62,7 @@ export interface Student {
   discount?: number;
   scholarship?: number;
   dueDay?: number;
+  updatedAt?: string;
 }
 
 export interface DepartedStudent {

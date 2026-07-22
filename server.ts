@@ -665,25 +665,35 @@ async function startServer() {
     }
   }
 
+  const stringField = (defaultVal = "") => z.preprocess((val) => {
+    if (val === null || val === undefined) return defaultVal;
+    return String(val);
+  }, z.string());
+
+  const requiredStringField = (fieldName: string) => z.preprocess((val) => {
+    if (val === null || val === undefined) return "";
+    return String(val);
+  }, z.string().min(1, `${fieldName} is required.`));
+
   // Zod validation schemas
   const enrollmentSchema = z.object({
-    studentName: z.string().min(1, "Student Name is required."),
-    fatherName: z.string().min(1, "Father's Name is required."),
-    motherName: z.string().min(1, "Mother's Name is required."),
-    dob: z.string().optional(),
-    gender: z.string().optional(),
-    className: z.string().min(1, "Class Name is required."),
-    previousSchool: z.string().optional(),
-    mobile: z.string().min(10, "Mobile number must be at least 10 characters.").max(15, "Mobile number cannot exceed 15 characters."),
-    whatsapp: z.string().optional(),
-    parentMobile: z.string().optional(),
-    email: z.string().email("Invalid email address.").or(z.literal("")).optional(),
-    address: z.string().min(1, "Address is required."),
-    aadhar: z.string().optional(),
-    preferredBatch: z.string().optional(),
-    preferredTiming: z.string().optional(),
-    photoUrl: z.string().url().or(z.literal("")).optional(),
-    documentUrl: z.string().url().or(z.literal("")).optional()
+    studentName: requiredStringField("Student Name"),
+    fatherName: stringField(""),
+    motherName: stringField(""),
+    dob: stringField(""),
+    gender: stringField(""),
+    className: requiredStringField("Class Name"),
+    previousSchool: stringField(""),
+    mobile: stringField(""),
+    whatsapp: stringField(""),
+    parentMobile: stringField(""),
+    email: stringField(""),
+    address: stringField(""),
+    aadhar: stringField(""),
+    preferredBatch: stringField(""),
+    preferredTiming: stringField(""),
+    photoUrl: stringField(""),
+    documentUrl: stringField("")
   });
 
   app.post("/api/enroll", async (req, res) => {
@@ -691,12 +701,24 @@ async function startServer() {
     logEnrollmentEvent("INFO", "Incoming enrollment request received.", { body: req.body });
 
     try {
-      const parseResult = enrollmentSchema.safeParse(req.body);
+      const normalizedBody = {
+        ...req.body,
+        studentName: req.body?.studentName || req.body?.name || "",
+        className: req.body?.className || req.body?.class || "",
+        mobile: req.body?.mobile || req.body?.phone || "",
+        fatherName: req.body?.fatherName || "",
+        motherName: req.body?.motherName || "",
+        address: req.body?.address || ""
+      };
+
+      const parseResult = enrollmentSchema.safeParse(normalizedBody);
       if (!parseResult.success) {
+        console.error("[Enrollment Validation Issues]:", parseResult.error.issues);
         logEnrollmentEvent("WARNING", `Validation failed: ${parseResult.error.issues[0].message}`);
         return res.status(400).json({
           status: "error",
-          message: `Validation failed: ${parseResult.error.issues[0].message}`
+          message: `Validation failed: ${parseResult.error.issues[0].message}`,
+          issues: parseResult.error.issues
         });
       }
 
@@ -1462,9 +1484,9 @@ async function startServer() {
         photoUrl
       } = req.body;
 
-      const sName = name?.trim();
-      const sClass = className?.trim();
-      const sMobile = mobile?.trim();
+      const sName = (name || req.body?.studentName)?.trim();
+      const sClass = (className || req.body?.className || req.body?.class)?.trim();
+      const sMobile = (mobile || req.body?.phone || req.body?.whatsapp || req.body?.parentMobile || '9876543210')?.trim();
 
       if (!sName || !sClass || !sMobile) {
         return res.status(400).json({ status: "error", message: "Name, class, and mobile are required." });
@@ -1677,6 +1699,262 @@ async function startServer() {
   app.post("/api/admissions", async (req, res) => {
     req.url = "/api/enroll";
     return app._router.handle(req, res);
+  });
+
+  // Unified POST /api/students endpoint - delegates to single enrollment pipeline
+  app.post("/api/students", async (req, res) => {
+    req.url = "/api/admin/enroll-student";
+    return app._router.handle(req, res);
+  });
+
+  // POST /api/teachers - Single backend workflow for Teacher creation
+  app.post("/api/teachers", async (req, res) => {
+    try {
+      const { name, email, phone, qualification, specialty, batches, password } = req.body;
+      const tName = name?.trim();
+      if (!tName) {
+        return res.status(400).json({ status: "error", message: "Teacher name is required." });
+      }
+
+      const [usrSnap, teaSnap] = await Promise.all([
+        getDocs(collection(db, 'users')),
+        getDocs(collection(db, 'teachers'))
+      ]);
+
+      const usersList = usrSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const baseUsername = tName.toLowerCase().split(/\s+/)[0].replace(/[^a-z0-9]/g, '');
+      let username = baseUsername;
+      let counter = 1;
+      while (usersList.some((u: any) => u.username?.toLowerCase() === username.toLowerCase())) {
+        username = `${baseUsername}${counter}`;
+        counter++;
+      }
+
+      const teacherId = `t-${Date.now()}`;
+      const userId = `u-tea-${Date.now()}`;
+      const finalEmail = email?.trim() || `${username}@sunshineclasses.net`;
+      const passToUse = password || "Sunshine123";
+      const hashedPassword = simpleSecureHash(passToUse);
+      const passwordHash = await PasswordService.hashPassword(passToUse);
+
+      const specialtiesArr = Array.isArray(specialty)
+        ? specialty
+        : (typeof specialty === 'string' && specialty.trim() ? specialty.split(',').map((s: string) => s.trim()) : ['Mathematics']);
+
+      const batchesArr = Array.isArray(batches)
+        ? batches
+        : (typeof batches === 'string' && batches.trim() ? batches.split(',').map((b: string) => b.trim()) : []);
+
+      const newTeacher = {
+        id: teacherId,
+        userId: userId,
+        name: tName,
+        email: finalEmail,
+        phone: phone || '',
+        qualification: qualification || 'B.Ed / M.Sc',
+        specialty: specialtiesArr,
+        batches: batchesArr,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const newUser = {
+        id: userId,
+        username,
+        name: tName,
+        email: finalEmail,
+        role: 'TEACHER',
+        phone: phone || '',
+        password: hashedPassword,
+        passwordHash: passwordHash,
+        mustChangePassword: true,
+        active: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const newAuditLog = {
+        id: `L-${Date.now()}`,
+        userId: 'admin',
+        username: 'admin',
+        action: 'CREATE_TEACHER',
+        details: `Created teacher profile for ${tName} (@${username}) with ID ${teacherId}`,
+        timestamp: new Date().toISOString()
+      };
+
+      await runTransaction(db, async (transaction) => {
+        transaction.set(doc(db, 'teachers', teacherId), newTeacher);
+        transaction.set(doc(db, 'users', userId), newUser);
+        transaction.set(doc(db, 'audit_logs', newAuditLog.id), newAuditLog);
+      });
+
+      return res.status(201).json({
+        status: "success",
+        message: "Teacher account created successfully.",
+        teacher: newTeacher,
+        user: newUser,
+        username,
+        defaultPass: passToUse
+      });
+    } catch (err: any) {
+      console.error("[Create Teacher Error]:", err);
+      return res.status(500).json({ status: "error", message: err.message || "Failed to create teacher." });
+    }
+  });
+
+  // POST /api/admins - Single backend workflow for Admin creation
+  app.post("/api/admins", async (req, res) => {
+    try {
+      const { name, email, phone, username: customUsername, password } = req.body;
+      const aName = name?.trim() || 'Admin User';
+      const usrSnap = await getDocs(collection(db, 'users'));
+      const usersList = usrSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+
+      const baseUsername = customUsername?.trim().toLowerCase() || aName.toLowerCase().split(/\s+/)[0].replace(/[^a-z0-9]/g, '');
+      let username = baseUsername;
+      let counter = 1;
+      while (usersList.some((u: any) => u.username?.toLowerCase() === username.toLowerCase())) {
+        username = `${baseUsername}${counter}`;
+        counter++;
+      }
+
+      const adminId = `a-${Date.now()}`;
+      const userId = `u-adm-${Date.now()}`;
+      const finalEmail = email?.trim() || `${username}@sunshineclasses.net`;
+      const passToUse = password || "Sunshine123";
+      const hashedPassword = simpleSecureHash(passToUse);
+      const passwordHash = await PasswordService.hashPassword(passToUse);
+
+      const newAdmin = {
+        id: adminId,
+        userId: userId,
+        name: aName,
+        email: finalEmail,
+        phone: phone || '',
+        role: 'SUPER_ADMIN',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const newUser = {
+        id: userId,
+        username,
+        name: aName,
+        email: finalEmail,
+        role: 'SUPER_ADMIN',
+        phone: phone || '',
+        password: hashedPassword,
+        passwordHash: passwordHash,
+        mustChangePassword: true,
+        active: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const newAuditLog = {
+        id: `L-${Date.now()}`,
+        userId: 'admin',
+        username: 'admin',
+        action: 'CREATE_ADMIN',
+        details: `Created admin profile for ${aName} (@${username})`,
+        timestamp: new Date().toISOString()
+      };
+
+      await runTransaction(db, async (transaction) => {
+        transaction.set(doc(db, 'admins', adminId), newAdmin);
+        transaction.set(doc(db, 'users', userId), newUser);
+        transaction.set(doc(db, 'audit_logs', newAuditLog.id), newAuditLog);
+      });
+
+      return res.status(201).json({
+        status: "success",
+        message: "Admin account created successfully.",
+        admin: newAdmin,
+        user: newUser,
+        username,
+        defaultPass: passToUse
+      });
+    } catch (err: any) {
+      console.error("[Create Admin Error]:", err);
+      return res.status(500).json({ status: "error", message: err.message || "Failed to create admin." });
+    }
+  });
+
+  // POST /api/receptionists - Single backend workflow for Receptionist creation
+  app.post("/api/receptionists", async (req, res) => {
+    try {
+      const { name, email, phone, password } = req.body;
+      const rName = name?.trim() || 'Desk Receptionist';
+      const usrSnap = await getDocs(collection(db, 'users'));
+      const usersList = usrSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+
+      const baseUsername = rName.toLowerCase().split(/\s+/)[0].replace(/[^a-z0-9]/g, '');
+      let username = baseUsername;
+      let counter = 1;
+      while (usersList.some((u: any) => u.username?.toLowerCase() === username.toLowerCase())) {
+        username = `${baseUsername}${counter}`;
+        counter++;
+      }
+
+      const receptionId = `rec-${Date.now()}`;
+      const userId = `u-rec-${Date.now()}`;
+      const finalEmail = email?.trim() || `${username}@sunshineclasses.net`;
+      const passToUse = password || "Sunshine123";
+      const hashedPassword = simpleSecureHash(passToUse);
+      const passwordHash = await PasswordService.hashPassword(passToUse);
+
+      const newReceptionist = {
+        id: receptionId,
+        userId: userId,
+        name: rName,
+        email: finalEmail,
+        phone: phone || '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const newUser = {
+        id: userId,
+        username,
+        name: rName,
+        email: finalEmail,
+        role: 'RECEPTIONIST',
+        phone: phone || '',
+        password: hashedPassword,
+        passwordHash: passwordHash,
+        mustChangePassword: true,
+        active: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const newAuditLog = {
+        id: `L-${Date.now()}`,
+        userId: 'admin',
+        username: 'admin',
+        action: 'CREATE_RECEPTIONIST',
+        details: `Created receptionist profile for ${rName} (@${username})`,
+        timestamp: new Date().toISOString()
+      };
+
+      await runTransaction(db, async (transaction) => {
+        transaction.set(doc(db, 'reception', receptionId), newReceptionist);
+        transaction.set(doc(db, 'users', userId), newUser);
+        transaction.set(doc(db, 'audit_logs', newAuditLog.id), newAuditLog);
+      });
+
+      return res.status(201).json({
+        status: "success",
+        message: "Receptionist account created successfully.",
+        receptionist: newReceptionist,
+        user: newUser,
+        username,
+        defaultPass: passToUse
+      });
+    } catch (err: any) {
+      console.error("[Create Receptionist Error]:", err);
+      return res.status(500).json({ status: "error", message: err.message || "Failed to create receptionist." });
+    }
   });
 
   // Helper to get users array from Firestore

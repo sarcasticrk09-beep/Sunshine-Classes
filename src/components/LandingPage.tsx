@@ -88,6 +88,7 @@ interface LandingPageProps {
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
   subConfig: SubscriptionConfig;
+  onAddStudyMaterial?: (material: Omit<StudyMaterial, 'id'>) => void;
 }
 
 export default function LandingPage({
@@ -105,7 +106,8 @@ export default function LandingPage({
   founders = [],
   theme,
   onToggleTheme,
-  subConfig
+  subConfig,
+  onAddStudyMaterial
 }: LandingPageProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -161,6 +163,25 @@ export default function LandingPage({
   const [resourcesSubject, setResourcesSubject] = useState('ALL');
   const [resourcesClass, setResourcesClass] = useState('ALL');
   const [resourcesCategory, setResourcesCategory] = useState('ALL');
+
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [newLandingMaterial, setNewLandingMaterial] = useState<{
+    title: string;
+    subject: string;
+    class: string;
+    category: 'NOTES' | 'QUESTION_PAPER';
+    desc: string;
+    file: string;
+    fileData: string;
+  }>({
+    title: '',
+    subject: 'Science',
+    class: 'Class 10',
+    category: 'NOTES',
+    desc: '',
+    file: '',
+    fileData: ''
+  });
 
   const filteredResources = (studyMaterials || []).filter((item) => {
     const matchSearch = resourcesSearch.trim() === '' || 
@@ -1426,6 +1447,16 @@ export default function LandingPage({
                     <option value="Class 9">Class 9</option>
                     <option value="Class 8">Class 8</option>
                   </select>
+
+                  {onAddStudyMaterial && (
+                    <button
+                      id="btn-landing-upload-pdf-note"
+                      onClick={() => setShowUploadModal(true)}
+                      className="rounded-xl bg-brand-blue hover:bg-blue-700 text-white px-3.5 py-2 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                    >
+                      <Plus size={14} /> Upload PDF Note
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1484,12 +1515,16 @@ export default function LandingPage({
                       id={`btn-landing-download-${item.id}`}
                       onClick={() => {
                         if (item.fileData) {
-                          const link = document.createElement('a');
-                          link.href = item.fileData;
-                          link.download = item.file;
-                          document.body.appendChild(link);
-                          link.click();
-                          document.body.removeChild(link);
+                          if (item.fileData.startsWith('http://') || item.fileData.startsWith('https://')) {
+                            window.open(item.fileData, '_blank', 'noopener,noreferrer');
+                          } else {
+                            const link = document.createElement('a');
+                            link.href = item.fileData;
+                            link.download = item.file;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                          }
                         } else {
                           alert(`Downloading Study File "${item.file}"... Standard NCERT reference guides are pre-bundled offline for easy access.`);
                         }
@@ -1501,6 +1536,133 @@ export default function LandingPage({
                     </button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Upload PDF Modal */}
+            {showUploadModal && (
+              <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 space-y-4 border border-slate-100 dark:border-slate-800 shadow-2xl">
+                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+                    <h3 className="font-display font-black text-sm text-slate-800 dark:text-white">Publish PDF Study Note</h3>
+                    <button onClick={() => setShowUploadModal(false)} className="text-slate-400 hover:text-slate-600">
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-[10px] font-extrabold uppercase text-slate-500 mb-1">Title</label>
+                      <input
+                        type="text"
+                        required
+                        value={newLandingMaterial.title}
+                        onChange={(e) => setNewLandingMaterial({ ...newLandingMaterial, title: e.target.value })}
+                        placeholder="e.g. Class 10 Physics Motion Formula Sheet"
+                        className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800 px-3 py-2 text-xs outline-none text-slate-800 dark:text-white"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-extrabold uppercase text-slate-500 mb-1">Subject</label>
+                        <select
+                          value={newLandingMaterial.subject}
+                          onChange={(e) => setNewLandingMaterial({ ...newLandingMaterial, subject: e.target.value })}
+                          className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-xs outline-none text-slate-800 dark:text-white"
+                        >
+                          <option value="Mathematics">Mathematics</option>
+                          <option value="Science">Science</option>
+                          <option value="English">English</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-extrabold uppercase text-slate-500 mb-1">Class</label>
+                        <select
+                          value={newLandingMaterial.class}
+                          onChange={(e) => setNewLandingMaterial({ ...newLandingMaterial, class: e.target.value })}
+                          className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-xs outline-none text-slate-800 dark:text-white"
+                        >
+                          <option value="Class 10">Class 10</option>
+                          <option value="Class 9">Class 9</option>
+                          <option value="Class 8">Class 8</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-extrabold uppercase text-slate-500 mb-1">Description</label>
+                      <textarea
+                        value={newLandingMaterial.desc}
+                        onChange={(e) => setNewLandingMaterial({ ...newLandingMaterial, desc: e.target.value })}
+                        placeholder="Brief summary of what's inside this PDF..."
+                        rows={2}
+                        className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800 px-3 py-2 text-xs outline-none text-slate-800 dark:text-white"
+                      />
+                    </div>
+
+                    <CloudinaryUpload
+                      id="landing-pdf-note-upload"
+                      folder="study-material"
+                      cloudName={subConfig.cloudinaryCloudName}
+                      uploadPreset={subConfig.cloudinaryUploadPreset}
+                      apiKey={subConfig.cloudinaryApiKey}
+                      maxSizeMB={subConfig.cloudinaryMaxFileSize || 20}
+                      initialUrl={newLandingMaterial.fileData}
+                      onUploadSuccess={(url, publicId, fileName) => {
+                        const safeFileName = fileName || publicId || 'uploaded_document.pdf';
+                        setNewLandingMaterial({
+                          ...newLandingMaterial,
+                          file: safeFileName,
+                          fileData: url
+                        });
+                      }}
+                      onFileDeleted={() => setNewLandingMaterial({ ...newLandingMaterial, file: '', fileData: '' })}
+                      allowedTypes={['pdf']}
+                      label="Select & Upload PDF Note"
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setShowUploadModal(false)}
+                      className="rounded-xl px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      id="btn-submit-landing-pdf-note"
+                      disabled={!newLandingMaterial.title || !newLandingMaterial.fileData}
+                      onClick={() => {
+                        if (onAddStudyMaterial && newLandingMaterial.fileData) {
+                          let finalFilename = newLandingMaterial.file || 'document.pdf';
+                          if (!finalFilename.endsWith('.pdf')) finalFilename += '.pdf';
+                          onAddStudyMaterial({
+                            ...newLandingMaterial,
+                            file: finalFilename,
+                            date: new Date().toISOString().split('T')[0]
+                          });
+                          setShowUploadModal(false);
+                          setNewLandingMaterial({
+                            title: '',
+                            subject: 'Science',
+                            class: 'Class 10',
+                            category: 'NOTES',
+                            desc: '',
+                            file: '',
+                            fileData: ''
+                          });
+                        }
+                      }}
+                      className="rounded-xl bg-brand-blue hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2 text-xs font-bold transition-all shadow-md cursor-pointer"
+                    >
+                      Publish Note
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
