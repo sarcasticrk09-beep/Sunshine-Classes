@@ -240,14 +240,32 @@ if (typeof process !== "undefined") {
   });
 }
 
-const firebaseConfig = {
-  projectId: "sunshine-classes-web",
-  appId: "1:308447291099:web:574e371bb15c5e54404efe",
-  apiKey: "AIzaSyCVg06N9JRbjbYyMlvrac-BKAd-d65hm-U",
-  authDomain: "sunshine-classes-web.firebaseapp.com",
-  storageBucket: "sunshine-classes-web.firebasestorage.app",
-  messagingSenderId: "308447291099"
+let firebaseConfig = {
+  projectId: "maximal-music-shh41",
+  appId: "1:996750335749:web:fead7d5fdea73b78cfe16c",
+  apiKey: "AIzaSyCPZA9lz7YSQ4kkqD6JxDyyxAaQrO3kqyo",
+  authDomain: "maximal-music-shh41.firebaseapp.com",
+  storageBucket: "maximal-music-shh41.firebasestorage.app",
+  messagingSenderId: "996750335749"
 };
+
+try {
+  const cfgPath = path.join(process.cwd(), "firebase-applet-config.json");
+  if (fs.existsSync(cfgPath)) {
+    const rawCfg = fs.readFileSync(cfgPath, "utf8");
+    const parsedCfg = JSON.parse(rawCfg);
+    firebaseConfig = {
+      projectId: parsedCfg.projectId || firebaseConfig.projectId,
+      appId: parsedCfg.appId || firebaseConfig.appId,
+      apiKey: parsedCfg.apiKey || firebaseConfig.apiKey,
+      authDomain: parsedCfg.authDomain || firebaseConfig.authDomain,
+      storageBucket: parsedCfg.storageBucket || firebaseConfig.storageBucket,
+      messagingSenderId: parsedCfg.messagingSenderId || firebaseConfig.messagingSenderId
+    };
+  }
+} catch (e: any) {
+  console.warn("[Firebase Client Config] Using fallback config:", e.message);
+}
 
 const fbApp = initializeApp(firebaseConfig, "sunshine-classes-server");
 const db = {} as any;
@@ -367,6 +385,9 @@ async function startServer() {
   // JSON parsing middleware
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+  // Trust proxy for Railway / Cloud Run reverse proxy SSL and IP forwarding
+  app.set('trust proxy', 1);
 
   // API rate limiting
   const apiLimiter = rateLimit({
@@ -1212,6 +1233,12 @@ async function startServer() {
         transaction.set(doc(db, 'audit_logs', newAuditLog.id), newAuditLog);
       });
 
+      // Post-write immediate read verification from Firestore
+      const readBackStudent = await getDoc(doc(db, 'students', studentId));
+      if (!readBackStudent.exists()) {
+        throw new Error(`Firestore read-back verification failed: Created student document ${studentId} could not be read back after commit.`);
+      }
+
       logEnrollmentEvent("INFO", `Recovery successful for ID: ${enrollmentId} in ${Date.now() - startTime}ms`);
       return res.status(200).json({ status: "success", message: "Enrollment recovered and created successfully." });
 
@@ -1434,6 +1461,12 @@ async function startServer() {
         transaction.set(doc(db, 'notifications', newNotification.id), newNotification);
         transaction.set(doc(db, 'audit_logs', newAuditLog.id), newAuditLog);
       });
+
+      // Post-write immediate read verification from Firestore
+      const readBackStudentAdm = await getDoc(doc(db, 'students', studentId));
+      if (!readBackStudentAdm.exists()) {
+        throw new Error(`Firestore read-back verification failed: Student document ${studentId} could not be read back after admission approval.`);
+      }
 
       logEnrollmentEvent("INFO", `Admission approval transaction completed for ${admissionId} in ${Date.now() - startTime}ms.`);
       return res.status(200).json({
@@ -1679,6 +1712,12 @@ async function startServer() {
         transaction.set(doc(db, 'notifications', newNotification.id), newNotification);
         transaction.set(doc(db, 'audit_logs', newAuditLog.id), newAuditLog);
       });
+
+      // Post-write immediate read-back verification from Firestore
+      const readBackStudentManual = await getDoc(doc(db, 'students', studentId));
+      if (!readBackStudentManual.exists()) {
+        throw new Error(`Firestore read-back verification failed: Created student document ${studentId} could not be read back after transaction commit.`);
+      }
 
       logEnrollmentEvent("INFO", `Admin manual registration completed successfully in ${Date.now() - startTime}ms. Roll No: ${rollNo}`);
       return res.status(201).json({
@@ -1984,7 +2023,12 @@ async function startServer() {
     return AuthController.login(req, res, getERPUsersList);
   });
 
-  // 2. Change password endpoint (JWT required)
+  // 2. Logout endpoint
+  app.post("/api/auth/logout", async (req, res) => {
+    return res.status(200).json({ success: true, message: "Logged out successfully." });
+  });
+
+  // 3. Change password endpoint (JWT required)
   app.post("/api/auth/change-password", authMiddleware, async (req: AuthenticatedRequest, res) => {
     return AuthController.changePassword(req, res, getERPUsersList, saveERPUsersList);
   });

@@ -145,59 +145,15 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
 
   const capturePhoto = () => {
     try {
-      if (!videoRef.current) return;
-
-      const video = videoRef.current;
-      const canvas = document.createElement("canvas");
-      const width = video.videoWidth || 640;
-      const height = video.videoHeight || 480;
-      
-      canvas.width = width;
-      canvas.height = height;
-      
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      
-      // Mirror the captured frame to match the user's view
-      ctx.translate(width, 0);
-      ctx.scale(-1, 1);
-      ctx.drawImage(video, 0, 0, width, height);
-      ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
-
-      try {
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
-        if (dataUrl && dataUrl.startsWith("data:image/")) {
-          const byteString = atob(dataUrl.split(',')[1]);
-          const mimeString = dataUrl.split(',')[0].split(':')[1].split(';')[0];
-          const ab = new ArrayBuffer(byteString.length);
-          const ia = new Uint8Array(ab);
-          for (let i = 0; i < byteString.length; i++) {
-            ia[i] = byteString.charCodeAt(i);
-          }
-          const blob = new Blob([ab], { type: mimeString });
-          const capturedFile = new File([blob], `camera_${Date.now()}.jpg`, {
-            type: "image/jpeg",
-          });
-          stopCamera();
-          preProcessFile(capturedFile);
-          return;
-        }
-      } catch (err) {
-        console.warn("Synchronous webcam dataURL capture failed, falling back to toBlob", err);
+      if (!videoRef.current) {
+        setError("Camera stream video element is not available.");
+        return;
       }
 
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const capturedFile = new File([blob], `camera_${Date.now()}.jpg`, {
-            type: "image/jpeg",
-          });
-          stopCamera();
-          preProcessFile(capturedFile);
-        } else {
-          console.error("Canvas toBlob returned null.");
-          setError("Failed to process captured photo. Please try uploading a file instead.");
-        }
-      }, "image/jpeg", 0.95);
+      const video = videoRef.current;
+      const capturedFile = mediaService.captureImage(video, `camera_${Date.now()}.jpg`, 0.95);
+      stopCamera();
+      preProcessFile(capturedFile);
     } catch (err: any) {
       console.error("Failed to capture photo from webcam:", err);
       setError("Webcam capture failed: " + (err.message || "Unknown error"));
@@ -207,6 +163,7 @@ export const CloudinaryUpload: React.FC<CloudinaryUploadProps> = ({
   useEffect(() => {
     if (showCameraModal && cameraStream && videoRef.current) {
       videoRef.current.srcObject = cameraStream;
+      videoRef.current.play().catch((err) => console.warn("Video stream play failed:", err));
     }
   }, [showCameraModal, cameraStream]);
 

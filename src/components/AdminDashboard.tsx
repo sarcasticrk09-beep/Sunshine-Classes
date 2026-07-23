@@ -4684,9 +4684,6 @@ export default function AdminDashboard({
     setStdDiscount(0);
     setStdScholarship(0);
     setStdDueDay(10);
-    const generatedUsername = stdName.toLowerCase().replace(/\s+/g, '');
-    const defaultPass = `${generatedUsername}123`;
-    alert(`New student registered into Sunshine Classes ERP system successfully with automatic 12-month billing schedule.\n\nStudent Login Username: ${generatedUsername}\nDefault Password: ${defaultPass}`);
   };
 
   const handleSubmitTeacher = (e: React.FormEvent) => {

@@ -2415,15 +2415,27 @@ Sunshine Classes`;
         throw new Error(data.message || "Failed to manually register student.");
       }
 
-      // Update local React states to match database immediately
+      // Update local React states and local cache to match database immediately
       if (data.student) {
-        setStudents(prev => [data.student, ...prev]);
+        setStudents(prev => {
+          const updated = [data.student, ...prev];
+          syncState('students', updated);
+          return updated;
+        });
       }
       if (data.feeRecords) {
-        setFeeStatuses(prev => [...data.feeRecords, ...prev]);
+        setFeeStatuses(prev => {
+          const updated = [...data.feeRecords, ...prev];
+          syncState('fee_statuses', updated);
+          return updated;
+        });
       }
       if (data.user) {
-        setUsers(prev => [data.user, ...prev]);
+        setUsers(prev => {
+          const updated = [data.user, ...prev];
+          syncState('users', updated);
+          return updated;
+        });
       }
 
       const baseUsername = data.user?.username || std.name.toLowerCase().replace(/\s+/g, '');
@@ -2979,7 +2991,14 @@ Sunshine Classes`;
   };
 
   const handleLogout = () => {
-    logout().catch(e => console.warn("Logout error:", e));
+    logout()
+      .then(() => {
+        navigate('/login', { replace: true });
+      })
+      .catch(e => {
+        console.warn("Logout error:", e);
+        navigate('/login', { replace: true });
+      });
   };
 
   const handleUpdateUserPassword = (userId: string, newPassword: string) => {

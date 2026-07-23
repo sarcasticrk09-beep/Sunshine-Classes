@@ -527,11 +527,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.warn("Error logging out user audit:", err);
     }
 
-    // Clear all stored credentials
+    // Clear all stored credentials and active sessions
     sessionStorage.removeItem('sunshine_active_session');
     localStorage.removeItem('sunshine_active_session');
     localStorage.removeItem('sunshine_token');
     localStorage.removeItem('sunshine_user');
+    localStorage.removeItem('sunshine_remember_me');
+    localStorage.removeItem('sunshine_remember_username');
+    localStorage.removeItem('sunshine_remember_role');
 
     setCurrentUser(null);
     setRole(null);

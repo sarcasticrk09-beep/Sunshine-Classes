@@ -49,15 +49,27 @@ export class MediaService {
       throw new Error("Video element is required to capture image frame.");
     }
     const canvas = document.createElement("canvas");
-    canvas.width = videoElement.videoWidth || 1280;
-    canvas.height = videoElement.videoHeight || 720;
+    const width = videoElement.videoWidth || 1280;
+    const height = videoElement.videoHeight || 720;
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       throw new Error("Could not acquire 2D canvas context.");
     }
-    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+
+    // Mirror horizontally to match webcam live preview
+    ctx.translate(width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(videoElement, 0, 0, width, height);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
     const dataUrl = canvas.toDataURL("image/jpeg", quality);
-    const byteString = atob(dataUrl.split(",")[1]);
+    const parts = dataUrl.split(",");
+    if (parts.length < 2 || !parts[1]) {
+      throw new Error("Failed to encode canvas image to JPEG format.");
+    }
+    const byteString = atob(parts[1]);
     const ab = new ArrayBuffer(byteString.length);
     const ia = new Uint8Array(ab);
     for (let i = 0; i < byteString.length; i++) {
