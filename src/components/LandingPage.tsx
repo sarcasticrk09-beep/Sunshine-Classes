@@ -454,6 +454,36 @@ export default function LandingPage({
                 {link.label}
               </button>
             ))}
+
+            {/* Sunshine Store Dropdown */}
+            <div className="relative group">
+              <button
+                id="nav-link-store"
+                className="px-3 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white font-black text-amber-600 dark:text-amber-400"
+              >
+                <span>Books & Resources</span>
+                <span className="text-[10px]">▼</span>
+              </button>
+
+              <div className="absolute right-0 top-full hidden group-hover:block w-48 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 p-2 z-50">
+                <button
+                  id="nav-dropdown-books"
+                  onClick={() => navigate('/books')}
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-slate-800 hover:text-amber-600 transition-colors flex items-center gap-2"
+                >
+                  <BookOpen size={14} className="text-amber-500" />
+                  <span>Books Catalog</span>
+                </button>
+                <button
+                  id="nav-dropdown-resources"
+                  onClick={() => navigate('/resources')}
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-slate-800 hover:text-amber-600 transition-colors flex items-center gap-2"
+                >
+                  <Layers size={14} className="text-amber-500" />
+                  <span>Educational Resources</span>
+                </button>
+              </div>
+            </div>
           </nav>
 
           {/* Right Action Block - Desktop Only */}

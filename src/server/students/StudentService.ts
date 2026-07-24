@@ -226,6 +226,39 @@ export class StudentService {
       });
     }
 
+    // 14b. Has Concession & Concession Percentage Filter (FM-006)
+    if (
+      (queryOptions as any).hasConcession !== undefined &&
+      (queryOptions as any).hasConcession !== '' &&
+      (queryOptions as any).hasConcession !== 'ALL' ||
+      (queryOptions as any).concessionPercentage !== undefined &&
+      (queryOptions as any).concessionPercentage !== ''
+    ) {
+      const feeSettingsSnap = await getDocs(collection(db, 'student_fee_settings'));
+      const activeSettingsMap = new Map<string, number>();
+      feeSettingsSnap.docs.forEach((d: any) => {
+        const data = d.data();
+        if (data.status === 'ACTIVE' && Number(data.concessionPercentage) > 0) {
+          activeSettingsMap.set(data.studentId, Number(data.concessionPercentage));
+        }
+      });
+
+      const hasConcFilter = String((queryOptions as any).hasConcession);
+      if (hasConcFilter === 'true' || hasConcFilter === 'YES') {
+        list = list.filter(s => activeSettingsMap.has(s.id));
+      } else if (hasConcFilter === 'false' || hasConcFilter === 'NO') {
+        list = list.filter(s => !activeSettingsMap.has(s.id));
+      }
+
+      const targetPctStr = (queryOptions as any).concessionPercentage;
+      if (targetPctStr !== undefined && targetPctStr !== '') {
+        const targetPct = Number(targetPctStr);
+        if (!isNaN(targetPct)) {
+          list = list.filter(s => activeSettingsMap.get(s.id) === targetPct);
+        }
+      }
+    }
+
     // 15. Sorting
     const sortBy = (queryOptions.sortBy || 'rollNo').trim();
     const sortOrder = (queryOptions.sortOrder || 'asc').toLowerCase() === 'desc' ? -1 : 1;

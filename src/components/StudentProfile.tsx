@@ -39,8 +39,10 @@ import {
   Lock,
   AlertTriangle,
   Save,
-  CheckCircle
+  CheckCircle,
+  Tag
 } from 'lucide-react';
+import { StudentFeeSettingsView } from './StudentFeeSettingsView';
 
 interface StudentProfileProps {
   studentId: string;
@@ -77,7 +79,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   // Active Tab State
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'personal' | 'parent' | 'academic' | 'documents' | 'timeline' | 'activity'
+    'overview' | 'personal' | 'parent' | 'academic' | 'fee-settings' | 'documents' | 'timeline' | 'activity'
   >('overview');
 
   // Student Data State
@@ -884,6 +886,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             { id: 'personal', label: 'Personal Information', icon: Shield },
             { id: 'parent', label: 'Parent Information', icon: Users },
             { id: 'academic', label: 'Academic & Records', icon: GraduationCap },
+            { id: 'fee-settings', label: 'Fee Settings', icon: Tag },
             { id: 'documents', label: 'Documents', icon: FileText },
             { id: 'timeline', label: 'Timeline History', icon: Clock },
             { id: 'activity', label: 'Activity Logs', icon: Activity }
@@ -1354,6 +1357,16 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* TAB FOR FEE SETTINGS & CONCESSION (FM-006) */}
+      {activeTab === 'fee-settings' && student && (
+        <StudentFeeSettingsView
+          studentId={student.id}
+          studentName={student.name}
+          studentClass={student.class || student.preferredBatch || ''}
+          userRole={role}
+        />
       )}
 
       {/* TAB 5: DOCUMENTS */}

@@ -340,6 +340,10 @@ export interface FeeStatus {
   receiptIds?: string[];
   isWaived?: boolean;
   isSkipped?: boolean;
+  originalClassFee?: number;
+  concessionPercentage?: number;
+  concessionAmount?: number;
+  concessionReason?: string;
 }
 
 export interface EmailLog {
@@ -444,18 +448,54 @@ export interface FounderMember {
   photoUrl?: string;
 }
 
+export type StudyMaterialType = 
+  | 'PDF' 
+  | 'NOTES' 
+  | 'WORKSHEET' 
+  | 'QUESTION_BANK' 
+  | 'PYQ' 
+  | 'SAMPLE_PAPER' 
+  | 'FORMULA_SHEET' 
+  | 'NCERT_SOLUTION' 
+  | 'VIDEO_LINK' 
+  | 'EXTERNAL_LINK' 
+  | 'BLOG';
+
+export type StudyMaterialStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+
 export interface StudyMaterial {
   id: string;
+  materialId?: string;
   title: string;
-  subject: string;
-  desc: string;
-  file: string;
-  size: string;
-  class: string;
-  category: 'NOTES' | 'QUESTION_PAPER';
-  uploadedBy?: string;
-  date?: string;
+  slug: string;
+  description: string;
+  desc?: string; // Legacy fallback
+  class: string; // e.g., 'Class 10'
+  subject: string; // e.g., 'Mathematics'
+  chapter?: string; // e.g., 'Chapter 3'
+  materialType: StudyMaterialType;
+  category?: 'NOTES' | 'QUESTION_PAPER' | string; // Legacy fallback
+  file?: string; // Legacy fallback filename
+  size?: string; // Legacy fallback e.g. '1.2 MB'
+  fileUrl?: string;
+  thumbnailUrl?: string;
+  youtubeUrl?: string;
+  externalUrl?: string;
   fileData?: string;
+  isPublic: boolean;
+  status: StudyMaterialStatus;
+  downloadCount: number;
+  viewCount: number;
+  lastDownloaded?: string;
+  tags: string[];
+  seoTitle?: string;
+  metaDescription?: string;
+  keywords?: string[];
+  createdBy: string;
+  uploadedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+  date?: string;
 }
 
 export interface GalleryItem {
@@ -633,6 +673,235 @@ export interface PaymentVerification {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface FeeReminder {
+  id: string;
+  reminderId: string;
+  studentId: string;
+  studentName: string;
+  rollNumber: string;
+  className: string;
+  feeRecordId: string;
+  billingMonth: string;
+  billingYear: string;
+  amount: number;
+  dueDate: string;
+  reminderType: 'UPCOMING' | 'DUE_TODAY' | 'OVERDUE' | 'FINAL_NOTICE';
+  channel: 'MANUAL' | 'WHATSAPP' | 'EMAIL' | 'SMS' | 'PUSH';
+  status: 'PENDING' | 'SENT' | 'FAILED' | 'CANCELLED';
+  scheduledAt: string;
+  sentAt?: string;
+  createdBy: string;
+  createdAt: string;
+  stageKey?: string;
+  message?: string;
+}
+
+export interface ReminderTemplate {
+  id: string;
+  templateType: 'UPCOMING' | 'DUE_TODAY' | 'OVERDUE' | 'FINAL_NOTICE';
+  title: string;
+  templateText: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export type WhatsAppMessageType =
+  | 'FEE_REMINDER'
+  | 'PAYMENT_CONFIRMATION'
+  | 'ADMISSION_CONFIRMATION'
+  | 'RECEIPT_GENERATED'
+  | 'GENERAL_ANNOUNCEMENT'
+  | 'CUSTOM_MESSAGE';
+
+export type NotificationStatus =
+  | 'QUEUED'
+  | 'SENT'
+  | 'DELIVERED'
+  | 'READ'
+  | 'FAILED'
+  | 'ERROR';
+
+export interface NotificationLog {
+  id: string;
+  notificationId: string;
+  studentId: string;
+  studentName?: string;
+  parentPhone: string;
+  provider: 'WHATSAPP';
+  template: WhatsAppMessageType | string;
+  messageId: string;
+  status: NotificationStatus;
+  errorMessage?: string;
+  retryCount: number;
+  nextRetryAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  messageText?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface WhatsAppTemplate {
+  id: string;
+  type: WhatsAppMessageType;
+  title: string;
+  templateText: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export interface StudentFeeSetting {
+  settingId: string;
+  studentId: string;
+  feeStructureId?: string;
+  concessionPercentage: number;
+  reason?: string;
+  effectiveFrom: string;
+  effectiveTill?: string;
+  status: 'ACTIVE' | 'INACTIVE';
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Sunshine Store Types (SS-001)
+export type StoreProductType = 'Book' | 'Resource';
+
+export interface PurchaseLink {
+  id: string;
+  platform: 'Amazon' | 'Flipkart' | 'Official Website' | 'Publisher' | 'Custom';
+  customPlatformName?: string;
+  url: string;
+  displayOrder: number;
+  active: boolean;
+  clickCount?: number;
+}
+
+export interface StoreReview {
+  id: string;
+  reviewerName: string;
+  reviewerRole?: string; // e.g. "Class 10 Student (98.4%)", "Faculty - Mathematics", "Parent"
+  rating: number; // 1 to 5
+  comment: string;
+  date: string; // YYYY-MM-DD
+  isVerifiedBuyer?: boolean;
+}
+
+export interface StoreProduct {
+  id: string;
+  type: StoreProductType; // 'Book' | 'Resource'
+  title: string;
+  slug: string; // e.g. "class-10-rd-sharma-maths" or "study-lamp-led"
+  shortDescription: string;
+  fullDescription: string;
+  featuredImage: string;
+  gallery?: string[];
+  
+  // Classification
+  categoryId: string;
+  categoryName: string;
+  brandId?: string;
+  brandName?: string;
+  publisher?: string;
+  author?: string;
+  class?: string; // e.g. "Class 10", "Class 9", etc.
+  subject?: string; // e.g. "Mathematics", "Science"
+  tags: string[];
+
+  // Recommendation Notes
+  whySunshineRecommends: string;
+  keyFeatures?: string[];
+  specifications?: Record<string, string>; // e.g. { "Edition": "2026", "Language": "English" }
+  
+  // Customer & Faculty Reviews
+  reviews?: StoreReview[];
+
+  // Flags
+  isFeatured?: boolean;
+  isTrending?: boolean;
+  isStaffPick?: boolean;
+  isNewArrival?: boolean;
+  isMostRecommended?: boolean;
+  isBestseller?: boolean;
+
+  // Related Products
+  relatedProductIds?: string[];
+  autoRelatedEnabled?: boolean;
+  
+  // Purchase Links
+  purchaseLinks: PurchaseLink[];
+
+  // SEO
+  seoTitle?: string;
+  metaDescription?: string;
+  keywords?: string[];
+  canonicalUrl?: string;
+  openGraphTitle?: string;
+  openGraphDescription?: string;
+  openGraphImage?: string;
+
+  // Status & Analytics
+  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+  internalNotes?: string;
+  viewsCount: number;
+  totalClicks: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoreCategory {
+  id: string;
+  name: string;
+  slug: string;
+  productType: StoreProductType; // 'Book' | 'Resource'
+  description?: string;
+  icon?: string;
+  categoryImage?: string;
+  displayOrder: number;
+  isActive: boolean;
+  productCount?: number;
+  seoTitle?: string;
+  metaDescription?: string;
+}
+
+export interface StoreBrand {
+  id: string;
+  name: string;
+  slug: string;
+  logo?: string;
+  description?: string;
+  website?: string;
+  type: 'BRAND' | 'PUBLISHER' | 'BOTH';
+  isActive: boolean;
+  productCount?: number;
+}
+
+export interface StoreSetting {
+  storeName: string;
+  storeDescription: string;
+  defaultCtaText: string;
+  affiliateDisclosure: string;
+  defaultSeoTitle: string;
+  defaultMetaDescription: string;
+  socialSharingDefaults: {
+    ogTitle: string;
+    ogImage: string;
+  };
+}
+
+export interface StoreAnalyticsLog {
+  id: string;
+  productId?: string;
+  productTitle?: string;
+  productType?: StoreProductType;
+  eventType: 'VIEW' | 'CLICK' | 'SEARCH';
+  platform?: string; // Amazon, Flipkart, Official Website, etc.
+  searchQuery?: string;
+  timestamp: string;
+  date: string; // YYYY-MM-DD
+}
+
+
 
 
 

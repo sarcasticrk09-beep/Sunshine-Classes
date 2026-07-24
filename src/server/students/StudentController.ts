@@ -30,6 +30,8 @@ export class StudentController {
         hasPhoto: req.query.hasPhoto as string,
         missingMobile: req.query.missingMobile as string,
         missingEmail: req.query.missingEmail as string,
+        hasConcession: req.query.hasConcession as string,
+        concessionPercentage: req.query.concessionPercentage as string,
         sortBy: req.query.sortBy as string,
         sortOrder: req.query.sortOrder as 'asc' | 'desc',
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,

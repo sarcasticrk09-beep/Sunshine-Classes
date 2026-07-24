@@ -34,6 +34,7 @@ service cloud.firestore {
     }
 
     match /settings/{settingId} { allow read, write: if true; }
+    match /study_materials/{materialId} { allow read, write: if true; }
 
     // Fallback for document wildcards
     match /{document=**} {

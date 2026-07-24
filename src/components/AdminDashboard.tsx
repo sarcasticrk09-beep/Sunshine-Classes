@@ -5,6 +5,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { FeeCollectionManager } from './FeeCollectionManager';
+import { FeeReminderManager } from './FeeReminderManager';
+import { WhatsAppNotificationManager } from './WhatsAppNotificationManager';
+import { FinanceDashboard } from './FinanceDashboard';
+import { StudyMaterialCMS } from './StudyMaterialCMS';
+import { SunshineStoreAdmin } from './SunshineStoreAdmin';
+
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Shield,
@@ -57,7 +63,8 @@ import {
   ShieldAlert,
   Crown,
   Lock,
-  QrCode
+  QrCode,
+  ShoppingBag
 } from 'lucide-react';
 import { Student, Teacher, User, UserRole, Course, Batch, Topper, StudyMaterial, FounderMember, FeeStatus, FeeReceipt, AuditLog, AppNotification, StudentSubscription, SubscriptionPayment, SubscriptionReceipt, SubscriptionNotification, SubscriptionConfig, Admission, Attendance, Test, StudentMark, Homework, HomeworkSubmission, BlogPost, Testimonial, GalleryItem, Inquiry, TimetableEntry, EmailTemplatesConfig, WhatsAppTemplatesConfig, DepartedStudent, EmailLog, UPIPayment } from '../types';
 import { interpolateTemplate, getFeeForClass } from '../data';
@@ -234,7 +241,7 @@ export default function AdminDashboard({
   onResendReceiptEmail,
   onUpdateUsers
 } : AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'admissions' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets' | 'roles' | 'founder-office' | 'cofounder-office' | 'auth-logs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'admissions' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets' | 'roles' | 'founder-office' | 'cofounder-office' | 'auth-logs' | 'finance-reports' | 'study-material-cms' | 'sunshine-store'>('overview');
   const [dashboardSession, setDashboardSession] = useState('2026-27');
   const [dashboardMonth, setDashboardMonth] = useState('July 2026');
   const [showPendingFeesDetails, setShowPendingFeesDetails] = useState(false);
@@ -5861,11 +5868,14 @@ ${data.log}`
           
           { id: 'teachers', label: 'Faculty Directory', icon: <BookOpen size={16} />, category: 'Academic & CMS' },
           { id: 'batches', label: 'Batches & Timings', icon: <Calendar size={16} />, category: 'Academic & CMS' },
+          { id: 'study-material-cms', label: 'Study Material CMS (CM-001)', icon: <FileText size={16} className="text-amber-500 font-bold" />, category: 'Academic & CMS' },
+          { id: 'sunshine-store', label: 'Sunshine Store (SS-001)', icon: <ShoppingBag size={16} className="text-indigo-500 font-bold" />, category: 'Academic & CMS' },
           { id: 'website', label: 'Public Website & Notes CMS', icon: <Sparkles size={16} />, category: 'Academic & CMS' },
           { id: 'announcements', label: 'Broadcast Announcements', icon: <Bell size={16} />, category: 'Academic & CMS' },
           
           { id: 'founder-office', label: "Founder's Executive Office", icon: <Crown size={16} className="text-amber-500 font-bold" />, category: 'Executive Suite' },
           { id: 'cofounder-office', label: "Co-Founder's Workspace", icon: <Award size={16} className="text-indigo-500 font-bold" />, category: 'Executive Suite' },
+          { id: 'finance-reports', label: 'Finance Dashboard & Reports', icon: <TrendingUp size={16} className="text-emerald-600 font-bold" />, category: 'Executive Suite' },
           
           { id: 'roles', label: 'Role Management', icon: <Shield size={16} className="text-indigo-600 font-bold" />, category: 'Integrations & Logs' },
           { id: 'auth-logs', label: 'Authentication Logs', icon: <Lock size={16} className="text-amber-600 font-bold" />, category: 'Integrations & Logs' },
@@ -5884,11 +5894,11 @@ ${data.log}`
           }
           // Co-Founder has access to standard admin tabs plus his executive workspace
           if (isAdmin) {
-            const allowedAdminTabs = ['overview', 'admissions', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements', 'cofounder-office', 'auth-logs', 'gmail'];
+            const allowedAdminTabs = ['overview', 'admissions', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'study-material-cms', 'sunshine-store', 'announcements', 'cofounder-office', 'auth-logs', 'gmail', 'finance-reports'];
             return allowedAdminTabs.includes(tab.id);
           }
           // Default fallback
-          const allowedAdminTabs = ['overview', 'admissions', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements', 'gmail'];
+          const allowedAdminTabs = ['overview', 'admissions', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'study-material-cms', 'sunshine-store', 'announcements', 'gmail', 'finance-reports'];
           return allowedAdminTabs.includes(tab.id);
         });
 
@@ -8339,6 +8349,13 @@ ${data.log}`
               <div className="space-y-6">
                 {/* Fee Collection Engine (FM-003) */}
                 <FeeCollectionManager jwtToken={localStorage.getItem('sunshine_token') || ''} />
+
+                {/* Fee Reminder & Notification Engine (FM-005) */}
+                <FeeReminderManager userToken={localStorage.getItem('sunshine_token') || ''} userRole={'ADMIN'} />
+
+                {/* WhatsApp Cloud Provider Engine */}
+                <WhatsAppNotificationManager userToken={localStorage.getItem('sunshine_token') || ''} userRole={'ADMIN'} />
+
 
                 {/* Financial Health Stats Grid */}
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -11554,6 +11571,16 @@ ${data.log}`
             </div>
           )}
 
+          {/* TAB: STUDY MATERIAL CMS (CM-001) */}
+          {activeTab === 'study-material-cms' && (
+            <StudyMaterialCMS currentUser={currentUser} />
+          )}
+
+          {/* TAB: SUNSHINE STORE (SS-001) */}
+          {activeTab === 'sunshine-store' && (
+            <SunshineStoreAdmin currentUser={currentUser} />
+          )}
+
           {/* TAB 5: AUDIT LOGS */}
           {activeTab === 'audit' && (
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -12104,6 +12131,11 @@ ${data.log}`
                 </div>
               </div>
             </div>
+          )}
+
+          {/* TAB: FINANCE DASHBOARD & REPORTS (FM-007) */}
+          {activeTab === 'finance-reports' && (
+            <FinanceDashboard currentUser={currentUser} />
           )}
 
           {/* TAB 6: SETTINGS & BACKUP */}

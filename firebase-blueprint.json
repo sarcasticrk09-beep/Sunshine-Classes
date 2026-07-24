@@ -173,6 +173,37 @@
       },
       "required": ["action", "performedBy"]
     },
+    "StudyMaterial": {
+      "title": "StudyMaterial",
+      "description": "Public and private study materials, notes, worksheets, PYQs, and educational resources.",
+      "type": "object",
+      "properties": {
+        "materialId": { "type": "string" },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "description": { "type": "string" },
+        "class": { "type": "string" },
+        "subject": { "type": "string" },
+        "chapter": { "type": "string" },
+        "materialType": { "type": "string", "enum": ["PDF", "NOTES", "WORKSHEET", "QUESTION_BANK", "PYQ", "SAMPLE_PAPER", "FORMULA_SHEET", "NCERT_SOLUTION", "VIDEO_LINK", "EXTERNAL_LINK", "BLOG"] },
+        "fileUrl": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "youtubeUrl": { "type": "string" },
+        "externalUrl": { "type": "string" },
+        "isPublic": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["DRAFT", "PUBLISHED", "ARCHIVED"] },
+        "downloadCount": { "type": "number" },
+        "viewCount": { "type": "number" },
+        "tags": { "type": "array" },
+        "seoTitle": { "type": "string" },
+        "metaDescription": { "type": "string" },
+        "keywords": { "type": "array" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["title", "slug", "class", "subject", "materialType", "status"]
+    },
     "Setting": {
       "title": "Setting",
       "description": "Global institute settings and configuration.",
@@ -187,6 +218,52 @@
         "whatsappConfig": { "type": "object" },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" }
+      }
+    },
+    "StoreProduct": {
+      "title": "StoreProduct",
+      "description": "Sunshine Store books and educational resources product recommendation catalog.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["Book", "Resource"] },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "shortDescription": { "type": "string" },
+        "fullDescription": { "type": "string" },
+        "featuredImage": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "categoryName": { "type": "string" },
+        "brandName": { "type": "string" },
+        "publisher": { "type": "string" },
+        "author": { "type": "string" },
+        "whySunshineRecommends": { "type": "string" },
+        "status": { "type": "string", "enum": ["DRAFT", "PUBLISHED", "ARCHIVED"] }
+      },
+      "required": ["type", "title", "slug", "status"]
+    },
+    "StoreCategory": {
+      "title": "StoreCategory",
+      "description": "Categories for Sunshine Store products.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "productType": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "StoreBrand": {
+      "title": "StoreBrand",
+      "description": "Brands and Publishers for Sunshine Store.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "type": { "type": "string" },
+        "isActive": { "type": "boolean" }
       }
     }
   },
@@ -234,6 +311,22 @@
     "settings/{settingId}": {
       "schema": "Setting",
       "description": "Central institute settings and parameters."
+    },
+    "study_materials/{materialId}": {
+      "schema": "StudyMaterial",
+      "description": "Central repository for study materials, notes, assignments, PYQs, and educational resources."
+    },
+    "store_products/{productId}": {
+      "schema": "StoreProduct",
+      "description": "Products catalog for books and educational resources."
+    },
+    "store_categories/{categoryId}": {
+      "schema": "StoreCategory",
+      "description": "Categories for store items."
+    },
+    "store_brands/{brandId}": {
+      "schema": "StoreBrand",
+      "description": "Brands and Publishers directory."
     }
   }
 }

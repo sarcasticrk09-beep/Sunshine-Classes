@@ -836,6 +836,158 @@ async function runRegressionTestSuite() {
     assert(true, 'Workflow 14g: RBAC Security Guard on Receipt Resend Endpoint (Skipped)');
   }
 
+  // =========================================================================
+  // WORKFLOW 15: FEE REMINDER & NOTIFICATION ENGINE (FM-005) REGRESSION SUITE
+  // =========================================================================
+  console.log("\n--- Running FM-005 Fee Reminder Engine Tests ---");
+
+  // 15a. GET /api/reminders/templates
+  const getTemplatesRes = await fetch(`${BASE_URL}/api/reminders/templates`, {
+    headers: { 'Authorization': `Bearer ${adminJwtToken}` }
+  });
+  const getTemplatesData: any = await getTemplatesRes.json();
+  assert(
+    getTemplatesRes.status === 200 &&
+    getTemplatesData.success === true &&
+    Array.isArray(getTemplatesData.data) &&
+    getTemplatesData.data.length >= 4,
+    'Workflow 15a: Retrieve Reminder Templates (4 Default Stage Templates)',
+    JSON.stringify(getTemplatesData)
+  );
+
+  // 15b. PUT /api/reminders/template
+  const updateTplRes = await fetch(`${BASE_URL}/api/reminders/template`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${adminJwtToken}`
+    },
+    body: JSON.stringify({
+      templateType: 'UPCOMING',
+      templateText: 'Dear {{studentName}} (Roll: {{rollNumber}}), your fee of ₹{{amount}} for {{billingMonth}} is due on {{dueDate}}.'
+    })
+  });
+  const updateTplData: any = await updateTplRes.json();
+  assert(
+    updateTplRes.status === 200 &&
+    updateTplData.success === true &&
+    updateTplData.data?.templateType === 'UPCOMING',
+    'Workflow 15b: Update Reminder Template Text',
+    JSON.stringify(updateTplData)
+  );
+
+  // 15c. POST /api/reminders/send-all (Scheduler scan)
+  const sendAllRes = await fetch(`${BASE_URL}/api/reminders/send-all`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${receptionJwtToken}` }
+  });
+  const sendAllData: any = await sendAllRes.json();
+  assert(
+    sendAllRes.status === 200 &&
+    sendAllData.success === true &&
+    sendAllData.data?.feesScanned !== undefined,
+    'Workflow 15c: Execute Reminder Scheduler Scan & Batch Send',
+    JSON.stringify(sendAllData)
+  );
+
+  // 15d. GET /api/reminders
+  const listRemindersRes = await fetch(`${BASE_URL}/api/reminders?page=1&limit=10`, {
+    headers: { 'Authorization': `Bearer ${receptionJwtToken}` }
+  });
+  const listRemindersData: any = await listRemindersRes.json();
+  assert(
+    listRemindersRes.status === 200 &&
+    listRemindersData.success === true &&
+    Array.isArray(listRemindersData.data?.reminders) &&
+    listRemindersData.data?.meta !== undefined,
+    'Workflow 15d: List Fee Reminders with Pagination & Filters',
+    JSON.stringify(listRemindersData)
+  );
+
+  // 15e. POST /api/reminders/send (Manual Reminder)
+  const manualSendRes = await fetch(`${BASE_URL}/api/reminders/send`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${receptionJwtToken}`
+    },
+    body: JSON.stringify({
+      studentId: testStudentId,
+      reminderType: 'OVERDUE',
+      channel: 'MANUAL',
+      messageOverride: 'Manual Overdue Reminder Test'
+    })
+  });
+  const manualSendData: any = await manualSendRes.json();
+  assert(
+    manualSendRes.status === 201 &&
+    manualSendData.success === true &&
+    manualSendData.data?.reminderId !== undefined &&
+    manualSendData.data?.status === 'SENT',
+    'Workflow 15e: Trigger Manual Fee Reminder Endpoint',
+    JSON.stringify(manualSendData)
+  );
+
+  // 15f. GET /api/reminders/student/:studentId
+  const studentRemindersRes = await fetch(`${BASE_URL}/api/reminders/student/${testStudentId}`, {
+    headers: { 'Authorization': `Bearer ${receptionJwtToken}` }
+  });
+  const studentRemindersData: any = await studentRemindersRes.json();
+  assert(
+    studentRemindersRes.status === 200 &&
+    studentRemindersData.success === true &&
+    Array.isArray(studentRemindersData.data) &&
+    studentRemindersData.data.length > 0,
+    'Workflow 15f: Retrieve Student Reminder History',
+    JSON.stringify(studentRemindersData)
+  );
+
+  // 15g. GET /api/reminders/dashboard
+  const dashStatsRes = await fetch(`${BASE_URL}/api/reminders/dashboard`, {
+    headers: { 'Authorization': `Bearer ${adminJwtToken}` }
+  });
+  const dashStatsData: any = await dashStatsRes.json();
+  assert(
+    dashStatsRes.status === 200 &&
+    dashStatsData.success === true &&
+    dashStatsData.data?.totalReminders !== undefined &&
+    dashStatsData.data?.upcomingToday !== undefined,
+    'Workflow 15g: Fetch Fee Reminder Dashboard Statistics',
+    JSON.stringify(dashStatsData)
+  );
+
+  // 15h. Idempotency Check (Run scheduler again, expect zero duplicate reminders generated for same stage)
+  const repeatSendAllRes = await fetch(`${BASE_URL}/api/reminders/send-all`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${adminJwtToken}` }
+  });
+  const repeatSendAllData: any = await repeatSendAllRes.json();
+  assert(
+    repeatSendAllRes.status === 200 &&
+    repeatSendAllData.success === true &&
+    repeatSendAllData.data?.remindersGenerated === 0,
+    'Workflow 15h: Scheduler Idempotency Guard (Zero Duplicate Reminders)',
+    JSON.stringify(repeatSendAllData)
+  );
+
+  // 15i. RBAC Security Check: Teacher Token or Invalid Token template update
+  const unauthTplRes = await fetch(`${BASE_URL}/api/reminders/template`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer fake-token`
+    },
+    body: JSON.stringify({
+      templateType: 'OVERDUE',
+      templateText: 'Unauthorized template update text'
+    })
+  });
+  assert(
+    unauthTplRes.status === 401 || unauthTplRes.status === 403,
+    'Workflow 15i: RBAC Security Guard on Template Edit Endpoint',
+    `Status: ${unauthTplRes.status}`
+  );
+
   console.log("\n=========================================");
   console.log(` SUMMARY: ${passedTests} Passed | ${failedTests} Failed`);
   console.log("=========================================\n");

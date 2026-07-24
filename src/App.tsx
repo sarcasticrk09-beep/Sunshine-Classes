@@ -95,6 +95,7 @@ import { MailSimulatorWidget } from './components/MailSimulatorWidget';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { FeesPage } from './pages/FeesPage';
 import { ReceiptVerificationPage } from './pages/ReceiptVerificationPage';
+import PublicStudyMaterialPage from './pages/PublicStudyMaterialPage';
 import { SEOHead, trackAdmissionSubmit } from './components/SEOHead';
 
 import { db } from './lib/firebase';
@@ -3643,6 +3644,10 @@ Sunshine Classes`;
 
           {/* Receipt Online Verification Public Route */}
           <Route path="/verify/receipt/:receiptNumber" element={<ReceiptVerificationPage />} />
+
+          {/* Public Study Material CMS Portal */}
+          <Route path="/study-material" element={<PublicStudyMaterialPage />} />
+          <Route path="/study-material/*" element={<PublicStudyMaterialPage />} />
 
           {/* Authentication Pages */}
           <Route path="/login" element={<Login onBackToWebsite={() => navigate('/')} />} />

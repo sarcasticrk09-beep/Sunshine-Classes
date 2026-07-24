@@ -6,6 +6,7 @@ import { EventPublisher } from '../shared/EventPublisher';
 import { PaymentProviderFactory } from './PaymentProvider';
 import { FeePayment, PaymentVerification, FeeReceipt } from '../../types';
 import { ReceiptService } from './ReceiptService';
+import { ReminderService } from '../reminders/ReminderService';
 
 export class FeeCollectionService {
   /**
@@ -281,7 +282,7 @@ export class FeeCollectionService {
         monthsCovered: paymentRecord.monthsPaid
       });
 
-      return {
+      const result = {
         success: true,
         message: 'Cash payment collected and receipt generated successfully.',
         data: {
@@ -289,6 +290,15 @@ export class FeeCollectionService {
           receipt: receiptRecord
         }
       };
+
+      // Cancel pending fee reminders for paid fees
+      for (const feeId of feeRecordIds) {
+        ReminderService.cancelPendingRemindersForFee(db, feeId).catch(err => {
+          console.error(`[FeeCollectionService] Non-blocking error cancelling reminders for fee ${feeId}:`, err);
+        });
+      }
+
+      return result;
     });
   }
 
@@ -659,7 +669,7 @@ export class FeeCollectionService {
         monthsCovered: monthsToPay
       });
 
-      return {
+      const result = {
         success: true,
         message: 'Payment verification approved successfully. Receipt and payment logs generated.',
         data: {
@@ -668,6 +678,17 @@ export class FeeCollectionService {
           receipt: receiptRecord
         }
       };
+
+      // Cancel pending fee reminders for approved fees
+      if (feeRecordIds && Array.isArray(feeRecordIds)) {
+        for (const feeId of feeRecordIds) {
+          ReminderService.cancelPendingRemindersForFee(db, feeId).catch(err => {
+            console.error(`[FeeCollectionService] Non-blocking error cancelling reminders for fee ${feeId}:`, err);
+          });
+        }
+      }
+
+      return result;
     });
   }
 

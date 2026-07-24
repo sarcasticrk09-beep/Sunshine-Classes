@@ -77,6 +77,8 @@ export const StudentDirectory: React.FC<StudentDirectoryProps> = ({
   const [hasPhoto, setHasPhoto] = useState('ALL');
   const [missingMobile, setMissingMobile] = useState('ALL');
   const [missingEmail, setMissingEmail] = useState('ALL');
+  const [hasConcession, setHasConcession] = useState('ALL');
+  const [concessionPercentageFilter, setConcessionPercentageFilter] = useState('');
 
   // Sorting & Pagination State
   const [sortBy, setSortBy] = useState('rollNo');
@@ -164,6 +166,8 @@ export const StudentDirectory: React.FC<StudentDirectoryProps> = ({
       if (hasPhoto !== 'ALL') params.append('hasPhoto', hasPhoto);
       if (missingMobile !== 'ALL') params.append('missingMobile', missingMobile);
       if (missingEmail !== 'ALL') params.append('missingEmail', missingEmail);
+      if (hasConcession !== 'ALL') params.append('hasConcession', hasConcession);
+      if (concessionPercentageFilter) params.append('concessionPercentage', concessionPercentageFilter);
 
       params.append('sortBy', sortBy);
       params.append('sortOrder', sortOrder);
@@ -198,6 +202,8 @@ export const StudentDirectory: React.FC<StudentDirectoryProps> = ({
     hasPhoto,
     missingMobile,
     missingEmail,
+    hasConcession,
+    concessionPercentageFilter,
     sortBy,
     sortOrder,
     page,
@@ -223,6 +229,8 @@ export const StudentDirectory: React.FC<StudentDirectoryProps> = ({
     setHasPhoto('ALL');
     setMissingMobile('ALL');
     setMissingEmail('ALL');
+    setHasConcession('ALL');
+    setConcessionPercentageFilter('');
     setPage(1);
   };
 
@@ -765,6 +773,42 @@ export const StudentDirectory: React.FC<StudentDirectoryProps> = ({
                 <option value="true">Missing Only</option>
                 <option value="false">Has Mobile</option>
               </select>
+            </div>
+
+            {/* Concession Status Filter */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Concession</label>
+              <select
+                id="select-filter-has-concession"
+                value={hasConcession}
+                onChange={e => {
+                  setHasConcession(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 font-medium"
+              >
+                <option value="ALL">All Students</option>
+                <option value="true">Has Concession</option>
+                <option value="false">No Concession</option>
+              </select>
+            </div>
+
+            {/* Concession % Filter */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Concession %</label>
+              <input
+                id="input-filter-concession-percentage"
+                type="number"
+                min="0"
+                max="100"
+                value={concessionPercentageFilter}
+                onChange={e => {
+                  setConcessionPercentageFilter(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="e.g. 10"
+                className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 font-medium placeholder-slate-300"
+              />
             </div>
 
             {/* Reset Filters */}

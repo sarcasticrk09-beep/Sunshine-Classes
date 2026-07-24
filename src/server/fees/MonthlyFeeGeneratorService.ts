@@ -35,6 +35,10 @@ export interface StudentMonthlyFee {
   generatedAt: string;
   createdAt: string;
   updatedAt: string;
+  originalClassFee?: number;
+  concessionPercentage?: number;
+  concessionAmount?: number;
+  concessionReason?: string;
 }
 
 export interface FeeGenerationReport {
@@ -130,6 +134,46 @@ export class MonthlyFeeGeneratorService {
   }
 
   /**
+   * Helper to fetch active concession setting for a student and calculate concession amount
+   */
+  public static getActiveConcession(studentId: string, monthStr: string, baseFee: number, allFeeSettings: any[]): { concessionPercentage: number; concessionAmount: number; reason: string } {
+    if (!allFeeSettings || allFeeSettings.length === 0) {
+      return { concessionPercentage: 0, concessionAmount: 0, reason: '' };
+    }
+
+    const studentSetting = allFeeSettings.find((s: any) => s.studentId === studentId && s.status === 'ACTIVE');
+    if (!studentSetting) {
+      return { concessionPercentage: 0, concessionAmount: 0, reason: '' };
+    }
+
+    const percentage = Number(studentSetting.concessionPercentage) || 0;
+    if (percentage <= 0 || percentage > 100) {
+      return { concessionPercentage: 0, concessionAmount: 0, reason: '' };
+    }
+
+    // Date range check if effectiveFrom/effectiveTill are provided
+    const parsed = parseMonthYear(monthStr);
+    if (parsed && parsed.val > 0) {
+      const monthStartIso = `${parsed.year}-${String(parsed.month).padStart(2, '0')}-01`;
+      const monthEndIso = `${parsed.year}-${String(parsed.month).padStart(2, '0')}-31`;
+
+      if (studentSetting.effectiveFrom && studentSetting.effectiveFrom > monthEndIso) {
+        return { concessionPercentage: 0, concessionAmount: 0, reason: '' };
+      }
+      if (studentSetting.effectiveTill && studentSetting.effectiveTill < monthStartIso) {
+        return { concessionPercentage: 0, concessionAmount: 0, reason: '' };
+      }
+    }
+
+    const concessionAmount = Math.round((baseFee * percentage) / 100);
+    return {
+      concessionPercentage: percentage,
+      concessionAmount,
+      reason: studentSetting.reason || ''
+    };
+  }
+
+  /**
    * Get target monthly fee and discount structure snapshot for a class.
    */
   public static async getFeeStructureForClass(className: string, db: any): Promise<any | null> {
@@ -166,9 +210,13 @@ export class MonthlyFeeGeneratorService {
       );
     }
 
-    // 2. Fetch existing generated monthly fees
-    const existingFeesSnap = await getDocs(collection(db, 'student_monthly_fees'));
+    // 2. Fetch existing generated monthly fees & student fee settings
+    const [existingFeesSnap, feeSettingsSnap] = await Promise.all([
+      getDocs(collection(db, 'student_monthly_fees')),
+      getDocs(collection(db, 'student_fee_settings'))
+    ]);
     const existingFees = existingFeesSnap.docs.map((d: any) => d.data());
+    const allFeeSettings = feeSettingsSnap.docs.map((d: any) => d.data());
 
     const previewDetails: Array<{
       studentId: string;
@@ -178,6 +226,9 @@ export class MonthlyFeeGeneratorService {
       month: string;
       amount: number;
       isBackfill: boolean;
+      originalClassFee?: number;
+      concessionPercentage?: number;
+      concessionAmount?: number;
     }> = [];
 
     let totalAmount = 0;
@@ -210,7 +261,8 @@ export class MonthlyFeeGeneratorService {
         }
 
         const qDiscount = this.calculateQuarterlyDiscount(m, structure);
-        const discountApplied = qDiscount;
+        const concessionInfo = this.getActiveConcession(student.id, m, baseFee, allFeeSettings);
+        const discountApplied = qDiscount + concessionInfo.concessionAmount;
         const totalFee = Math.max(0, baseFee - discountApplied);
 
         previewDetails.push({
@@ -220,7 +272,10 @@ export class MonthlyFeeGeneratorService {
           class: student.class,
           month: m,
           amount: totalFee,
-          isBackfill: m !== month
+          isBackfill: m !== month,
+          originalClassFee: baseFee,
+          concessionPercentage: concessionInfo.concessionPercentage,
+          concessionAmount: concessionInfo.concessionAmount
         });
 
         totalAmount += totalFee;
@@ -264,9 +319,13 @@ export class MonthlyFeeGeneratorService {
       );
     }
 
-    // 2. Fetch existing generated monthly fees for duplicate checks
-    const existingFeesSnap = await getDocs(collection(db, 'student_monthly_fees'));
+    // 2. Fetch existing generated monthly fees & student fee settings
+    const [existingFeesSnap, feeSettingsSnap] = await Promise.all([
+      getDocs(collection(db, 'student_monthly_fees')),
+      getDocs(collection(db, 'student_fee_settings'))
+    ]);
     const existingFees = existingFeesSnap.docs.map((d: any) => d.data());
+    const allFeeSettings = feeSettingsSnap.docs.map((d: any) => d.data());
 
     const generatedFees: StudentMonthlyFee[] = [];
     const reportStudents: Array<{
@@ -335,7 +394,8 @@ export class MonthlyFeeGeneratorService {
         }
 
         const qDiscount = this.calculateQuarterlyDiscount(m, structure);
-        const discountApplied = qDiscount;
+        const concessionInfo = this.getActiveConcession(student.id, m, baseFee, allFeeSettings);
+        const discountApplied = qDiscount + concessionInfo.concessionAmount;
         const totalFee = Math.max(0, baseFee - discountApplied);
         const dueDate = getDueDateForMonth(m, student.dueDay || 10);
 
@@ -366,6 +426,10 @@ export class MonthlyFeeGeneratorService {
           status: 'PENDING',
           dueDate,
           feeStructureSnapshot: snapshot,
+          originalClassFee: baseFee,
+          concessionPercentage: concessionInfo.concessionPercentage,
+          concessionAmount: concessionInfo.concessionAmount,
+          concessionReason: concessionInfo.reason,
           generatedBy: username,
           generatedAt: nowIso,
           createdAt: nowIso,
