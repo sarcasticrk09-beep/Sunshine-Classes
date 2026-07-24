@@ -12,6 +12,7 @@ import { initializeApp as initializeAdminApp, cert } from "firebase-admin/app";
 import helmet from "helmet";
 import compression from "compression";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
 
@@ -22,6 +23,12 @@ import { AuthController } from "./src/server/auth/AuthController";
 import { authMiddleware, AuthenticatedRequest } from "./src/server/auth/AuthMiddleware";
 import { roleMiddleware } from "./src/server/auth/RoleMiddleware";
 import { AuditLogger } from "./src/server/auth/AuditLogger";
+import { AdmissionController } from "./src/server/admissions/AdmissionController";
+import { StudentController } from "./src/server/students/StudentController";
+import { FeeStructureController } from "./src/server/fees/FeeStructureController";
+import { MonthlyFeeGeneratorController } from "./src/server/fees/MonthlyFeeGeneratorController";
+import { FeeCollectionController } from "./src/server/fees/FeeCollectionController";
+import { ReceiptController } from "./src/server/fees/ReceiptController";
 
 // Ensure process env variables are available (for local testing fallback)
 import "dotenv/config";
@@ -35,8 +42,12 @@ if (!serviceAccountJson) {
 }
 
 try {
-  const serviceAccount = JSON.parse(serviceAccountJson);
+  const serviceAccount = typeof serviceAccountJson === "string" ? JSON.parse(serviceAccountJson) : serviceAccountJson;
   
+  if (serviceAccount.private_key && typeof serviceAccount.private_key === "string") {
+    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+  }
+
   if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
     throw new Error("Missing required fields in FIREBASE_SERVICE_ACCOUNT_JSON (project_id, private_key, client_email)");
   }
@@ -44,7 +55,7 @@ try {
   initializeAdminApp({
     credential: cert(serviceAccount)
   });
-  console.log("[Firebase Admin SDK] Initialized successfully with Service Account.");
+  console.log(`[Firebase Admin SDK] Initialized successfully with Service Account for project: ${serviceAccount.project_id}`);
 } catch (e: any) {
   console.error("[Firebase Admin SDK] Critical Error during initialization:", e.message);
   process.exit(1);
@@ -56,23 +67,14 @@ import { setLogLevel } from "firebase/firestore";
 import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
 import fs from "fs";
 
-let firestoreDatabaseId: string | undefined;
-try {
-  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-  if (fs.existsSync(configPath)) {
-    const configFile = fs.readFileSync(configPath, "utf8");
-    const config = JSON.parse(configFile);
-    firestoreDatabaseId = config.firestoreDatabaseId;
-    if (firestoreDatabaseId === "(default)") {
-      firestoreDatabaseId = undefined;
-    }
-    console.log("[Firebase Admin SDK] Detected firestoreDatabaseId:", firestoreDatabaseId);
-  }
-} catch (e: any) {
-  console.error("[Firebase Admin SDK] Failed to load config databaseId:", e.message);
+let firestoreDatabaseId: string | undefined = process.env.FIREBASE_DATABASE_ID || process.env.FIRESTORE_DATABASE_ID;
+if (firestoreDatabaseId === "(default)" || firestoreDatabaseId === "default") {
+  firestoreDatabaseId = undefined;
 }
+console.log("[Firebase Admin SDK] Detected firestoreDatabaseId:", firestoreDatabaseId || "(default)");
 
 const adminDb = firestoreDatabaseId ? getAdminFirestore(firestoreDatabaseId) : getAdminFirestore();
+export const db = {} as any;
 
 export class AdminDocRefAdapter {
   constructor(public rawRef: any) {}
@@ -240,36 +242,6 @@ if (typeof process !== "undefined") {
   });
 }
 
-let firebaseConfig = {
-  projectId: "maximal-music-shh41",
-  appId: "1:996750335749:web:fead7d5fdea73b78cfe16c",
-  apiKey: "AIzaSyCPZA9lz7YSQ4kkqD6JxDyyxAaQrO3kqyo",
-  authDomain: "maximal-music-shh41.firebaseapp.com",
-  storageBucket: "maximal-music-shh41.firebasestorage.app",
-  messagingSenderId: "996750335749"
-};
-
-try {
-  const cfgPath = path.join(process.cwd(), "firebase-applet-config.json");
-  if (fs.existsSync(cfgPath)) {
-    const rawCfg = fs.readFileSync(cfgPath, "utf8");
-    const parsedCfg = JSON.parse(rawCfg);
-    firebaseConfig = {
-      projectId: parsedCfg.projectId || firebaseConfig.projectId,
-      appId: parsedCfg.appId || firebaseConfig.appId,
-      apiKey: parsedCfg.apiKey || firebaseConfig.apiKey,
-      authDomain: parsedCfg.authDomain || firebaseConfig.authDomain,
-      storageBucket: parsedCfg.storageBucket || firebaseConfig.storageBucket,
-      messagingSenderId: parsedCfg.messagingSenderId || firebaseConfig.messagingSenderId
-    };
-  }
-} catch (e: any) {
-  console.warn("[Firebase Client Config] Using fallback config:", e.message);
-}
-
-const fbApp = initializeApp(firebaseConfig, "sunshine-classes-server");
-const db = {} as any;
-
 function simpleSecureHash(password: string): string {
   function sha256(ascii: string): string {
     function rightRotate(value: number, amount: number) {
@@ -382,22 +354,54 @@ async function startServer() {
     credentials: true
   }));
 
-  // JSON parsing middleware
+  // JSON parsing & cookie parsing middleware
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+  app.use(cookieParser());
 
   // Trust proxy for Railway / Cloud Run reverse proxy SSL and IP forwarding
   app.set('trust proxy', 1);
 
-  // API rate limiting
+  // Global API rate limiting (relaxed in production/dev to prevent 429 blocks)
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 150,
+    max: process.env.NODE_ENV === "production" ? 10000 : 50000,
     standardHeaders: true,
     legacyHeaders: false,
+    skip: (req) => {
+      // Skip rate limits for loopback, health checks, webhooks, and critical high-volume sends
+      const url = req.url || '';
+      const originalUrl = req.originalUrl || '';
+      return url.includes('send-whatsapp') || 
+             originalUrl.includes('send-whatsapp') || 
+             url.includes('whatsapp-webhook') || 
+             originalUrl.includes('whatsapp-webhook') || 
+             url.includes('health') ||
+             originalUrl.includes('health');
+    },
     message: { error: "Too many requests from this IP. Please try again later." }
   });
   app.use("/api/", apiLimiter);
+
+  // Dedicated Authentication rate limiting (relaxed in production/dev)
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: process.env.NODE_ENV === "production" ? 5000 : 20000,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many authentication requests from this IP. Please try again later." }
+  });
+  app.use("/api/auth/", authLimiter);
+
+  // Strict brute-force protection rate limiter for Login endpoint (relaxed in production/dev)
+  const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: process.env.NODE_ENV === "production" ? 1000 : 10000,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many failed login attempts from this IP. Please wait 15 minutes before trying again." }
+  });
+  app.use("/api/auth/login", loginLimiter);
 
   // Custom request logging middleware
   app.use((req, res, next) => {
@@ -411,6 +415,26 @@ async function startServer() {
   });
   app.get("/api/health", (req, res) => {
     res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
+  });
+  app.get("/api/health/firestore", async (req, res) => {
+    try {
+      const snap = await adminDb.collection("students").limit(1).get();
+      res.status(200).json({
+        status: "OK",
+        firestoreConnected: true,
+        databaseId: firestoreDatabaseId || "(default)",
+        documentsFound: snap.docs.length,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err: any) {
+      console.error("[Firestore Health Check Error]:", err.message);
+      res.status(500).json({
+        status: "ERROR",
+        firestoreConnected: false,
+        error: err.message,
+        timestamp: new Date().toISOString()
+      });
+    }
   });
 
   // Dynamic XML Sitemap for Sunshine Classes SEO
@@ -2018,20 +2042,244 @@ async function startServer() {
     }
   };
 
+  // Set up AuditLogger Firestore writer
+  AuditLogger.setFirestoreLogger(async (logItem: any) => {
+    try {
+      await setDoc(doc(db, 'audit_logs', logItem.id), logItem, { merge: true });
+    } catch (e: any) {
+      console.warn('[AuditLogger Firestore] Warning:', e?.message);
+    }
+  });
+
+  // --- Phase 2.1 Complete Authentication & Authorization REST APIs ---
+
   // 1. Login endpoint (username + password)
   app.post("/api/auth/login", async (req, res) => {
-    return AuthController.login(req, res, getERPUsersList);
+    return AuthController.login(req, res, getERPUsersList, saveERPUsersList);
   });
 
   // 2. Logout endpoint
-  app.post("/api/auth/logout", async (req, res) => {
-    return res.status(200).json({ success: true, message: "Logged out successfully." });
+  app.post("/api/auth/logout", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return AuthController.logout(req, res);
   });
 
-  // 3. Change password endpoint (JWT required)
+  // 3. Refresh access token endpoint
+  app.post("/api/auth/refresh", async (req, res) => {
+    return AuthController.refresh(req, res, getERPUsersList);
+  });
+
+  // 4. Get current user profile endpoint
+  app.get("/api/auth/me", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return AuthController.me(req, res, getERPUsersList);
+  });
+
+  // 5. Change own password endpoint (JWT required)
   app.post("/api/auth/change-password", authMiddleware, async (req: AuthenticatedRequest, res) => {
     return AuthController.changePassword(req, res, getERPUsersList, saveERPUsersList);
   });
+
+  // 6. Reset password endpoint (Hierarchy enforced in AuthController)
+  app.post("/api/auth/reset-password", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return AuthController.resetPassword(req, res, getERPUsersList, saveERPUsersList);
+  });
+
+  // 7. Unlock account endpoint (Admin only)
+  app.post("/api/auth/unlock-account", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return AuthController.unlockAccount(req, res, getERPUsersList, saveERPUsersList);
+  });
+
+  // --- Phase 3.1 Admissions Module REST APIs ---
+  app.post("/api/admissions", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return AdmissionController.create(req, res, db);
+  });
+
+  app.get("/api/admissions", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return AdmissionController.list(req, res, db);
+  });
+
+  app.get("/api/admissions/search", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return AdmissionController.search(req, res, db);
+  });
+
+  app.get("/api/admissions/:id", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return AdmissionController.getById(req, res, db);
+  });
+
+  app.put("/api/admissions/:id", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return AdmissionController.update(req, res, db);
+  });
+
+  app.delete("/api/admissions/:id", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return AdmissionController.remove(req, res, db);
+  });
+
+  // --- Phase 3.2 Student Management Foundation REST APIs ---
+  app.get("/api/students", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.list(req, res, db);
+  });
+
+  app.get("/api/students/search", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.search(req, res, db);
+  });
+
+  app.get("/api/students/export", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.export(req, res, db);
+  });
+
+  app.get("/api/students/:id/timeline", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.getTimeline(req, res, db);
+  });
+
+  app.get("/api/students/:id", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.getById(req, res, db);
+  });
+
+  app.put("/api/students/:id", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.update(req, res, db);
+  });
+
+  app.patch("/api/students/:id/status", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.updateStatus(req, res, db);
+  });
+
+  app.patch("/api/students/:id/class", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.updateClass(req, res, db);
+  });
+
+  app.patch("/api/students/:id/change-class", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.changeClass(req, res, db);
+  });
+
+  app.get("/api/students/:id/class-history", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.getClassHistory(req, res, db);
+  });
+
+  app.patch("/api/students/:id/assign-teacher", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.assignTeacher(req, res, db);
+  });
+
+  app.get("/api/students/:id/teacher-history", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.getTeacherHistory(req, res, db);
+  });
+
+  app.patch("/api/students/:id/teacher", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.updateTeacher(req, res, db);
+  });
+
+  app.patch("/api/students/:id/documents", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.updateDocuments(req, res, db);
+  });
+
+  app.delete("/api/students/:id", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return StudentController.remove(req, res, db);
+  });
+
+  // --- FEE STRUCTURE ENGINE ENDPOINTS ---
+  app.post("/api/fees/structures", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeStructureController.create(req, res, db);
+  });
+
+  app.put("/api/fees/structures/:id", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeStructureController.update(req, res, db);
+  });
+
+  app.get("/api/fees/structures", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeStructureController.list(req, res, db);
+  });
+
+  app.get("/api/fees/structures/:id", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeStructureController.getById(req, res, db);
+  });
+
+  app.get("/api/fees/structures/:id/history", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeStructureController.history(req, res, db);
+  });
+
+  app.post("/api/fees/structures/:id/activate", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeStructureController.activate(req, res, db);
+  });
+
+  // --- MONTHLY FEE GENERATION ENGINE ENDPOINTS ---
+  app.post("/api/fees/generate", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return MonthlyFeeGeneratorController.generate(req, res, db);
+  });
+
+  app.post("/api/fees/generate/preview", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return MonthlyFeeGeneratorController.preview(req, res, db);
+  });
+
+  app.get("/api/fees/monthly", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return MonthlyFeeGeneratorController.list(req, res, db);
+  });
+
+  app.get("/api/fees/monthly/student/:studentId", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return MonthlyFeeGeneratorController.getByStudent(req, res, db);
+  });
+
+  app.get("/api/fees/generation-reports", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return MonthlyFeeGeneratorController.getReports(req, res, db);
+  });
+
+  // --- FEE COLLECTION ENGINE ENDPOINTS ---
+  app.post("/api/fees/pay", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeCollectionController.collectCash(req, res, db);
+  });
+
+  app.post("/api/fees/payment/submit", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeCollectionController.submitVerification(req, res, db);
+  });
+
+  app.post("/api/fees/payment/approve", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeCollectionController.approveVerification(req, res, db);
+  });
+
+  app.post("/api/fees/payment/reject", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeCollectionController.rejectVerification(req, res, db);
+  });
+
+  app.get("/api/fees/payments", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeCollectionController.listPayments(req, res, db);
+  });
+
+  app.get("/api/fees/payment/verifications", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeCollectionController.listVerifications(req, res, db);
+  });
+
+  app.get("/api/fees/receipt/:receiptNumber", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return FeeCollectionController.getReceipt(req, res, db);
+  });
+
+  // --- DIGITAL RECEIPT & VERIFICATION ENGINE (FM-004) ENDPOINTS ---
+  app.post("/api/receipts/generate", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return ReceiptController.generate(req, res, db);
+  });
+
+  app.get("/api/receipts/:receiptId", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return ReceiptController.getById(req, res, db);
+  });
+
+  app.get("/api/receipts/number/:receiptNumber", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return ReceiptController.getByNumber(req, res, db);
+  });
+
+  app.get("/api/receipts/student/:studentId", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return ReceiptController.getByStudent(req, res, db);
+  });
+
+  app.post("/api/receipts/resend", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return ReceiptController.resend(req, res, db);
+  });
+
+  app.post("/api/receipts/:receiptId/download", authMiddleware, async (req: AuthenticatedRequest, res) => {
+    return ReceiptController.logDownload(req, res, db);
+  });
+
+  // Public online receipt verification route (fully public)
+  app.get("/verify/receipt/:receiptNumber", async (req, res) => {
+    return ReceiptController.verifyPublic(req, res, db);
+  });
+
+
 
   // 3. Admin create user endpoint
   app.post("/api/admin/create-user", async (req, res) => {

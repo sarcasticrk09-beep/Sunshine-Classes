@@ -299,3 +299,88 @@ export function useUsersListener(
     enabled,
   });
 }
+
+export function useClassesListener(
+  onData: (classes: any[]) => void,
+  reconnectSignal?: number,
+  enabled: boolean = true
+) {
+  useCollectionListener({
+    collectionName: 'classes',
+    storageKey: 'sunshine_classes',
+    onData,
+    reconnectSignal,
+    enabled,
+  });
+}
+
+export function useFeesListener(
+  onData: (fees: any[]) => void,
+  reconnectSignal?: number,
+  enabled: boolean = true
+) {
+  useCollectionListener({
+    collectionName: 'fees',
+    storageKey: 'sunshine_fees',
+    onData,
+    reconnectSignal,
+    enabled,
+  });
+}
+
+export function usePaymentsListener(
+  onData: (payments: any[]) => void,
+  reconnectSignal?: number,
+  enabled: boolean = true
+) {
+  useCollectionListener({
+    collectionName: 'payments',
+    storageKey: 'sunshine_payments',
+    onData,
+    reconnectSignal,
+    enabled,
+  });
+}
+
+export function useAttendanceListener(
+  onData: (attendance: any[]) => void,
+  reconnectSignal?: number,
+  enabled: boolean = true
+) {
+  useCollectionListener({
+    collectionName: 'attendance',
+    storageKey: 'sunshine_attendance',
+    onData,
+    reconnectSignal,
+    enabled,
+  });
+}
+
+export function useNotificationsListener(
+  onData: (notifications: any[]) => void,
+  reconnectSignal?: number,
+  enabled: boolean = true
+) {
+  useCollectionListener({
+    collectionName: 'notifications',
+    storageKey: 'sunshine_notifications',
+    onData,
+    reconnectSignal,
+    enabled,
+  });
+}
+
+export function useAuditLogsListener(
+  onData: (auditLogs: any[]) => void,
+  reconnectSignal?: number,
+  enabled: boolean = true
+) {
+  useCollectionListener({
+    collectionName: 'audit_logs',
+    storageKey: 'sunshine_audit_logs',
+    onData,
+    reconnectSignal,
+    enabled,
+  });
+}
+

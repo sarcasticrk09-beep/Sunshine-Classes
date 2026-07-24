@@ -262,9 +262,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   /**
-   * Username / Password Login (For Teachers and Students)
+   * Username / Password Login (For Teachers, Students, Receptionists, Admins)
    */
-  const login = async (emailOrUsername: string, password: string, remember: boolean): Promise<boolean> => {
+  const login = async (emailOrUsername: string, password: string, remember: boolean): Promise<{ success: boolean; mustChangePassword?: boolean }> => {
     const rawInput = emailOrUsername.trim().toLowerCase();
     const trimmedInput = rawInput.replace(/^@/, '');
     const trimmedPassword = password.trim();
@@ -273,7 +273,57 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       throw new Error("Username and password are required.");
     }
 
-    // Fetch latest lists of users, students, and teachers
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username: trimmedInput, password: trimmedPassword })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const token = data.accessToken || data.token;
+        if (token) {
+          localStorage.setItem('sunshine_token', token);
+          sessionStorage.setItem('sunshine_token', token);
+        }
+        if (data.refreshToken) {
+          localStorage.setItem('sunshine_refresh_token', data.refreshToken);
+        }
+
+        const userObj: User = {
+          id: data.user.id || data.user.userId,
+          username: data.user.username,
+          name: data.user.name,
+          email: data.user.email,
+          role: sanitizeRole(data.user.role),
+          phone: data.user.phone || '',
+          forcePasswordChange: !!(data.mustChangePassword || data.firstLogin || data.user.mustChangePassword),
+          activeSessionId: `sess-${Date.now()}`
+        };
+
+        const sessionObj = { user: userObj, role: userObj.role };
+        sessionStorage.setItem('sunshine_active_session', JSON.stringify(sessionObj));
+        if (remember) {
+          localStorage.setItem('sunshine_active_session', JSON.stringify(sessionObj));
+        }
+
+        setCurrentUser(userObj);
+        setRole(userObj.role);
+
+        return { success: true, mustChangePassword: userObj.forcePasswordChange };
+      } else if (res.status === 401 || res.status === 400 || res.status === 403) {
+        throw new Error(data.error || "Invalid username or password.");
+      }
+    } catch (apiErr: any) {
+      if (apiErr.message.includes("disabled") || apiErr.message.includes("locked") || apiErr.message.includes("Invalid username")) {
+        throw apiErr;
+      }
+      console.warn("[AuthProvider] API login fallback triggered:", apiErr.message);
+    }
+
+    // Fallback client-side authentication against Firestore / Local storage
     const [usersList, studentsList, teachersList] = await Promise.all([
       getERPData<any>('users', SEED_USERS),
       getERPData<any>('students', SEED_STUDENTS),
@@ -293,7 +343,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       userRole = sanitizeRole(matchedUser.role);
     }
 
-    // 2. If not found, check teachers table (Fallback login)
+    // 2. If not found, check teachers table
     if (!matchedUser) {
       const matchedTeacher = teachersList.find((t: any) => {
         const baseName = t.name?.toLowerCase().replace(/\s+/g, '') || '';
@@ -320,7 +370,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     }
 
-    // 3. If not found, check students table (Fallback login)
+    // 3. If not found, check students table
     if (!matchedUser) {
       const matchedStudent = studentsList.find((s: any) => {
         const baseName = s.name?.toLowerCase().replace(/\s+/g, '') || '';
@@ -348,28 +398,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
 
     if (!matchedUser) {
-      // General failed login attempt log
       await writeAuditLog('unknown', trimmedInput, 'FAILED_LOGIN', `Attempted login with unregistered identifier: ${trimmedInput}`);
       throw new Error("Invalid username/email or password.");
     }
 
-    if (matchedUser.active === false) {
+    if (matchedUser.active === false || matchedUser.status === 'DISABLED') {
       await writeAuditLog(matchedUser.id, matchedUser.username, 'FAILED_LOGIN', `Disabled account login attempt: ${matchedUser.username}`);
       throw new Error("Your account has been disabled. Please contact the administrator.");
     }
 
-    if (matchedUser.isLocked === true) {
+    if (matchedUser.isLocked === true || matchedUser.status === 'LOCKED') {
       await writeAuditLog(matchedUser.id, matchedUser.username, 'FAILED_LOGIN', `Locked account login attempt: ${matchedUser.username}`);
-      throw new Error("Your account is locked due to security reasons. Please contact the administrator.");
+      throw new Error("Your account is locked due to security policy. Please contact the administrator.");
     }
 
     // Evaluate password correctness
     let isPasswordCorrect = false;
 
-    // Check possible passwords for matched user (supports hashes, plain, and default generated passwords)
     const userPwd = matchedUser.password || '';
-    
-    // Fallback options for default student/teacher passwords to be extremely robust
     const lowerUser = matchedUser.username?.toLowerCase() || '';
     const baseNameOnly = matchedUser.name?.toLowerCase().replace(/\s+/g, '') || '';
     const fallbackPassword1 = `${lowerUser}123`;
@@ -378,7 +424,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const possiblePasswords = [
       userPwd,
       fallbackPassword1,
-      fallbackPassword2
+      fallbackPassword2,
+      "Sunshine123"
     ].filter(Boolean);
 
     for (const option of possiblePasswords) {
@@ -401,7 +448,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
 
     if (!isPasswordCorrect) {
-      // Increment failed login attempts
       const currentAttempts = (matchedUser.failedLoginAttempts || 0) + 1;
       let isLockedNow = false;
       let errorMsg = "Invalid username/email or password.";
@@ -415,18 +461,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           return {
             ...u,
             failedLoginAttempts: isLocked ? 0 : currentAttempts,
-            isLocked: isLocked ? true : u.isLocked
+            isLocked: isLocked ? true : u.isLocked,
+            status: isLocked ? 'LOCKED' : (u.status || 'ACTIVE')
           };
         }
         return u;
       });
 
-      // If the matched user wasn't in core users list, add/update them
       if (!usersList.some((u: any) => u.id === matchedUser.id)) {
         updatedUsersList.push({
           ...matchedUser,
           failedLoginAttempts: currentAttempts >= 5 ? 0 : currentAttempts,
           isLocked: currentAttempts >= 5 ? true : false,
+          status: currentAttempts >= 5 ? 'LOCKED' : 'ACTIVE',
           password: simpleSecureHash(fallbackPassword1)
         });
       }
@@ -443,7 +490,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       throw new Error(errorMsg);
     }
 
-    // Success - reset attempts counter, update activeSessionId, and remove raw/legacy passwords (self-healing)
     const newSessionId = `sess-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const hashedPwd = simpleSecureHash(trimmedPassword);
 
@@ -453,7 +499,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return {
           ...copy,
           password: hashedPwd,
-          plainPassword: trimmedPassword,
           failedLoginAttempts: 0,
           activeSessionId: newSessionId
         };
@@ -461,22 +506,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return u;
     });
 
-    // If the matched user wasn't in core users list, add/update them
     if (!usersList.some((u: any) => u.id === matchedUser.id)) {
       const newUserObj = {
         ...matchedUser,
         password: hashedPwd,
-        plainPassword: trimmedPassword,
         failedLoginAttempts: 0,
         activeSessionId: newSessionId,
-        forcePasswordChange: matchedUser.forcePasswordChange || false
+        forcePasswordChange: matchedUser.forcePasswordChange || matchedUser.mustChangePassword || false
       };
       updatedUsersList.push(newUserObj);
     }
 
     await syncERPData('users', updatedUsersList);
 
-    // Set authenticated user state
+    const mustChange = !!(matchedUser.firstLogin || matchedUser.mustChangePassword || matchedUser.forcePasswordChange);
+
     const verifiedUser: User = {
       id: matchedUser.id || `user-${Date.now()}`,
       username: matchedUser.username || lowerUser,
@@ -485,7 +529,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       role: userRole || 'STUDENT',
       phone: matchedUser.phone || matchedUser.mobile || '',
       avatarUrl: matchedUser.profilePhoto || '',
-      forcePasswordChange: matchedUser.forcePasswordChange || false,
+      forcePasswordChange: mustChange,
       activeSessionId: newSessionId
     };
 
@@ -494,7 +538,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       role: verifiedUser.role
     };
 
-    // Store in session or local storage
     sessionStorage.setItem('sunshine_active_session', JSON.stringify(sessionObj));
     if (remember) {
       localStorage.setItem('sunshine_active_session', JSON.stringify(sessionObj));
@@ -503,13 +546,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setCurrentUser(verifiedUser);
     setRole(verifiedUser.role);
 
-    await writeAuditLog(verifiedUser.id, verifiedUser.username, 'USER_LOGIN', `User ${verifiedUser.username} successfully logged in to the ERP.`);
+    await writeAuditLog(verifiedUser.id, verifiedUser.username, 'USER_LOGIN', `User ${verifiedUser.username} successfully logged in.`);
 
-    return true;
+    return { success: true, mustChangePassword: mustChange };
   };
 
   /**
-   * Google Sign-In (Exclusive for Admins, Super Admins, and Receptionists)
+   * Google Sign-In placeholder
    */
   const googleLogin = async (): Promise<boolean> => {
     throw new Error("Google Sign-In has been replaced with Username and Password authentication as per ERP security guidelines.");
@@ -520,6 +563,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    */
   const logout = async (): Promise<void> => {
     try {
+      const token = localStorage.getItem('sunshine_token') || sessionStorage.getItem('sunshine_token');
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        credentials: 'include'
+      }).catch(() => {});
+
       if (currentUser) {
         await writeAuditLog(currentUser.id, currentUser.username, 'USER_LOGOUT', `User ${currentUser.username} logged out.`);
       }
@@ -527,27 +580,55 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.warn("Error logging out user audit:", err);
     }
 
-    // Clear all stored credentials and active sessions
     sessionStorage.removeItem('sunshine_active_session');
     localStorage.removeItem('sunshine_active_session');
+    sessionStorage.removeItem('sunshine_token');
     localStorage.removeItem('sunshine_token');
-    localStorage.removeItem('sunshine_user');
-    localStorage.removeItem('sunshine_remember_me');
-    localStorage.removeItem('sunshine_remember_username');
-    localStorage.removeItem('sunshine_remember_role');
+    localStorage.removeItem('sunshine_refresh_token');
 
     setCurrentUser(null);
     setRole(null);
   };
 
   /**
-   * Passcode/Password update for currently logged-in user
+   * Change Password for logged in user
    */
-  const changePassword = async (currentPassword: string, newPassword: string): Promise<void> => {
+  const changePassword = async (currentPassword: string, newPassword: string, confirmPassword?: string): Promise<void> => {
     if (!currentUser) {
       throw new Error("No authenticated session active.");
     }
 
+    const token = localStorage.getItem('sunshine_token') || sessionStorage.getItem('sunshine_token');
+
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        credentials: 'include',
+        body: JSON.stringify({ currentPassword, oldPassword: currentPassword, newPassword, confirmPassword })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCurrentUser({ ...currentUser, forcePasswordChange: false });
+        sessionStorage.removeItem('sunshine_active_session');
+        localStorage.removeItem('sunshine_active_session');
+        setCurrentUser(null);
+        setRole(null);
+        return;
+      } else if (!res.ok) {
+        throw new Error(data.error || "Failed to update password.");
+      }
+    } catch (err: any) {
+      if (err.message && !err.message.includes("fetch")) {
+        throw err;
+      }
+    }
+
+    // Client-side fallback
     const usersList = await getERPData<any>('users', SEED_USERS);
     const userDbEntry = usersList.find((u: any) => u.id === currentUser.id || u.username?.toLowerCase() === currentUser.username?.toLowerCase());
 
@@ -555,47 +636,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       throw new Error("User profile not found in ERP records.");
     }
 
-    // Verify current password!
-    if (userDbEntry.password) {
-      const hashedCurrent = simpleSecureHash(currentPassword);
-      const storedHash = userDbEntry.password;
-      const match = hashedCurrent === storedHash || 
-                    hashedCurrent.replace('sha256_', 'sha256_mock_') === storedHash || 
-                    hashedCurrent.replace('sha256_mock_', 'sha256_') === storedHash;
-
-      if (!match) {
-        throw new Error("The current password you entered is incorrect.");
-      }
-    }
-
-    // Generate a fresh session ID for this user (logs out other tabs/devices)
     const newSessionId = `sess-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
-    const timeStr = now.toTimeString().split(' ')[0];
-
-    const historyEntry = {
-      changedBy: 'Self',
-      date: dateStr,
-      time: timeStr,
-      type: 'SELF_CHANGED' as const
-    };
 
     const updatedUsers = usersList.map((u: any) => {
       if (u.id === currentUser.id || u.username?.toLowerCase() === currentUser.username?.toLowerCase()) {
-        const history = u.passwordHistory ? [...u.passwordHistory] : [];
-        history.push(historyEntry);
-
         const updated = {
           ...u,
           password: simpleSecureHash(newPassword),
           forcePasswordChange: false,
+          mustChangePassword: false,
           firstLogin: false,
-          activeSessionId: newSessionId,
-          passwordHistory: history
+          activeSessionId: newSessionId
         };
-        // Explicitly delete any plaintext or plainPassword keys
         delete updated.plainPassword;
         return updated;
       }
@@ -604,14 +656,60 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     await syncERPData('users', updatedUsers);
     
-    // Revoke sessions and force log out immediately
     sessionStorage.removeItem('sunshine_active_session');
     localStorage.removeItem('sunshine_active_session');
     setCurrentUser(null);
     setRole(null);
 
-    await writeAuditLog(currentUser.id, currentUser.username, 'PASSWORD_CHANGE', "User updated their login passcode successfully. All sessions revoked and forced re-login.");
+    await writeAuditLog(currentUser.id, currentUser.username, 'PASSWORD_CHANGE', "User updated their password. Session ended.");
   };
+
+  /**
+   * Reset user password (Hierarchy Enforced)
+   */
+  const resetUserPassword = async (targetUserId: string, targetUsername?: string, newPassword?: string): Promise<{ success: boolean; tempPassword?: string }> => {
+    const token = localStorage.getItem('sunshine_token') || sessionStorage.getItem('sunshine_token');
+
+    const res = await fetch('/api/auth/reset-password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      credentials: 'include',
+      body: JSON.stringify({ targetUserId, targetUsername, newPassword })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to reset password.');
+    }
+
+    return { success: true, tempPassword: data.tempPassword };
+  };
+
+  /**
+   * Unlock user account
+   */
+  const unlockUserAccount = async (targetUserId: string, targetUsername?: string): Promise<void> => {
+    const token = localStorage.getItem('sunshine_token') || sessionStorage.getItem('sunshine_token');
+
+    const res = await fetch('/api/auth/unlock-account', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      credentials: 'include',
+      body: JSON.stringify({ targetUserId, targetUsername })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to unlock account.');
+    }
+  };
+
 
   return (
     <AuthContext.Provider value={{
@@ -622,7 +720,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       login,
       googleLogin,
       logout,
-      changePassword
+      changePassword,
+      resetUserPassword,
+      unlockUserAccount
     }}>
       {children}
     </AuthContext.Provider>

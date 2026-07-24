@@ -2,205 +2,238 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "Firebase user registration document matching UID.",
+      "description": "User authentication credentials and account state.",
       "type": "object",
       "properties": {
+        "userId": { "type": "string" },
         "username": { "type": "string" },
-        "name": { "type": "string" },
-        "email": { "type": "string" },
-        "role": { "type": "string", "enum": ["SUPER_ADMIN", "ADMIN", "reception", "teacher", "student", "TEACHER", "RECEPTIONIST", "STUDENT"] },
-        "active": { "type": "boolean" }
+        "passwordHash": { "type": "string" },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST", "TEACHER", "STUDENT"] },
+        "status": { "type": "string", "enum": ["ACTIVE", "DISABLED", "LOCKED"] },
+        "lastLogin": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
       },
-      "required": ["username", "name", "email", "role", "active"]
+      "required": ["username", "role"]
     },
     "Student": {
       "title": "Student",
-      "description": "Active coaching student profiles.",
+      "description": "Student profile metadata (no embedded payment/attendance histories).",
       "type": "object",
       "properties": {
+        "studentId": { "type": "string" },
+        "rollNumber": { "type": "string" },
         "userId": { "type": "string" },
-        "rollNo": { "type": "string" },
         "name": { "type": "string" },
-        "class": { "type": "string" },
         "fatherName": { "type": "string" },
         "motherName": { "type": "string" },
-        "dob": { "type": "string" },
-        "gender": { "type": "string" },
+        "phone": { "type": "string" },
+        "alternatePhone": { "type": "string" },
         "address": { "type": "string" },
-        "mobile": { "type": "string" },
-        "whatsapp": { "type": "string" },
-        "parentMobile: ": { "type": "string" },
-        "email": { "type": "string" },
-        "preferredBatch": { "type": "string" },
-        "preferredTiming": { "type": "string" },
-        "admissionDate": { "type": "string" },
-        "attendancePercentage": { "type": "number" },
+        "classId": { "type": "string" },
+        "teacherId": { "type": "string" },
         "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
-        "feeStartMonth": { "type": "string" },
-        "monthlyFee": { "type": "number" },
-        "feePlanId": { "type": "string" },
-        "currentBalance": { "type": "number" },
-        "admissionFee": { "type": "number" },
-        "registrationFee": { "type": "number" },
-        "discount": { "type": "number" },
-        "scholarship": { "type": "number" },
-        "dueDay": { "type": "number" }
+        "joiningDate": { "type": "string" },
+        "createdAt": { "type": "object", "description": "Firestore Timestamp" },
+        "updatedAt": { "type": "object", "description": "Firestore Timestamp" }
       },
-      "required": ["rollNo", "name", "class", "fatherName", "mobile"]
-    },
-    "Class": {
-      "title": "Class",
-      "description": "Master classes or standard learning cohorts from Class 1 to Class 10.",
-      "type": "object",
-      "properties": {
-        "name": { "type": "string" },
-        "feeStartsFrom": { "type": "string" },
-        "monthlyFee": { "type": "number" }
-      },
-      "required": ["name", "monthlyFee"]
-    },
-    "FeePlan": {
-      "title": "FeePlan",
-      "description": "Tuition package offerings mapping class types to fees.",
-      "type": "object",
-      "properties": {
-        "name": { "type": "string" },
-        "monthlyFee": { "type": "number" },
-        "subjects": { "type": "array" },
-        "features": { "type": "array" }
-      },
-      "required": ["name", "monthlyFee"]
+      "required": ["rollNumber", "name", "fatherName", "phone", "classId"]
     },
     "Teacher": {
       "title": "Teacher",
-      "description": "Faculty and instructors database.",
+      "description": "Teacher profile and class assignment.",
       "type": "object",
       "properties": {
+        "teacherId": { "type": "string" },
         "userId": { "type": "string" },
         "name": { "type": "string" },
-        "email": { "type": "string" },
         "phone": { "type": "string" },
-        "qualification": { "type": "string" },
-        "specialty": { "type": "array" },
-        "batches": { "type": "array" }
+        "email": { "type": "string" },
+        "assignedClasses": { "type": "array" },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
       },
-      "required": ["name", "email", "phone"]
+      "required": ["name", "phone"]
     },
-    "StudentFee": {
-      "title": "StudentFee",
-      "description": "Monthly coaching tuition fee obligations ledger.",
+    "Class": {
+      "title": "Class",
+      "description": "Class standard learning cohorts (Class 1 to Class 10+).",
       "type": "object",
       "properties": {
-        "studentId": { "type": "string" },
-        "studentName": { "type": "string" },
-        "class": { "type": "string" },
-        "month": { "type": "string" },
-        "totalFee": { "type": "number" },
-        "discount": { "type": "number" },
-        "scholarship": { "type": "number" },
-        "paidFee": { "type": "number" },
-        "pendingFee": { "type": "number" },
-        "status": { "type": "string", "enum": ["PAID", "PARTIAL", "PENDING"] },
-        "dueDate": { "type": "string" },
-        "isWaived": { "type": "boolean" },
-        "isSkipped": { "type": "boolean" },
-        "billingMonth": { "type": "string" },
-        "billingYear": { "type": "string" }
+        "classId": { "type": "string" },
+        "className": { "type": "string" },
+        "displayOrder": { "type": "number" },
+        "monthlyFee": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
       },
-      "required": ["studentId", "month", "totalFee", "pendingFee", "status", "dueDate"]
+      "required": ["className", "monthlyFee"]
+    },
+    "Admission": {
+      "title": "Admission",
+      "description": "Historical enrollment records.",
+      "type": "object",
+      "properties": {
+        "admissionId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "admissionDate": { "type": "string" },
+        "session": { "type": "string" },
+        "discount": { "type": "number" },
+        "remarks": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["studentId", "admissionDate"]
+    },
+    "Fee": {
+      "title": "Fee",
+      "description": "Monthly or annual fee obligations per student.",
+      "type": "object",
+      "properties": {
+        "feeId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "billingPeriod": { "type": "string", "description": "YYYY-MM format e.g. 2026-07" },
+        "month": { "type": "number", "description": "Numeric month 1-12" },
+        "year": { "type": "number", "description": "Numeric year e.g. 2026" },
+        "amount": { "type": "number" },
+        "dueDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "PAID", "PARTIAL"] },
+        "createdAt": { "type": "object", "description": "Firestore Timestamp" },
+        "updatedAt": { "type": "object", "description": "Firestore Timestamp" }
+      },
+      "required": ["studentId", "billingPeriod", "amount", "status"]
     },
     "Payment": {
       "title": "Payment",
-      "description": "Detailed payments transaction records.",
+      "description": "Individual transaction payments.",
       "type": "object",
       "properties": {
-        "subscriptionId": { "type": "string" },
+        "paymentId": { "type": "string" },
         "studentId": { "type": "string" },
-        "studentName": { "type": "string" },
-        "admissionNo": { "type": "string" },
-        "batchId": { "type": "string" },
-        "batchName": { "type": "string" },
-        "month": { "type": "string" },
+        "feeId": { "type": "string" },
         "amountPaid": { "type": "number" },
-        "paymentMethod": { "type": "string", "enum": ["CASH", "UPI", "ONLINE", "CARD", "NET_BANKING"] },
+        "paymentMode": { "type": "string", "enum": ["CASH", "UPI", "ONLINE", "CARD", "NET_BANKING"] },
         "transactionId": { "type": "string" },
+        "receiptNumber": { "type": "string" },
+        "receivedBy": { "type": "string" },
         "paymentDate": { "type": "string" },
-        "status": { "type": "string", "enum": ["SUCCESS", "FAILED", "PENDING"] }
+        "remarks": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
       },
-      "required": ["studentId", "amountPaid", "paymentMethod", "paymentDate"]
+      "required": ["studentId", "feeId", "amountPaid", "paymentMode"]
     },
-    "Receipt": {
-      "title": "Receipt",
-      "description": "Receipt vouchers printed or generated for students.",
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Daily attendance logs.",
       "type": "object",
       "properties": {
+        "attendanceId": { "type": "string" },
         "studentId": { "type": "string" },
-        "studentName": { "type": "string" },
-        "class": { "type": "string" },
-        "month": { "type": "string" },
-        "amountPaid": { "type": "number" },
-        "paymentMethod": { "type": "string" },
+        "teacherId": { "type": "string" },
         "date": { "type": "string" },
-        "transactionId": { "type": "string" },
-        "receivedBy": { "type": "string" }
+        "status": { "type": "string", "enum": ["PRESENT", "ABSENT", "LATE", "LEAVE"] },
+        "remarks": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
       },
-      "required": ["studentId", "amountPaid", "date"]
+      "required": ["studentId", "date", "status"]
     },
-    "FeeSettings": {
-      "title": "FeeSettings",
-      "description": "Global subscription and payment configs.",
+    "Notification": {
+      "title": "Notification",
+      "description": "Logged messages across channels.",
       "type": "object",
       "properties": {
-        "billingDate": { "type": "number" },
-        "gracePeriod": { "type": "number" },
-        "lateFee": { "type": "number" },
-        "enableOnlinePayments": { "type": "boolean" },
-        "paymentGatewayProvider": { "type": "string" },
-        "upiId": { "type": "string" },
-        "upiMerchantName": { "type": "string" },
-        "bankAccountHolder": { "type": "string" },
-        "bankAccountNumber": { "type": "string" },
-        "bankName": { "type": "string" },
-        "bankIfsc": { "type": "string" }
+        "notificationId": { "type": "string" },
+        "type": { "type": "string", "enum": ["WhatsApp", "Email", "SMS", "App"] },
+        "recipient": { "type": "string" },
+        "status": { "type": "string", "enum": ["SENT", "FAILED", "PENDING"] },
+        "sentBy": { "type": "string" },
+        "sentAt": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["type", "recipient", "status"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System operational audit history.",
+      "type": "object",
+      "properties": {
+        "logId": { "type": "string" },
+        "action": { "type": "string" },
+        "performedBy": { "type": "string" },
+        "targetId": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["action", "performedBy"]
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "Global institute settings and configuration.",
+      "type": "object",
+      "properties": {
+        "instituteName": { "type": "string" },
+        "logo": { "type": "string" },
+        "contactDetails": { "type": "object" },
+        "academicSession": { "type": "string" },
+        "defaultFeeSettings": { "type": "object" },
+        "receiptSettings": { "type": "object" },
+        "whatsappConfig": { "type": "object" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
       }
     }
   },
   "firestore": {
     "users/{userId}": {
       "schema": "User",
-      "description": "Registered active users ledger by Firebase Auth UID."
+      "description": "User authentication and profile data."
     },
     "students/{studentId}": {
       "schema": "Student",
-      "description": "Student profiles database collection."
-    },
-    "classes/{classId}": {
-      "schema": "Class",
-      "description": "Standard school grades/classes configuration."
-    },
-    "feePlans/{feePlanId}": {
-      "schema": "FeePlan",
-      "description": "Configured tuition plans for classes."
+      "description": "Student core profiles."
     },
     "teachers/{teacherId}": {
       "schema": "Teacher",
-      "description": "Teaching staff details."
+      "description": "Teacher profiles and class assignments."
     },
-    "studentFees/{feeId}": {
-      "schema": "StudentFee",
-      "description": "Individual monthly dues billing collection."
+    "classes/{classId}": {
+      "schema": "Class",
+      "description": "Configurable school classes (Class 1 to 10+)."
+    },
+    "admissions/{admissionId}": {
+      "schema": "Admission",
+      "description": "Separate student admission history documents."
+    },
+    "fees/{feeId}": {
+      "schema": "Fee",
+      "description": "Fee obligations per student and month."
     },
     "payments/{paymentId}": {
       "schema": "Payment",
-      "description": "Financial payment transaction vouchers."
+      "description": "Individual payment transaction history."
     },
-    "receipts/{receiptId}": {
-      "schema": "Receipt",
-      "description": "Individual cash or bank receipt records."
+    "attendance/{attendanceId}": {
+      "schema": "Attendance",
+      "description": "Daily student attendance records."
     },
-    "feeSettings/{configId}": {
-      "schema": "FeeSettings",
-      "description": "System fee billing configuration parameters."
+    "notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Multi-channel dispatch logs."
+    },
+    "audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Audit trail logs for administrative accountability."
+    },
+    "settings/{settingId}": {
+      "schema": "Setting",
+      "description": "Central institute settings and parameters."
     }
   }
 }

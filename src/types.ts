@@ -272,12 +272,41 @@ export interface FeeReceipt {
   studentId: string;
   studentName: string;
   class: string;
-  month: string;
-  amountPaid: number;
-  paymentMethod: 'CASH' | 'UPI' | 'ONLINE';
-  date: string;
+  month?: string;
+  amountPaid?: number;
+  paymentMethod?: 'CASH' | 'UPI' | 'ONLINE' | 'BANK_TRANSFER' | 'CHEQUE';
+  date?: string;
   transactionId?: string;
-  receivedBy: string;
+  receivedBy?: string;
+
+  // Collection Engine fields
+  receiptNumber?: string;
+  paymentId?: string;
+  rollNo?: string;
+  preferredBatch?: string;
+  paymentMode?: 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE';
+  amount?: number;
+  monthsCovered?: string[];
+  breakdown?: Array<{
+    month: string;
+    baseFee: number;
+    discountApplied: number;
+    amountPaid: number;
+  }>;
+  generatedBy?: string;
+  generatedAt?: string;
+  createdAt?: string;
+
+  // FM-004 fields
+  receiptId?: string;
+  rollNumber?: string;
+  className?: string;
+  billingMonth?: string;
+  billingYear?: string;
+  issuedBy?: string;
+  issuedAt?: string;
+  verificationHash?: string;
+  status?: 'VALID' | 'VOID' | 'REFUNDED';
 }
 
 export interface FeeStatus {
@@ -293,6 +322,9 @@ export interface FeeStatus {
   pendingFee: number;
   status: 'PAID' | 'PARTIAL' | 'PENDING';
   dueDate: string;
+  billingPeriod?: string; // e.g. "2026-07"
+  monthNum?: number;      // 1 to 12
+  yearNum?: number;       // e.g. 2026
   billingMonth?: string; // e.g. "July"
   billingYear?: string;  // e.g. "2026"
   amount?: number;       // maps to totalFee
@@ -530,6 +562,78 @@ export interface UPIPayment {
   feeStatusId: string;
   rejectionReason?: string;
 }
+
+export interface FeeStructure {
+  id: string; // document id
+  structureId: string;
+  classId: string;
+  className: string;
+  academicSessionId: string;
+  academicSessionName: string;
+  monthlyFee: number;
+  quarterlyDiscountEnabled: boolean;
+  quarterlyDiscountType: 'PERCENTAGE' | 'FIXED';
+  quarterlyDiscountValue: number;
+  effectiveFrom: string;
+  effectiveTo: string;
+  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+  version: number;
+  remarks: string;
+  createdBy: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+export interface FeePayment {
+  id: string;
+  studentId: string;
+  studentName: string;
+  rollNo: string;
+  class: string;
+  preferredBatch: string;
+  paymentMode: 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE';
+  provider: string;
+  amountPaid: number;
+  monthsPaid: string[];
+  feeRecordIds: string[];
+  transactionId?: string;
+  proofUrl?: string;
+  verificationId?: string;
+  receiptNumber: string;
+  status: 'SUCCESS' | 'FAILED';
+  remarks?: string;
+  collectedBy: string;
+  collectedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentVerification {
+  id: string;
+  studentId: string;
+  studentName: string;
+  rollNo: string;
+  class: string;
+  preferredBatch: string;
+  paymentMode: 'UPI' | 'BANK_TRANSFER' | 'CHEQUE';
+  provider: string;
+  amount: number;
+  monthsToPay: string[];
+  feeRecordIds: string[];
+  transactionId: string;
+  proofUrl?: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  rejectionReason?: string;
+  submittedBy: string;
+  submittedAt: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 
 
 

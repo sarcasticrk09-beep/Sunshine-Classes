@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { FeeCollectionManager } from './FeeCollectionManager';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Shield,
@@ -66,11 +67,14 @@ import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { studentService } from '../services/studentService';
 import { noticesService } from '../services/firestoreDbService';
 import { CloudinaryUpload } from './CloudinaryUpload';
+import { StudentDirectory } from './StudentDirectory';
 import { WhatsAppCommunication } from './WhatsAppCommunication';
 import { GmailHub } from './GmailHub';
 import { EnrollmentHealthDashboard } from './EnrollmentHealthDashboard';
+import { FeeStructureManager } from './FeeStructureManager';
 import SunshineLogo from './SunshineLogo';
 import { getFeeStatusForRecord, parseMonthYear, formatMonthYear, generateFeeRecords, compareMonths, getCurrentAndNextMonths } from '../lib/feeUtils';
+import AdmissionsModule from './admissions/AdmissionsModule';
 
 function simpleSecureHash(password: string): string {
   let hash = 0x811c9dc5;
@@ -230,7 +234,7 @@ export default function AdminDashboard({
   onResendReceiptEmail,
   onUpdateUsers
 } : AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets' | 'roles' | 'founder-office' | 'cofounder-office' | 'auth-logs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'admissions' | 'students' | 'teachers' | 'batches' | 'announcements' | 'website' | 'audit' | 'settings' | 'fees' | 'diagnostics' | 'whatsapp' | 'sheets' | 'roles' | 'founder-office' | 'cofounder-office' | 'auth-logs'>('overview');
   const [dashboardSession, setDashboardSession] = useState('2026-27');
   const [dashboardMonth, setDashboardMonth] = useState('July 2026');
   const [showPendingFeesDetails, setShowPendingFeesDetails] = useState(false);
@@ -242,7 +246,7 @@ export default function AdminDashboard({
   const [authEndDate, setAuthEndDate] = useState('');
   const [authActionCategory, setAuthActionCategory] = useState<'all' | 'login' | 'password' | 'role'>('all');
   const [authSearchQuery, setAuthSearchQuery] = useState('');
-  const [feeSubTab, setFeeSubTab] = useState<'board' | 'email-logs' | 'upi-verification' | 'payment-history'>('board');
+  const [feeSubTab, setFeeSubTab] = useState<'board' | 'email-logs' | 'upi-verification' | 'payment-history' | 'structures'>('board');
   const [paymentHistorySearch, setPaymentHistorySearch] = useState('');
   const [paymentHistoryMonth, setPaymentHistoryMonth] = useState('ALL');
   const [paymentHistoryMethod, setPaymentHistoryMethod] = useState<'ALL' | 'CASH' | 'UPI' | 'ONLINE'>('ALL');
@@ -468,12 +472,13 @@ export default function AdminDashboard({
   };
 
   // --- START OF FIREBASE CONFIGURATION REFERENCES ---
-  const [firebaseConfigApiKey, setFirebaseConfigApiKey] = useState<string>(() => localStorage.getItem('fb_cfg_apiKey') || 'AIzaSyCVg06N9JRbjbYyMlvrac-BKAd-d65hm-U');
-  const [firebaseConfigAuthDomain, setFirebaseConfigAuthDomain] = useState<string>(() => localStorage.getItem('fb_cfg_authDomain') || 'sunshine-classes-web.firebaseapp.com');
-  const [firebaseConfigProjectId, setFirebaseConfigProjectId] = useState<string>(() => localStorage.getItem('fb_cfg_projectId') || 'sunshine-classes-web');
-  const [firebaseConfigStorageBucket, setFirebaseConfigStorageBucket] = useState<string>(() => localStorage.getItem('fb_cfg_storageBucket') || 'sunshine-classes-web.firebasestorage.app');
-  const [firebaseConfigMessagingSenderId, setFirebaseConfigMessagingSenderId] = useState<string>(() => localStorage.getItem('fb_cfg_messagingSenderId') || '308447291099');
-  const [firebaseConfigAppId, setFirebaseConfigAppId] = useState<string>(() => localStorage.getItem('fb_cfg_appId') || '1:308447291099:web:574e371bb15c5e54404efe');
+  const metaEnv = (import.meta as any).env || {};
+  const [firebaseConfigApiKey, setFirebaseConfigApiKey] = useState<string>(() => localStorage.getItem('fb_cfg_apiKey') || metaEnv.VITE_FIREBASE_API_KEY || '');
+  const [firebaseConfigAuthDomain, setFirebaseConfigAuthDomain] = useState<string>(() => localStorage.getItem('fb_cfg_authDomain') || metaEnv.VITE_FIREBASE_AUTH_DOMAIN || '');
+  const [firebaseConfigProjectId, setFirebaseConfigProjectId] = useState<string>(() => localStorage.getItem('fb_cfg_projectId') || metaEnv.VITE_FIREBASE_PROJECT_ID || '');
+  const [firebaseConfigStorageBucket, setFirebaseConfigStorageBucket] = useState<string>(() => localStorage.getItem('fb_cfg_storageBucket') || metaEnv.VITE_FIREBASE_STORAGE_BUCKET || '');
+  const [firebaseConfigMessagingSenderId, setFirebaseConfigMessagingSenderId] = useState<string>(() => localStorage.getItem('fb_cfg_messagingSenderId') || metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '');
+  const [firebaseConfigAppId, setFirebaseConfigAppId] = useState<string>(() => localStorage.getItem('fb_cfg_appId') || metaEnv.VITE_FIREBASE_APP_ID || '');
 
   const handleSaveFirebaseConfig = (e: React.FormEvent) => {
     e.preventDefault();
@@ -5849,6 +5854,7 @@ ${data.log}`
         const isAdmin = currentUser?.role === 'ADMIN';
         const allTabs = [
           { id: 'overview', label: 'Admin Operations Overview', icon: <Activity size={16} />, category: 'Core Operations' },
+          { id: 'admissions', label: 'Student Admissions Module', icon: <UserPlus size={16} className="text-amber-600" />, category: 'Core Operations' },
           { id: 'students', label: `Manage Student ERP (${students.length})`, icon: <Users size={16} />, category: 'Core Operations' },
           { id: 'fees', label: 'Manage Fees & Ledger', icon: <DollarSign size={16} />, category: 'Core Operations' },
           { id: 'upi-verification', label: `Fee Payment Verification (${upiPayments.filter(p => p.status === 'PENDING_VERIFICATION').length})`, icon: <CheckSquare size={16} />, category: 'Core Operations' },
@@ -5878,11 +5884,11 @@ ${data.log}`
           }
           // Co-Founder has access to standard admin tabs plus his executive workspace
           if (isAdmin) {
-            const allowedAdminTabs = ['overview', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements', 'cofounder-office', 'auth-logs', 'gmail'];
+            const allowedAdminTabs = ['overview', 'admissions', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements', 'cofounder-office', 'auth-logs', 'gmail'];
             return allowedAdminTabs.includes(tab.id);
           }
           // Default fallback
-          const allowedAdminTabs = ['overview', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements', 'gmail'];
+          const allowedAdminTabs = ['overview', 'admissions', 'students', 'fees', 'upi-verification', 'teachers', 'batches', 'announcements', 'gmail'];
           return allowedAdminTabs.includes(tab.id);
         });
 
@@ -6055,7 +6061,7 @@ ${data.log}`
               >
                 {(() => {
                   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN';
-                  const allowedAdminTabs = ['overview', 'students', 'fees', 'teachers', 'batches', 'announcements'];
+                  const allowedAdminTabs = ['overview', 'admissions', 'students', 'fees', 'teachers', 'batches', 'announcements'];
                   const isAuthorized = isSuperAdmin || allowedAdminTabs.includes(activeTab);
                   
                   if (!isAuthorized) {
@@ -6085,6 +6091,11 @@ ${data.log}`
                   }
                   return null;
                 })()}
+
+          {/* TAB: ADMISSIONS */}
+          {activeTab === 'admissions' && (
+            <AdmissionsModule />
+          )}
 
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
@@ -6437,7 +6448,7 @@ ${data.log}`
                         {/* Highest utilization card */}
                         <div
                           id="card-highest-capacity-usage"
-                          className="rounded-xl border border-emerald-100 bg-gradient-to-br from-emerald-50/40 to-white p-4 shadow-3xs flex flex-col justify-between"
+                          className="rounded-xl border border-emerald-100 bg-gradient-to-br from-emerald-50/40 to-white p-4 shadow-3xs flex flex-col justify-between transition-all duration-300 hover:scale-[1.02] hover:shadow-md hover:border-emerald-200"
                         >
                           <div>
                             <div className="flex items-center justify-between gap-2 mb-2">
@@ -6458,7 +6469,7 @@ ${data.log}`
                         {/* Lowest utilization card */}
                         <div
                           id="card-lowest-capacity-usage"
-                          className="rounded-xl border border-amber-100 bg-gradient-to-br from-amber-50/40 to-white p-4 shadow-3xs flex flex-col justify-between"
+                          className="rounded-xl border border-amber-100 bg-gradient-to-br from-amber-50/40 to-white p-4 shadow-3xs flex flex-col justify-between transition-all duration-300 hover:scale-[1.02] hover:shadow-md hover:border-amber-200"
                         >
                           <div>
                             <div className="flex items-center justify-between gap-2 mb-2">
@@ -7246,304 +7257,13 @@ ${data.log}`
                 )}
               </div>
 
-              {/* Students Table List */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-4">
-                  <div>
-                    <h3 className="font-display font-bold text-base text-slate-800">Sunshine Enrolled Students Ledger</h3>
-                    <p className="text-xs text-slate-500">Full registered list of currently attending students across classes 1 to 10.</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleExportStudentsCSV}
-                      className="rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                    >
-                      <FileSpreadsheet size={14} className="text-emerald-600" /> Export CSV
-                    </button>
-                    <button
-                      onClick={handleExportStudentsPDF}
-                      className="rounded-xl bg-indigo-900 hover:bg-indigo-950 px-3.5 py-1.5 text-xs font-bold text-white flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                    >
-                      <Printer size={14} /> Export PDF
-                    </button>
-                  </div>
-                </div>
-
-                {/* Search & Filter Controls */}
-                <div className="mb-4 grid gap-3 sm:grid-cols-12 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <div className="sm:col-span-4 relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
-                      <Search size={14} />
-                    </span>
-                    <input
-                      id="input-student-search"
-                      type="text"
-                      placeholder="Search students..."
-                      value={studentSearchQuery}
-                      onChange={(e) => setStudentSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-8 py-2 text-xs rounded-lg border border-slate-200 bg-white text-slate-800 focus:outline-none focus:border-indigo-900"
-                    />
-                    {studentSearchQuery && (
-                      <button
-                        onClick={() => setStudentSearchQuery('')}
-                        className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 text-xs"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="sm:col-span-3">
-                    <select
-                      id="select-student-filter-batch"
-                      value={studentFilterBatch}
-                      onChange={(e) => setStudentFilterBatch(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white text-slate-800 font-medium focus:outline-none focus:border-indigo-900 cursor-pointer"
-                    >
-                      <option value="all">📅 All Batches</option>
-                      {batches.map(b => (
-                        <option key={b.id} value={b.name}>
-                          {b.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="sm:col-span-3">
-                    <select
-                      id="select-student-filter-class"
-                      value={studentFilterClass}
-                      onChange={(e) => setStudentFilterClass(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white text-slate-800 font-medium focus:outline-none focus:border-indigo-900 cursor-pointer"
-                    >
-                      <option value="all">🎓 All Classes</option>
-                      {Array.from(new Set(students.map(s => s.class))).filter(Boolean).map(cls => (
-                        <option key={cls} value={cls}>
-                          {cls}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <select
-                      id="select-student-filter-status"
-                      value={studentFilterStatus}
-                      onChange={(e) => setStudentFilterStatus(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white text-slate-800 font-medium focus:outline-none focus:border-indigo-900 cursor-pointer"
-                    >
-                      <option value="ACTIVE">🟢 Active</option>
-                      <option value="INACTIVE">🔴 Inactive</option>
-                      <option value="all">🔍 All Statuses</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Bulk Actions Toolbar */}
-                {selectedStudentIds.length > 0 && (
-                  <div id="student-bulk-actions-toolbar" className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-indigo-50 border border-indigo-150 p-4 rounded-xl mb-4 animate-fade-in shadow-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="rounded-lg bg-indigo-100 p-1.5 text-indigo-700">
-                        <Users size={16} />
-                      </div>
-                      <div>
-                        <span className="font-extrabold text-indigo-950 text-xs sm:text-sm block">
-                          {selectedStudentIds.length} Student{selectedStudentIds.length > 1 ? 's' : ''} Selected
-                        </span>
-                        <span className="text-[10px] text-indigo-600 font-semibold font-mono">
-                          Ready for bulk administrative actions
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        id="btn-bulk-promote"
-                        type="button"
-                        onClick={() => {
-                          setBulkActionType('promote');
-                          setIsBulkModalOpen(true);
-                        }}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-3 py-2 text-xs font-black text-white shadow-sm transition-all active:scale-95 cursor-pointer"
-                      >
-                        <TrendingUp size={13} /> Promote Selected
-                      </button>
-
-                      <button
-                        id="btn-bulk-archive"
-                        type="button"
-                        onClick={() => {
-                          setBulkActionType('archive');
-                          setIsBulkModalOpen(true);
-                        }}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 px-3 py-2 text-xs font-black text-white shadow-sm transition-all active:scale-95 cursor-pointer"
-                      >
-                        <Archive size={13} /> Archive Selected
-                      </button>
-
-                      <button
-                        id="btn-bulk-delete"
-                        type="button"
-                        onClick={() => {
-                          setBulkActionType('delete');
-                          setIsBulkModalOpen(true);
-                        }}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 px-3 py-2 text-xs font-black text-white shadow-sm transition-all active:scale-95 cursor-pointer"
-                      >
-                        <Trash2 size={13} /> Delete Selected
-                      </button>
-
-                      <button
-                        id="btn-bulk-clear-selection"
-                        type="button"
-                        onClick={() => setSelectedStudentIds([])}
-                        className="rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 cursor-pointer"
-                      >
-                        Clear Selection
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="overflow-x-auto border border-slate-100 rounded-xl">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        <th className="p-3 w-10 text-center select-none">
-                          <input
-                            id="checkbox-select-all-students"
-                            type="checkbox"
-                            checked={filteredStudentsForTable.length > 0 && selectedStudentIds.length === filteredStudentsForTable.length}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedStudentIds(filteredStudentsForTable.map(s => s.id));
-                              } else {
-                                setSelectedStudentIds([]);
-                              }
-                            }}
-                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer h-4 w-4"
-                          />
-                        </th>
-                        <th className="p-3">Roll ID</th>
-                        <th className="p-3">Name</th>
-                        <th className="p-3">Class</th>
-                        <th className="p-3">Parents Info</th>
-                        <th className="p-3">Contacts</th>
-                        <th className="p-3">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50 text-xs">
-                      {filteredStudentsForTable.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="p-8 text-center text-xs text-slate-400 font-medium">
-                            No students match the selected batch, class or search criteria.
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredStudentsForTable.map((student) => (
-                          <tr key={student.id} className="hover:bg-slate-50/50">
-                            <td className="p-3 text-center select-none w-10">
-                              <input
-                                id={`checkbox-select-student-${student.id}`}
-                                type="checkbox"
-                                checked={selectedStudentIds.includes(student.id)}
-                                onChange={() => {
-                                  setSelectedStudentIds(prev => 
-                                    prev.includes(student.id) 
-                                      ? prev.filter(id => id !== student.id)
-                                      : [...prev, student.id]
-                                  );
-                                }}
-                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer h-4 w-4"
-                              />
-                            </td>
-                            <td className="p-3 font-semibold text-indigo-900 font-mono">{student.rollNo}</td>
-                            <td className="p-3 font-bold text-slate-800">
-                              <div className="flex items-center gap-2">
-                                {student.photoUrl ? (
-                                  <img src={student.photoUrl} alt={student.name} className="h-8 w-8 rounded-full object-cover border border-slate-200 shadow-sm shrink-0" />
-                                ) : (
-                                  <div className="h-8 w-8 rounded-full bg-slate-100 text-indigo-900 flex items-center justify-center font-bold text-xs shrink-0 border border-slate-200">
-                                    {student.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                                  </div>
-                                )}
-                                <span>{student.name}</span>
-                                {student.status === 'INACTIVE' && (
-                                  <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black tracking-wider uppercase bg-rose-50 border border-rose-200 text-rose-600 animate-pulse">
-                                    Inactive
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="p-3 text-slate-600">{student.class}</td>
-                            <td className="p-3 text-slate-500">F: {student.fatherName}<br />M: {student.motherName}</td>
-                            <td className="p-3 text-slate-500">{student.mobile}</td>
-                            <td className="p-3">
-                              <button
-                                id={`btn-edit-student-${student.id}`}
-                                onClick={() => openEditStudent(student)}
-                                className="rounded p-1.5 text-indigo-600 hover:bg-indigo-50 mr-2 cursor-pointer inline-flex items-center justify-center"
-                                title="Edit Student Profile"
-                              >
-                                <Edit size={14} />
-                              </button>
-                              <button
-                                id={`btn-whatsapp-student-${student.id}`}
-                                onClick={() => {
-                                  const phone = student.whatsapp || student.parentMobile || student.mobile || '';
-                                  setWaInitialPhone(phone);
-                                  setActiveTab('whatsapp');
-                                }}
-                                className="rounded p-1.5 text-teal-600 hover:bg-teal-50 mr-2 cursor-pointer inline-flex items-center justify-center"
-                                title="Chat on WhatsApp"
-                              >
-                                <MessageSquare size={14} />
-                              </button>
-                              <button
-                                id={`btn-quick-collect-student-${student.id}`}
-                                onClick={() => openQuickCollect(student)}
-                                className="rounded p-1.5 text-emerald-600 hover:bg-emerald-50 mr-2 cursor-pointer inline-flex items-center justify-center"
-                                title="Quick Collect Fees"
-                              >
-                                <CreditCard size={14} />
-                              </button>
-                              <button
-                                id={`btn-reset-student-${student.id}`}
-                                onClick={() => {
-                                  const matchedUser = users.find(u => u.id === student.userId);
-                                  setResettingUser({
-                                    userId: student.userId,
-                                    username: matchedUser?.username || student.name.toLowerCase().replace(/\s+/g, ''),
-                                    name: student.name,
-                                    email: matchedUser?.email || student.email
-                                  });
-                                  setNewPasswordForUser('');
-                                }}
-                                className="rounded p-1.5 text-brand-orange hover:bg-amber-50 mr-2"
-                                title="Reset Password"
-                              >
-                                <Key size={14} />
-                              </button>
-                              <button
-                                id={`btn-del-student-${student.id}`}
-                                onClick={() => {
-                                  if (confirm(`Are you sure you want to delete ${student.name} from ERP records?`)) {
-                                    onDeleteStudent(student.id);
-                                  }
-                                }}
-                                className="rounded p-1.5 text-brand-red hover:bg-red-50"
-                                title="Delete Student"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {/* Students Directory Component */}
+              <StudentDirectory
+                currentUser={currentUser}
+                teachersList={teachers}
+                classList={Array.from(new Set(['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', ...students.map((s: any) => s.class || s.className || s.preferredBatch || '')])).filter(Boolean)}
+                onRefreshGlobalData={onHealState}
+              />
 
               {/* BULK ACTIONS CONFIRMATION MODAL */}
               {isBulkModalOpen && bulkActionType && (
@@ -8617,6 +8337,9 @@ ${data.log}`
 
             return (
               <div className="space-y-6">
+                {/* Fee Collection Engine (FM-003) */}
+                <FeeCollectionManager jwtToken={localStorage.getItem('sunshine_token') || ''} />
+
                 {/* Financial Health Stats Grid */}
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   {/* Collection Target */}
@@ -9262,6 +8985,13 @@ ${data.log}`
                       className={`pb-2 text-sm font-semibold border-b-2 transition-all cursor-pointer ${feeSubTab === 'payment-history' ? 'border-indigo-900 text-indigo-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
                     >
                       🧾 Payment & Receipts History ({feeReceipts.length})
+                    </button>
+                    <button
+                      id="subtab-fee-structures"
+                      onClick={() => setFeeSubTab('structures')}
+                      className={`pb-2 text-sm font-semibold border-b-2 transition-all cursor-pointer ${feeSubTab === 'structures' ? 'border-indigo-900 text-indigo-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                    >
+                      💰 Fee Structure Engine
                     </button>
                   </div>
 
@@ -10041,6 +9771,8 @@ ${data.log}`
                     </div>
                   )}
                 </div>
+              ) : feeSubTab === 'structures' ? (
+                <FeeStructureManager currentUserRole={currentUser?.role} />
               ) : (
                 /* UPI DIRECT SETTLEMENT VERIFICATION OFFICE PANEL */
                 <div className="space-y-4">

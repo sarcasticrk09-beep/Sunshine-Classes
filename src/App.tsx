@@ -94,6 +94,7 @@ import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { MailSimulatorWidget } from './components/MailSimulatorWidget';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { FeesPage } from './pages/FeesPage';
+import { ReceiptVerificationPage } from './pages/ReceiptVerificationPage';
 import { SEOHead, trackAdmissionSubmit } from './components/SEOHead';
 
 import { db } from './lib/firebase';
@@ -107,6 +108,7 @@ import {
   useUsersListener,
   useFirestoreConnectionWatchdog,
 } from './hooks/useCollectionListener';
+import { initializeAndSeedFirestore } from './services/initDbService';
 
 import { LogIn, Shield, Users, BookOpen, UserCheck, Key, LogOut, X, Sun, Moon, Eye, EyeOff, Cloud, CloudOff, RefreshCw, Bell, BellRing, Check, CheckCheck, AlertCircle, Mail, MessageSquare, Crown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -743,9 +745,12 @@ export default function App() {
   // Load from Cloud Database (Firestore) in the background with zero startup lag
   useEffect(() => {
     const loadStateAndData = async () => {
-      // Note: We don't block with full-screen cloudLoading(true) anymore because we pre-populated
-      // all states synchronously from localStorage cache in the initial render state!
       try {
+        // Trigger normalized database seeding check
+        initializeAndSeedFirestore().catch(err => {
+          console.warn('[Firestore Init] Non-blocking initial seeding check:', err);
+        });
+
         const loadOrSeedCloud = async <T,>(key: string, seed: T): Promise<T> => {
           try {
             if (Array.isArray(seed)) {
@@ -3635,6 +3640,9 @@ Sunshine Classes`;
               />
             }
           />
+
+          {/* Receipt Online Verification Public Route */}
+          <Route path="/verify/receipt/:receiptNumber" element={<ReceiptVerificationPage />} />
 
           {/* Authentication Pages */}
           <Route path="/login" element={<Login onBackToWebsite={() => navigate('/')} />} />

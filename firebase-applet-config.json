@@ -1,11 +1,11 @@
 {
-  "projectId": "maximal-music-shh41",
+  "projectId": "sunshine-classes-production",
   "appId": "1:996750335749:web:fead7d5fdea73b78cfe16c",
   "apiKey": "AIzaSyCPZA9lz7YSQ4kkqD6JxDyyxAaQrO3kqyo",
-  "authDomain": "maximal-music-shh41.firebaseapp.com",
-  "storageBucket": "maximal-music-shh41.firebasestorage.app",
+  "authDomain": "sunshine-classes-production.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "sunshine-classes-production.firebasestorage.app",
   "messagingSenderId": "996750335749",
   "measurementId": "",
-  "oAuthClientId": "996750335749-aah714pkdrnqm0n2ju9tlp7v009vsos4.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

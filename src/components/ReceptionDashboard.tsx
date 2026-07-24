@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import { FeeCollectionManager } from './FeeCollectionManager';
 import { motion } from 'motion/react';
 import {
   Users,
@@ -33,6 +34,7 @@ import { getFeeForClass } from '../data';
 import SunshineLogo from './SunshineLogo';
 import { WhatsAppCommunication } from './WhatsAppCommunication';
 import { getCurrentAndNextMonths } from '../lib/feeUtils';
+import AdmissionsModule from './admissions/AdmissionsModule';
 
 interface ReceptionDashboardProps {
   students: Student[];
@@ -847,70 +849,7 @@ export default function ReceptionDashboard({
           >
           {/* TAB 1: ADMISSIONS REQUESTS */}
           {activeTab === 'admissions' && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="font-display font-bold text-base text-slate-800 mb-1">Online Admission Applications</h3>
-              <p className="text-xs text-slate-500 mb-6">Review online admission submissions made by parents from Pihani. Approving automatically registers them into student ERP.</p>
-
-              <div className="space-y-4">
-                {admissions.map((adm) => (
-                  <div key={adm.id} className="rounded-xl border border-slate-150 p-5 bg-slate-50/50">
-                    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-                      <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="font-mono text-[9px] font-bold text-brand-orange bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                            {adm.id}
-                          </span>
-                          <span className={`inline-block px-2 py-0.5 rounded text-[8px] font-bold ${
-                            adm.status === 'PENDING' ? 'bg-amber-100 text-brand-orange animate-pulse' :
-                            adm.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-brand-red'
-                          }`}>
-                            {adm.status}
-                          </span>
-                        </div>
-                        <h4 className="text-sm font-bold text-slate-800">Student: {adm.studentName}</h4>
-                        <p className="text-xs text-slate-600">Class Target: **{adm.className}** • Parents: {adm.fatherName} & {adm.motherName}</p>
-                        
-                        <div className="mt-4 grid gap-x-6 gap-y-1 text-[10px] text-slate-500 sm:grid-cols-2">
-                          <div>📍 Address: {adm.address}</div>
-                          <div>📞 Parents Mobile: {adm.parentMobile}</div>
-                          <div>🕒 Preferred Slot: {adm.preferredBatch} ({adm.preferredTiming})</div>
-                          <div>📅 Applied Date: {adm.date}</div>
-                        </div>
-                      </div>
-
-                      {adm.status === 'PENDING' && (
-                        <div className="flex gap-2 flex-shrink-0">
-                          <button
-                            id={`btn-reject-adm-${adm.id}`}
-                            onClick={() => {
-                              onRejectAdmission(adm.id);
-                              alert("Admission request declined.");
-                            }}
-                            className="rounded-xl border border-red-200 hover:bg-red-50 text-brand-red p-2"
-                            title="Reject Admission"
-                          >
-                            <XCircle size={18} />
-                          </button>
-                          <button
-                            id={`btn-approve-adm-${adm.id}`}
-                            onClick={() => {
-                              onApproveAdmission(adm.id);
-                              alert(`Admission Approved! Student enrolled and Roll ID generated.`);
-                            }}
-                            className="rounded-xl bg-green-600 hover:bg-green-700 text-white px-3.5 py-1.5 text-xs font-bold shadow-sm"
-                          >
-                            Approve & Enroll
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {admissions.length === 0 && (
-                  <p className="text-xs text-slate-500 text-center py-6">No online applications found.</p>
-                )}
-              </div>
-            </div>
+            <AdmissionsModule />
           )}
 
           {/* TAB 2: LEAD & INQUIRIES */}
@@ -1048,6 +987,9 @@ export default function ReceptionDashboard({
           {/* TAB 3: COLLECT MONTHLY FEES */}
           {activeTab === 'fees' && (
             <div className="space-y-6">
+              {/* Fee Collection Engine (FM-003) */}
+              <FeeCollectionManager jwtToken={localStorage.getItem('sunshine_token') || ''} />
+
               {/* Fee Overview Widget */}
               <div id="fee-overview-widget" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {/* Collected Card */}

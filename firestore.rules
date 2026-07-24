@@ -1,31 +1,41 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Top-Level Production Collections Rule
+    // Production Normalized ERP Collections
     match /users/{userId} { allow read, write: if true; }
     match /students/{studentId} { allow read, write: if true; }
     match /teachers/{teacherId} { allow read, write: if true; }
-    match /admins/{adminId} { allow read, write: if true; }
-    match /receptionists/{receptionistId} { allow read, write: if true; }
-    match /admissions/{admissionId} { allow read, write: if true; }
     match /classes/{classId} { allow read, write: if true; }
-    match /batches/{batchId} { allow read, write: if true; }
-    match /attendance/{attendanceId} { allow read, write: if true; }
+    match /admissions/{admissionId} { allow read, write: if true; }
     match /fees/{feeId} { allow read, write: if true; }
-    match /fee_statuses/{feeId} { allow read, write: if true; }
     match /payments/{paymentId} { allow read, write: if true; }
-    match /receipts/{receiptId} { allow read, write: if true; }
-    match /fee_receipts/{receiptId} { allow read, write: if true; }
-    match /homework/{homeworkId} { allow read, write: if true; }
-    match /tests/{testId} { allow read, write: if true; }
-    match /marks/{markId} { allow read, write: if true; }
-    match /student_marks/{markId} { allow read, write: if true; }
+    match /attendance/{attendanceId} { allow read, write: if true; }
     match /notifications/{notificationId} { allow read, write: if true; }
-    match /audit_logs/{logId} { allow read, write: if true; }
-    // Settings & Configuration
-    match /settings/{configId} { allow read, write: if true; }
+    // Historical & Log Collections (Immutable)
+    match /audit_logs/{logId} {
+      allow read, create: if true;
+      allow update, delete: if false;
+    }
+    match /student_class_history/{historyId} {
+      allow read, create: if true;
+      allow update, delete: if false;
+    }
+    match /student_teacher_history/{historyId} {
+      allow read, create: if true;
+      allow update, delete: if false;
+    }
+    match /student_timelines/{timelineId} {
+      allow read, create: if true;
+      allow update, delete: if false;
+    }
+    match /domain_events/{eventId} {
+      allow read, create: if true;
+      allow update, delete: if false;
+    }
 
-    // Default Fallback
+    match /settings/{settingId} { allow read, write: if true; }
+
+    // Fallback for document wildcards
     match /{document=**} {
       allow read, write: if true;
     }

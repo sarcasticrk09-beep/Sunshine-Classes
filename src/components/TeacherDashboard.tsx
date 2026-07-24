@@ -570,13 +570,13 @@ export default function TeacherDashboard({
             <div className="space-y-6">
               {/* Stats row */}
               <div className="grid gap-4 sm:grid-cols-3">
-                <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-emerald-50 to-white p-5 shadow-sm">
+                <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-emerald-50 to-white p-5 shadow-xs transition-all duration-300 hover:scale-[1.02] hover:shadow-md hover:border-emerald-200">
                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Syllabus Batches</span>
                   <span className="font-display text-2xl font-black text-slate-800">{teacher.batches.length} Active</span>
                   <span className="text-[10px] text-emerald-600 font-semibold block mt-1">Class 10 Specialists</span>
                 </div>
 
-                <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-indigo-50 to-white p-5 shadow-sm">
+                <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-indigo-50 to-white p-5 shadow-xs transition-all duration-300 hover:scale-[1.02] hover:shadow-md hover:border-indigo-200">
                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Homework Pending Review</span>
                   <span className="font-display text-2xl font-black text-slate-800">
                     {relevantSubmissions.filter((s) => s.status === 'SUBMITTED').length} submissions
@@ -584,7 +584,7 @@ export default function TeacherDashboard({
                   <span className="text-[10px] text-indigo-600 font-semibold block mt-1">Review queue active</span>
                 </div>
 
-                <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-amber-50 to-white p-5 shadow-sm">
+                <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-amber-50 to-white p-5 shadow-xs transition-all duration-300 hover:scale-[1.02] hover:shadow-md hover:border-amber-200">
                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Registered Tests Taught</span>
                   <span className="font-display text-2xl font-black text-slate-800">{tests.length} tests</span>
                   <span className="text-[10px] text-slate-400 block mt-1">Chapter wise ranking</span>
@@ -592,13 +592,13 @@ export default function TeacherDashboard({
               </div>
 
               {/* Taught Batches / Classes card */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs transition-all duration-300 hover:scale-[1.01] hover:shadow-md hover:border-slate-300">
                 <h3 className="font-display font-bold text-sm text-slate-800 mb-4">Your Batch Schedules Today</h3>
                 <div className="space-y-3">
                   {teacher.batches.map((bName, idx) => {
                     const matchedBatch = bName.includes('Morning') ? '07:00 AM - 09:30 AM' : '04:00 PM - 06:30 PM';
                     return (
-                      <div key={idx} className="rounded-xl border border-slate-100 p-4 flex justify-between items-center bg-slate-50/50">
+                      <div key={idx} className="rounded-xl border border-slate-100 p-4 flex justify-between items-center bg-slate-50/50 transition-all duration-200 hover:scale-[1.01] hover:bg-slate-100/60">
                         <div>
                           <h4 className="text-xs font-bold text-slate-800">{bName}</h4>
                           <p className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
@@ -615,7 +615,7 @@ export default function TeacherDashboard({
               </div>
 
               {/* Rapid Homework Submission summary */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs transition-all duration-300 hover:scale-[1.01] hover:shadow-md hover:border-slate-300">
                 <h3 className="font-display font-bold text-sm text-slate-800 mb-4">Recent Submissions Waiting Feedback</h3>
                 <div className="space-y-3">
                   {relevantSubmissions.filter(s => s.status === 'SUBMITTED').slice(0, 2).map((sub) => (

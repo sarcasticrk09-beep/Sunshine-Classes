@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged, User } from "firebase/auth";
 import { 
@@ -11,14 +12,32 @@ import {
   setLogLevel
 } from "firebase/firestore";
 
-// Config parsed from firebase-applet-config.json
+const metaEnv = (import.meta as any).env || {};
+
+const requiredClientVars = [
+  "VITE_FIREBASE_PROJECT_ID",
+  "VITE_FIREBASE_APP_ID",
+  "VITE_FIREBASE_API_KEY",
+  "VITE_FIREBASE_AUTH_DOMAIN",
+  "VITE_FIREBASE_STORAGE_BUCKET",
+  "VITE_FIREBASE_MESSAGING_SENDER_ID"
+];
+
+const missingClientVars = requiredClientVars.filter(varName => !metaEnv[varName]);
+
+if (missingClientVars.length > 0) {
+  const errorMsg = `[Firebase Client Error] Missing required environment variable(s): ${missingClientVars.join(", ")}. Ensure VITE_FIREBASE_* variables are set in your environment.`;
+  console.error(errorMsg);
+  throw new Error(errorMsg);
+}
+
 const firebaseConfig = {
-  projectId: "maximal-music-shh41",
-  appId: "1:996750335749:web:fead7d5fdea73b78cfe16c",
-  apiKey: "AIzaSyCPZA9lz7YSQ4kkqD6JxDyyxAaQrO3kqyo",
-  authDomain: "maximal-music-shh41.firebaseapp.com",
-  storageBucket: "maximal-music-shh41.firebasestorage.app",
-  messagingSenderId: "996750335749"
+  projectId: metaEnv.VITE_FIREBASE_PROJECT_ID,
+  appId: metaEnv.VITE_FIREBASE_APP_ID,
+  apiKey: metaEnv.VITE_FIREBASE_API_KEY,
+  authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN,
+  storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID
 };
 
 // Silence Firestore's built-in SDK logging
